@@ -6,20 +6,34 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "eslint"
+    "lint": "eslint",
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit",
+    "db:local": "tsx scripts/dev-db.mts",
+    "migrate": "tsx --env-file-if-exists=.env.local scripts/migrate.mts",
+    "seed": "tsx --env-file-if-exists=.env.local scripts/seed.mts",
+    "reset": "tsx --env-file-if-exists=.env.local scripts/reset.mts",
+    "verify": "tsx --env-file-if-exists=.env.local scripts/verify.mts",
+    "test:e2e": "playwright test"
   },
   "dependencies": {
-    "react": "19.1.0",
-    "react-dom": "19.1.0",
-    "next": "15.5.4"
+    "mongodb": "^7.7.0",
+    "next": "^16.4.0",
+    "react": "^19.3.0",
+    "react-dom": "^19.3.0",
+    "zod": "^4.6.5"
   },
   "devDependencies": {
-    "typescript": "^5",
-    "@types/node": "^20",
+    "@playwright/test": "^1.64.0",
+    "@types/node": "^24.19.2",
     "@types/react": "^19",
     "@types/react-dom": "^19",
     "eslint": "^9",
-    "eslint-config-next": "15.5.4",
-    "@eslint/eslintrc": "^3"
+    "eslint-config-next": "^16.4.0",
+    "fast-check": "^4.10.2",
+    "mongodb-memory-server": "^11.3.0",
+    "tsx": "^4.23.15",
+    "typescript": "^5",
+    "vitest": "^5.0.3"
   }
 }

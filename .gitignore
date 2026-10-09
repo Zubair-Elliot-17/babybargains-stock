@@ -39,3 +39,12 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# local mongo data
+.data/
+
+# e2e artefacts
+/e2e/__screens__/
+/test-results/
+/playwright-report/
+!.env.example
