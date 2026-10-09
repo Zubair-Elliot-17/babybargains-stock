@@ -1,0 +1,163 @@
+import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
+import { cols } from "@/domain/collections";
+import { InsufficientStock } from "@/domain/errors";
+import { checkLedgerInvariants, findRecall, projectionDiff, rebuildProjection } from "@/domain/ledger/read";
+import { quarantineBatch, receiveStock, recordSale, runCommand, transferStock } from "@/domain/ledger/write";
+import { migrate } from "@/seed/apply";
+import { freshDb } from "./helpers";
+import { COT, NEW, OLD, TOY, TOYB, buildWorld, ctx, runner } from "./world";
+
+let t: Awaited<ReturnType<typeof freshDb>>;
+let run: ReturnType<typeof runner>;
+
+beforeAll(async () => (t = await freshDb()));
+afterAll(() => t.close());
+beforeEach(async () => {
+  await t.db.dropDatabase();
+  await migrate(t.db);
+  await buildWorld(t.db);
+  run = runner(t.client, t.db);
+  await run((c, s, k) => receiveStock(c, s, k, { branchId: "BR-A", sku: COT, batchId: OLD, qty: 2 }));
+  await run((c, s, k) => receiveStock(c, s, k, { branchId: "BR-A", sku: COT, batchId: NEW, qty: 3 }));
+  await run((c, s, k) => receiveStock(c, s, k, { branchId: "BR-A", sku: TOY, batchId: TOYB, qty: 1 }));
+});
+
+const onHand = async (branchId: string, batchId: string) =>
+  (await cols(t.db).inventory.findOne({ branchId, batchId }))?.onHand ?? 0;
+
+describe("recordSale", () => {
+  it("allocates oldest batch first and records attributed SOLD movements", async () => {
+    const { result } = await run((c, s, k) => recordSale(c, s, k, { branchId: "BR-A", lines: [{ sku: COT, qty: 3 }] }));
+    expect(result).toEqual({ lines: 1, total: 30000 });
+    expect(await onHand("BR-A", OLD)).toBe(0);
+    expect(await onHand("BR-A", NEW)).toBe(2);
+    const sold = await cols(t.db).movements.find({ type: "SOLD" }).sort({ batchId: 1 }).toArray();
+    expect(sold.map((m) => [m.batchId, m.qty, m.attributed])).toEqual([[OLD, -2, true], [NEW, -1, true]]);
+  });
+
+  it("posts nothing when any basket line is short and names the short line", async () => {
+    const err = await run((c, s, k) =>
+      recordSale(c, s, k, { branchId: "BR-A", lines: [{ sku: COT, qty: 1 }, { sku: TOY, qty: 2 }] }),
+    ).catch((e) => e);
+    expect(err).toBeInstanceOf(InsufficientStock);
+    expect((err as InsufficientStock).lines).toEqual([{ branchId: "BR-A", sku: TOY, requested: 2, available: 1 }]);
+    expect(await cols(t.db).movements.countDocuments({ type: "SOLD" })).toBe(0);
+    expect(await onHand("BR-A", OLD)).toBe(2);
+    expect(await cols(t.db).commandLog.countDocuments({ type: "test", result: { $ne: null } })).toBe(3);
+  });
+
+  it("never oversells under concurrent sales of the last unit", async () => {
+    const results = await Promise.allSettled(
+      Array.from({ length: 6 }, () => run((c, s, k) => recordSale(c, s, k, { branchId: "BR-A", lines: [{ sku: TOY, qty: 1 }] }))),
+    );
+    expect(results.filter((r) => r.status === "fulfilled")).toHaveLength(1);
+    expect(await onHand("BR-A", TOYB)).toBe(0);
+    expect((await checkLedgerInvariants(t.db)).ok).toBe(true);
+  });
+
+  it("is idempotent for a resent commandId", async () => {
+    const k = ctx();
+    const first = await runCommand(t.client, t.db, "sale", k, (c, s) => recordSale(c, s, k, { branchId: "BR-A", lines: [{ sku: COT, qty: 1 }] }));
+    const again = await runCommand(t.client, t.db, "sale", k, (c, s) => recordSale(c, s, k, { branchId: "BR-A", lines: [{ sku: COT, qty: 1 }] }));
+    expect(first.replayed).toBe(false);
+    expect(again).toEqual({ result: first.result, replayed: true });
+    expect(await cols(t.db).movements.countDocuments({ type: "SOLD" })).toBe(1);
+  });
+});
+
+describe("transferStock", () => {
+  it("moves FIFO batches as a balanced pair", async () => {
+    await run((c, s, k) => transferStock(c, s, k, { fromBranchId: "BR-A", toBranchId: "BR-B", sku: COT, qty: 3 }));
+    expect(await onHand("BR-B", OLD)).toBe(2);
+    expect(await onHand("BR-B", NEW)).toBe(1);
+    expect((await checkLedgerInvariants(t.db)).ok).toBe(true);
+  });
+
+  it("rejects transfers larger than stock", async () => {
+    await expect(
+      run((c, s, k) => transferStock(c, s, k, { fromBranchId: "BR-B", toBranchId: "BR-A", sku: COT, qty: 1 })),
+    ).rejects.toBeInstanceOf(InsufficientStock);
+  });
+});
+
+describe("quarantineBatch", () => {
+  it("pulls stock everywhere, excludes the batch from sales and is idempotent", async () => {
+    await run((c, s, k) => transferStock(c, s, k, { fromBranchId: "BR-A", toBranchId: "BR-B", sku: COT, qty: 1 }));
+    const { result } = await run((c, s, k) => quarantineBatch(c, s, k, { batchCode: "B-1" }));
+    expect(result.alreadyRecalled).toBe(false);
+    expect(result.pullList).toEqual([
+      { branchId: "BR-A", sku: COT, batchId: OLD, units: 1 },
+      { branchId: "BR-B", sku: COT, batchId: OLD, units: 1 },
+    ]);
+    expect([result.units, result.branches]).toEqual([2, 2]);
+
+    // Only the 3 units of the newer batch remain sellable.
+    await expect(
+      run((c, s, k) => recordSale(c, s, k, { branchId: "BR-A", lines: [{ sku: COT, qty: 4 }] })),
+    ).rejects.toBeInstanceOf(InsufficientStock);
+    await run((c, s, k) => recordSale(c, s, k, { branchId: "BR-A", lines: [{ sku: COT, qty: 3 }] }));
+
+    const again = await run((c, s, k) => quarantineBatch(c, s, k, { batchCode: "B-1" }));
+    expect(again.result.alreadyRecalled).toBe(true);
+    expect(await cols(t.db).movements.countDocuments({ type: "RECALLED" })).toBe(2);
+    expect((await checkLedgerInvariants(t.db)).ok).toBe(true);
+  });
+
+  // Invariant: nothing but the RECALLED movement touches a batch after its recall.
+  it.each(["quarantine-first", "sale-first"])("holds the recall invariant when sale and quarantine race (%s)", async (order) => {
+    const sale = () => run((c, s, k) => recordSale(c, s, k, { branchId: "BR-A", lines: [{ sku: COT, qty: 2 }] }));
+    const quarantine = () => run((c, s, k) => quarantineBatch(c, s, k, { batchCode: "B-1" }));
+    if (order === "quarantine-first") {
+      await quarantine();
+      await sale(); // must come from B-2
+      expect(await cols(t.db).movements.countDocuments({ type: "SOLD", batchId: OLD })).toBe(0);
+    } else {
+      await sale(); // takes both B-1 units
+      const { result } = await quarantine();
+      expect(result.units).toBe(0);
+    }
+    await Promise.allSettled([sale(), quarantine(), sale()]);
+    const report = await checkLedgerInvariants(t.db);
+    expect(report.violations).toEqual([]);
+    expect(await projectionDiff(t.db)).toEqual([]);
+  });
+});
+
+describe("read side", () => {
+  it("findRecall returns movements for every variant SKU sharing the batch code", async () => {
+    const view = await findRecall(t.db, " b-1 ");
+    expect(view?.batchCode).toBe("B-1");
+    expect(view?.movements.map((m) => m.type)).toEqual(["RECEIVED"]);
+    expect(await findRecall(t.db, "B-404")).toBeNull();
+  });
+
+  it("projectionDiff detects tampering and rebuildProjection repairs it", async () => {
+    expect(await projectionDiff(t.db)).toEqual([]);
+    await cols(t.db).inventory.updateOne({ batchId: NEW }, { $inc: { onHand: 5 } });
+    expect(await projectionDiff(t.db)).toEqual([`BR-A|${COT}|${NEW}: inventory 8, ledger 3`]);
+    await rebuildProjection(t.db);
+    expect(await projectionDiff(t.db)).toEqual([]);
+  });
+
+  it("checkLedgerInvariants reports negative balances, unbalanced transfers and late movements", async () => {
+    const m = cols(t.db).movements;
+    const base = { branchId: "BR-B", sku: TOY, batchId: TOYB, attributed: false, actor: "x", origin: "visitor" as const };
+    await m.insertOne({ ...base, type: "SOLD", at: new Date(), qty: -1, refType: "sale", refId: "ghost" });
+    await m.insertOne({ ...base, type: "TRANSFER_OUT", at: new Date(), qty: -1, refType: "transfer", refId: "half" });
+    const report = await checkLedgerInvariants(t.db);
+    expect(report.ok).toBe(false);
+    expect(report.violations.join("\n")).toMatch(/negative balance/);
+    expect(report.violations.join("\n")).toMatch(/transfer half nets -1/);
+    expect(report.violations.join("\n")).toMatch(/SOLD 1 without sale lines/);
+  });
+});
+
+describe("receiveStock", () => {
+  // Regression found by the property test: recalled stock must not return to the shelf.
+  it("refuses deliveries into a recalled batch", async () => {
+    await run((c, s, k) => quarantineBatch(c, s, k, { batchCode: "B-1" }));
+    const err = await run((c, s, k) => receiveStock(c, s, k, { branchId: "BR-A", sku: COT, batchId: OLD, qty: 1 })).catch((e) => e);
+    expect(err).toMatchObject({ code: "BATCH_RECALLED" });
+    expect(await onHand("BR-A", OLD)).toBe(0);
+  });
+});
