@@ -1,0 +1,26 @@
+name: Nightly demo reset
+on:
+  schedule:
+    - cron: "0 3 * * *" # 03:00 UTC
+  workflow_dispatch:
+
+jobs:
+  reset:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        db: [bb_demo, bb_preview]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      # Server-side reset: deletes visitor changes, shifts dates, rebuilds the projection, checks invariants.
+      - run: npm run reset
+        env:
+          MONGODB_URI: ${{ secrets.MONGODB_URI }}
+          MONGODB_DB: ${{ matrix.db }}
