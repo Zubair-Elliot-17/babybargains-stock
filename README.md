@@ -86,8 +86,9 @@ npm run dev               # http://localhost:3000 → Manager → batch B-4471
    `bb_preview` (Vercel previews).
 2. Seed both: `MONGODB_DB=bb_demo npm run seed` and `MONGODB_DB=bb_preview npm run seed -- --profile preview`.
 3. Import the repo into Vercel. Set `MONGODB_URI`, `SESSION_SECRET`, and `MONGODB_DB` per environment.
-4. Add `MONGODB_URI` as a GitHub Actions secret for the nightly reset. The deploy workflow
-   (migrate, then promote, then smoke-check `/api/health`) runs once `DEPLOY_ENABLED` is set.
+4. Add `MONGODB_URI` as a GitHub Actions secret and set the repo variable `DEMO_DB_READY=true` to
+   turn on the nightly reset. The deploy workflow (migrate, then promote, then smoke-check
+   `/api/health`) runs once `DEPLOY_ENABLED=true` is set.
 
 ## Stack
 
