@@ -1,0 +1,72 @@
+.page {
+  min-height: 100vh;
+  display: grid;
+  place-items: center;
+  padding: var(--space-6);
+  background: var(--color-surface-quiet);
+}
+
+.panel {
+  width: 100%;
+  max-width: 560px;
+  background: var(--color-surface);
+  border: 1px solid var(--color-hairline);
+  border-radius: var(--radius);
+  padding: var(--space-8);
+}
+
+.panel h1 {
+  margin: var(--space-6) 0 var(--space-2);
+}
+
+.lede {
+  margin: 0 0 var(--space-6);
+  color: var(--color-ink-muted);
+}
+
+.choices {
+  display: grid;
+  gap: var(--space-3);
+}
+
+.choice {
+  display: grid;
+  gap: var(--space-1);
+  text-align: left;
+  padding: var(--space-4);
+  border: 1px solid var(--color-control-border);
+  border-radius: var(--radius);
+  background: var(--color-surface);
+  cursor: pointer;
+}
+
+button.choice:hover {
+  border-color: var(--color-accent);
+}
+
+.disabled {
+  cursor: default;
+  border-style: dashed;
+  border-color: var(--color-hairline);
+  color: var(--color-ink-muted);
+}
+
+.role {
+  font-weight: 600;
+  font-size: var(--text-section);
+}
+
+.task {
+  font-size: var(--text-body);
+}
+
+.hint {
+  font-size: var(--text-meta);
+  color: var(--color-ink-muted);
+}
+
+.footnote {
+  margin: var(--space-6) 0 0;
+  font-size: var(--text-meta);
+  color: var(--color-ink-muted);
+}

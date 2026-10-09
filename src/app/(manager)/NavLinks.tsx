@@ -1,0 +1,39 @@
+"use client";
+
+import Link from "next/link";
+import { usePathname } from "next/navigation";
+import styles from "./shell.module.css";
+
+const ITEMS = [
+  { href: "/recall", label: "Recall", short: "Rec", milestone: 1 },
+  { href: "/stock", label: "Stock", short: "Stk", milestone: 4 },
+  { href: "/stocktakes", label: "Stocktakes", short: "Cnt", milestone: 2 },
+  { href: "/transfers", label: "Transfers", short: "Trf", milestone: 3 },
+  { href: "/orders", label: "Orders", short: "Ord", milestone: 4 },
+  { href: "/analytics", label: "Analytics", short: "Ana", milestone: 4 },
+];
+
+export function NavLinks() {
+  const path = usePathname();
+  return (
+    <ul className={styles.nav}>
+      {ITEMS.map((item) =>
+        item.milestone === 1 ? (
+          <li key={item.href}>
+            <Link href={item.href} className={styles.link} aria-current={path.startsWith(item.href) ? "page" : undefined} title={item.label}>
+              <span className={styles.full}>{item.label}</span>
+              <span className={styles.short} aria-hidden>{item.short}</span>
+            </Link>
+          </li>
+        ) : (
+          <li key={item.href}>
+            <span className={`${styles.link} ${styles.soon}`} title={`${item.label} arrives in Milestone ${item.milestone}`}>
+              <span className={styles.full}>{item.label} <small>M{item.milestone}</small></span>
+              <span className={styles.short} aria-hidden>{item.short}</span>
+            </span>
+          </li>
+        ),
+      )}
+    </ul>
+  );
+}
