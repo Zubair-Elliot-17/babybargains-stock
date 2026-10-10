@@ -82,13 +82,14 @@ npm run dev               # http://localhost:3000 → Manager → batch B-4471
 
 ## Deploying
 
-1. Create a free MongoDB Atlas cluster and two databases on it: `bb_demo` (production) and
-   `bb_preview` (Vercel previews).
-2. Seed both: `MONGODB_DB=bb_demo npm run seed` and `MONGODB_DB=bb_preview npm run seed -- --profile preview`.
-3. Import the repo into Vercel. Set `MONGODB_URI`, `SESSION_SECRET`, and `MONGODB_DB` per environment.
-4. Add `MONGODB_URI` as a GitHub Actions secret and set the repo variable `DEMO_DB_READY=true` to
-   turn on the nightly reset. The deploy workflow (migrate, then promote, then smoke-check
-   `/api/health`) runs once `DEPLOY_ENABLED=true` is set.
+1. Create a free MongoDB Atlas cluster with two databases: `bb_demo` (production) and `bb_preview`
+   (Vercel previews). Seed both: `MONGODB_DB=bb_demo npm run seed` and
+   `MONGODB_DB=bb_preview npm run seed -- --profile preview`.
+2. Import the repo into Vercel and set `MONGODB_URI`, `SESSION_SECRET` and `MONGODB_DB` per environment.
+   The `vercel-build` script applies the generated validators (moderate level) before `next build`,
+   so a failed migration means the deployment is never promoted.
+3. Add `MONGODB_URI` as a GitHub Actions secret and set the repo variable `DEMO_DB_READY=true` for the
+   nightly reset. A smoke check hits `/api/health` after every successful Vercel deployment.
 
 ## Stack
 

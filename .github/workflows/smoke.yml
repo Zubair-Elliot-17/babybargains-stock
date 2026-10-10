@@ -1,0 +1,12 @@
+name: Post-deploy smoke check
+# Vercel reports each finished deployment to GitHub; check its health endpoint.
+on: deployment_status
+
+jobs:
+  health:
+    if: github.event.deployment_status.state == 'success'
+    runs-on: ubuntu-latest
+    steps:
+      - run: |
+          url="${{ github.event.deployment_status.environment_url }}"
+          curl --fail --silent --show-error --retry 5 --retry-delay 10 "$url/api/health"
