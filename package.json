@@ -15,7 +15,8 @@
     "reset": "tsx --env-file-if-exists=.env.local scripts/reset.mts",
     "verify": "tsx --env-file-if-exists=.env.local scripts/verify.mts",
     "test:e2e": "playwright test",
-    "vercel-build": "npm run migrate -- --level moderate && next build"
+    "vercel-build": "npm run migrate -- --level moderate && next build",
+    "demo:gif": "tsx scripts/record-demo.mts"
   },
   "dependencies": {
     "mongodb": "^7.7.0",

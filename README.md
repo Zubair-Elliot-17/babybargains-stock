@@ -6,7 +6,7 @@ Stock control for a fictional UK chain of baby-goods shops, built on MongoDB wit
 > received, transferred, sold, on shelf. Drag the date slider to replay where the batch went, then
 > quarantine it everywhere with one typed confirmation and get a pull list for store teams.
 
-<!-- Recall GIF goes here once the live demo is deployed. -->
+![Recall finder: search a batch, replay where it went, quarantine it everywhere](docs/recall-demo.gif)
 
 **Live demo:** [babybargains-stock.vercel.app](https://babybargains-stock.vercel.app) (choose Manager) · Fictional chain, synthetic data, resets nightly.
 
@@ -79,6 +79,7 @@ npm run dev               # http://localhost:3000 → Manager → batch B-4471
 | `npm run verify -- --batch B-4471` | Invariants, projection diff and a batch's totals |
 | `npm run reset` | The nightly reset, on demand |
 | `npm run seed -- --profile preview` | Small dataset (3 branches, 60 SKUs) for preview deploys |
+| `npm run demo:gif` | Re-records `docs/recall-demo.gif` against a local server on port 3300 |
 
 ## Deploying
 
