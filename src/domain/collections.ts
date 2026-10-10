@@ -7,6 +7,8 @@ import type {
   Product,
   SalesDay,
   StockPolicy,
+  Stocktake,
+  StocktakeLine,
   Supplier,
 } from "./schemas";
 
@@ -44,6 +46,8 @@ export function cols(db: Db) {
     inventory: db.collection<InventoryRow>("inventory"),
     salesDays: db.collection<SalesDay>("salesDays"),
     stockPolicies: db.collection<StockPolicy>("stockPolicies"),
+    stocktakes: db.collection<Stocktake>("stocktakes"),
+    stocktakeLines: db.collection<StocktakeLine>("stocktakeLines"),
     commandLog: db.collection<CommandLogEntry>("commandLog"),
     rateLimits: db.collection<RateLimitEntry>("rateLimits"),
     ops: db.collection<OpsDoc>("ops"),
@@ -70,6 +74,12 @@ export async function ensureIndexes(db: Db): Promise<void> {
     c.salesDays.createIndex({ branchId: 1, day: 1 }, { unique: true }),
     c.rateLimits.createIndex({ expiresAt: 1 }, { expireAfterSeconds: 0 }),
     c.commandLog.createIndex({ origin: 1 }),
+    // One OPEN stocktake per branch (team stocktakes are deferred, see TODOS.md).
+    c.stocktakes.createIndex({ branchId: 1 }, { unique: true, partialFilterExpression: { status: "OPEN" }, name: "one_open_per_branch" }),
+    c.stocktakes.createIndex({ branchId: 1, status: 1 }),
+    c.stocktakes.createIndex({ status: 1, submittedAt: -1 }),
+    c.stocktakeLines.createIndex({ stocktakeId: 1, sku: 1, batchId: 1, countedAt: 1 }),
+    c.stocktakeLines.createIndex({ batchId: 1 }),
   ]);
 }
 

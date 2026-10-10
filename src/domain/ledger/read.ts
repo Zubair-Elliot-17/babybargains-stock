@@ -1,7 +1,10 @@
-import type { Db } from "mongodb";
-import { cols } from "../collections";
-import type { Batch, Branch, Product } from "../schemas";
+import type { ClientSession, Db } from "mongodb";
+import { cols, type Cols } from "../collections";
+import { NotFound } from "../errors";
+import type { Batch, Branch, Product, Stocktake } from "../schemas";
+import type { Lot } from "./allocate";
 import type { CompactMovement } from "./fold";
+import { foldCounts, planLine, unbatchedBatchId, type EffectiveCount, type PlannedLine } from "./stocktake";
 
 export interface RecallView {
   batchCode: string;
@@ -11,6 +14,27 @@ export interface RecallView {
   branches: Pick<Branch, "_id" | "name" | "code">[];
   movements: CompactMovement[];
   lastCountedAt: Record<string, string>; // branchId → ISO date of the last approved batch-level count
+}
+
+// Latest approved batch-level count per branch for these batches (a match posts no adjustment,
+// so this comes from the count lines, not the ledger).
+async function lastBatchCounts(c: Cols, batchIds: string[]): Promise<Record<string, string>> {
+  const lines = await c.stocktakeLines
+    .find({ batchId: { $in: batchIds } }, { projection: { stocktakeId: 1, countedAt: 1 } })
+    .toArray();
+  if (!lines.length) return {};
+  const approved = await c.stocktakes
+    .find({ _id: { $in: [...new Set(lines.map((l) => l.stocktakeId))] }, status: "APPROVED" }, { projection: { branchId: 1 } })
+    .toArray();
+  const branchOf = new Map(approved.map((st) => [st._id, st.branchId]));
+  const out: Record<string, string> = {};
+  for (const l of lines) {
+    const branchId = branchOf.get(l.stocktakeId);
+    if (!branchId) continue;
+    const iso = l.countedAt.toISOString();
+    if (!out[branchId] || out[branchId] < iso) out[branchId] = iso;
+  }
+  return out;
 }
 
 function escapeRegex(s: string) {
@@ -41,12 +65,7 @@ export async function findRecall(db: Db, rawCode: string): Promise<RecallView | 
         _id: 0, type: 1, at: 1, branchId: 1, sku: 1, qty: 1,
       })
       .toArray(),
-    c.movements
-      .aggregate<{ _id: string; at: Date }>([
-        { $match: { batchId: { $in: batchIds }, refType: "stocktake" } },
-        { $group: { _id: "$branchId", at: { $max: "$at" } } },
-      ])
-      .toArray(),
+    lastBatchCounts(c, batchIds),
   ]);
   return {
     batchCode,
@@ -57,7 +76,7 @@ export async function findRecall(db: Db, rawCode: string): Promise<RecallView | 
     supplierName: supplier?.name ?? batches[0].supplierId,
     branches,
     movements: movements.map((m) => ({ ...m, at: m.at.getTime() })),
-    lastCountedAt: Object.fromEntries(counts.map((x) => [x._id, x.at.toISOString()])),
+    lastCountedAt: counts,
   };
 }
 
@@ -181,4 +200,154 @@ export async function projectionDiff(db: Db, limit = 20): Promise<string[]> {
 // Recomputes the projection server-side ($out keeps the collection's indexes).
 export async function rebuildProjection(db: Db): Promise<void> {
   await cols(db).movements.aggregate([...projectionPipeline, { $out: "inventory" }]).toArray();
+}
+
+// ── Stocktakes ───────────────────────────────────────────────────────────────
+
+export interface StocktakePlan {
+  stocktake: Stocktake;
+  lines: (PlannedLine & { countedAt: Date; productName: string; batchCode?: string; supplierId: string })[];
+  counts: Map<string, EffectiveCount>;
+}
+
+// Expected stock is evaluated at each line's countedAt: current onHand minus movements since.
+export async function computeStocktakePlan(c: Cols, stocktakeId: string, session?: ClientSession): Promise<StocktakePlan> {
+  const stocktake = await c.stocktakes.findOne({ _id: stocktakeId }, { session });
+  if (!stocktake) throw new NotFound(`Stocktake ${stocktakeId} not found`);
+  const entries = await c.stocktakeLines.find({ stocktakeId }, { session }).sort({ countedAt: 1, _id: 1 }).toArray();
+  const counts = foldCounts(entries);
+  const skus = [...new Set([...counts.values()].map((x) => x.sku))];
+  if (!skus.length) return { stocktake, lines: [], counts };
+
+  const branchId = stocktake.branchId;
+  const minCountedAt = new Date(Math.min(...[...counts.values()].map((x) => x.countedAt.getTime())));
+  const [products, rows, later, activeBatches] = await Promise.all([
+    c.products.find({ _id: { $in: skus } }, { session, projection: { name: 1, price: 1, supplierId: 1 } }).toArray(),
+    c.inventory.find({ branchId, sku: { $in: skus } }, { session }).toArray(),
+    c.movements
+      .find({ branchId, sku: { $in: skus }, at: { $gt: minCountedAt } }, { session, projection: { sku: 1, batchId: 1, qty: 1, at: 1 } })
+      .toArray(),
+    c.batches
+      .find({ sku: { $in: skus }, status: "ACTIVE", batchCode: { $ne: "UNBATCHED" } }, { session, projection: { sku: 1, receivedAt: 1 } })
+      .toArray(),
+  ]);
+  const batchIds = [...new Set([...rows.map((r) => r.batchId), ...[...counts.values()].flatMap((x) => (x.batchId ? [x.batchId] : []))])];
+  const batches = await c.batches.find({ _id: { $in: batchIds } }, { session }).toArray();
+  const batchById = new Map(batches.map((b) => [b._id, b]));
+  const productById = new Map(products.map((p) => [p._id, p]));
+  const newest = new Map<string, { id: string; at: number }>();
+  for (const b of activeBatches) {
+    const cur = newest.get(b.sku);
+    if (!cur || b.receivedAt.getTime() > cur.at) newest.set(b.sku, { id: b._id, at: b.receivedAt.getTime() });
+  }
+
+  const lines = [...counts.values()].map((x) => {
+    const product = productById.get(x.sku);
+    if (!product) throw new NotFound(`Product ${x.sku} not found`);
+    const relevant = rows.filter((r) => r.sku === x.sku && (!x.batchId || r.batchId === x.batchId));
+    const since = later
+      .filter((m) => m.sku === x.sku && (!x.batchId || m.batchId === x.batchId) && m.at > x.countedAt)
+      .reduce((n, m) => n + m.qty, 0);
+    const expected = relevant.reduce((n, r) => n + r.onHand, 0) - since;
+    const lots: Lot[] = relevant
+      .filter((r) => r.onHand > 0 && batchById.has(r.batchId))
+      .map((r) => {
+        const b = batchById.get(r.batchId)!;
+        return { batchId: r.batchId, onHand: r.onHand, receivedAt: b.receivedAt, status: b.status, unbatched: b.batchCode === "UNBATCHED" };
+      });
+    const planned = planLine(
+      { key: x.key, sku: x.sku, batchId: x.batchId, counted: x.counted, expected, pricePence: product.price, lots, newestActiveBatchId: newest.get(x.sku)?.id ?? null },
+      unbatchedBatchId(product.supplierId, x.sku),
+    );
+    return { ...planned, countedAt: x.countedAt, productName: product.name, batchCode: x.batchId ? batchById.get(x.batchId)?.batchCode : undefined, supplierId: product.supplierId };
+  });
+  return { stocktake, lines, counts };
+}
+
+export interface StocktakeSummary {
+  _id: string;
+  branchId: string;
+  branchName: string;
+  status: Stocktake["status"];
+  clerkLabel: string;
+  openedAt: Date;
+  submittedAt?: Date;
+  approvedAt?: Date;
+  productsCounted: number;
+}
+
+export async function listStocktakes(db: Db, limit = 50): Promise<StocktakeSummary[]> {
+  const c = cols(db);
+  const [stocktakes, branches] = await Promise.all([
+    c.stocktakes.find({}).sort({ openedAt: -1 }).limit(limit).toArray(),
+    c.branches.find({}, { projection: { name: 1 } }).toArray(),
+  ]);
+  const names = new Map(branches.map((b) => [b._id, b.name]));
+  const counted = await c.stocktakeLines
+    .aggregate<{ _id: string; skus: string[] }>([
+      { $match: { stocktakeId: { $in: stocktakes.map((s) => s._id) } } },
+      { $group: { _id: "$stocktakeId", skus: { $addToSet: "$sku" } } },
+    ])
+    .toArray();
+  const countedBy = new Map(counted.map((x) => [x._id, x.skus.length]));
+  return stocktakes.map((s) => ({
+    _id: s._id, branchId: s.branchId, branchName: names.get(s.branchId) ?? s.branchId, status: s.status, clerkLabel: s.clerkLabel,
+    openedAt: s.openedAt, submittedAt: s.submittedAt, approvedAt: s.approvedAt, productsCounted: countedBy.get(s._id) ?? 0,
+  }));
+}
+
+export async function awaitingReviewCount(db: Db): Promise<number> {
+  return cols(db).stocktakes.countDocuments({ status: "SUBMITTED" });
+}
+
+export interface ClerkProduct {
+  sku: string;
+  name: string;
+  category: Product["category"];
+  batchTracked: boolean;
+}
+
+export interface CountView {
+  stocktake: Stocktake;
+  branchName: string;
+  products: ClerkProduct[];
+  entries: { _id: string; sku: string; batchId?: string; batchCode?: string; counted: number; mode: "add" | "replace"; countedAt: string }[];
+}
+
+// Clerk count screen data. Never includes system quantities (blind count).
+export async function countView(db: Db, stocktakeId: string): Promise<CountView | null> {
+  const c = cols(db);
+  const stocktake = await c.stocktakes.findOne({ _id: stocktakeId });
+  if (!stocktake) return null;
+  const [branch, products, entries] = await Promise.all([
+    c.branches.findOne({ _id: stocktake.branchId }),
+    c.products.find({}, { projection: { name: 1, category: 1, batchTracked: 1 } }).sort({ category: 1, name: 1 }).toArray(),
+    c.stocktakeLines.find({ stocktakeId }).sort({ countedAt: 1, _id: 1 }).toArray(),
+  ]);
+  const batchIds = [...new Set(entries.flatMap((e) => (e.batchId ? [e.batchId] : [])))];
+  const codes = new Map((await c.batches.find({ _id: { $in: batchIds } }, { projection: { batchCode: 1 } }).toArray()).map((b) => [b._id, b.batchCode]));
+  return {
+    stocktake,
+    branchName: branch?.name ?? stocktake.branchId,
+    products: products.map((p) => ({ sku: p._id, name: p.name, category: p.category, batchTracked: p.batchTracked })),
+    entries: entries.map((e) => ({
+      _id: e._id, sku: e.sku, batchId: e.batchId, batchCode: e.batchId ? codes.get(e.batchId) : undefined,
+      counted: e.counted, mode: e.mode, countedAt: e.countedAt.toISOString(),
+    })),
+  };
+}
+
+// Batch codes a clerk can pick for a batch-tracked SKU at their branch (codes only, no quantities).
+export async function batchChoices(db: Db, branchId: string, sku: string): Promise<{ batchId: string; batchCode: string }[]> {
+  const c = cols(db);
+  const rows = await c.inventory.find({ branchId, sku }, { projection: { batchId: 1 } }).toArray();
+  const batches = await c.batches
+    .find({ _id: { $in: rows.map((r) => r.batchId) }, status: "ACTIVE" }, { projection: { batchCode: 1, receivedAt: 1 } })
+    .sort({ receivedAt: -1 })
+    .toArray();
+  return batches.map((b) => ({ batchId: b._id, batchCode: b.batchCode }));
+}
+
+export async function latestStocktakeForBranch(db: Db, branchId: string): Promise<Stocktake | null> {
+  return cols(db).stocktakes.find({ branchId }).sort({ openedAt: -1 }).limit(1).next();
 }

@@ -1,8 +1,11 @@
+import { createHash } from "node:crypto";
 import { MongoServerError, type ClientSession, type Db, type MongoClient } from "mongodb";
 import { cols, type Cols } from "../collections";
 import { DomainError, InsufficientStock, NotFound, type ShortLine } from "../errors";
-import type { Movement, Origin } from "../schemas";
+import type { Movement, Origin, Stocktake } from "../schemas";
 import { allocateFifo, type Lot } from "./allocate";
+import { computeStocktakePlan } from "./read";
+import { countKey, foldCounts, unbatchedBatchId } from "./stocktake";
 
 // The only runtime write path for stock. Every command runs in one transaction:
 //
@@ -268,5 +271,177 @@ export async function quarantineBatch(
     pullList,
     units: pullList.reduce((n, r) => n + r.units, 0),
     branches: new Set(pullList.map((r) => r.branchId)).size,
+  };
+}
+
+// ── Stocktakes ───────────────────────────────────────────────────────────────
+
+const STALE_MS = 2 * 3_600_000; // an idle OPEN stocktake can be taken over after 2 hours
+
+export interface OpenInput {
+  branchId: string;
+  sid: string;
+  clerkLabel: string;
+}
+
+// Resumes the clerk's OPEN stocktake for the branch, takes over an idle one, or opens a new one.
+export async function openStocktake(c: Cols, s: ClientSession, ctx: CommandCtx, input: OpenInput): Promise<Stocktake> {
+  const now = ctx.now ?? new Date();
+  const open = await c.stocktakes.findOne({ branchId: input.branchId, status: "OPEN" }, { session: s });
+  if (open) {
+    if (open.openedBy !== input.sid && now.getTime() - open.lastActivityAt.getTime() < STALE_MS) {
+      throw new DomainError("STOCKTAKE_BUSY", "This branch's stocktake is in progress on another device", 409, {
+        clerkLabel: open.clerkLabel,
+        lastActivityAt: open.lastActivityAt,
+      });
+    }
+    const update = { openedBy: input.sid, clerkLabel: input.clerkLabel, lastActivityAt: now };
+    await c.stocktakes.updateOne({ _id: open._id }, { $set: update }, { session: s });
+    return { ...open, ...update };
+  }
+  const branch = await c.branches.findOne({ _id: input.branchId }, { session: s });
+  if (!branch) throw new NotFound(`Branch ${input.branchId} not found`);
+  const doc: Stocktake = {
+    _id: `ST-${branch.code}-${now.toISOString().slice(0, 10)}-${createHash("sha1").update(ctx.commandId).digest("hex").slice(0, 8)}`,
+    branchId: input.branchId,
+    status: "OPEN",
+    openedAt: now,
+    openedBy: input.sid,
+    clerkLabel: input.clerkLabel,
+    lastActivityAt: now,
+    origin: ctx.origin,
+  };
+  await c.stocktakes.insertOne(doc, { session: s }); // partial unique index refuses a second OPEN per branch
+  return doc;
+}
+
+async function ownedOpen(c: Cols, s: ClientSession, stocktakeId: string, sid: string): Promise<Stocktake> {
+  const st = await c.stocktakes.findOne({ _id: stocktakeId }, { session: s });
+  if (!st) throw new NotFound(`Stocktake ${stocktakeId} not found`);
+  if (st.status !== "OPEN") throw new DomainError("STOCKTAKE_CLOSED", `Stocktake was ${st.status.toLowerCase()} at ${st.submittedAt?.toISOString() ?? ""}`, 409, { status: st.status, submittedAt: st.submittedAt });
+  if (st.openedBy !== sid) throw new DomainError("STOCKTAKE_BUSY", "This stocktake is being counted on another device", 409);
+  return st;
+}
+
+export interface CountLineInput {
+  stocktakeId: string;
+  lineId: string;
+  sid: string;
+  sku: string;
+  batchId?: string;
+  counted: number;
+  mode: "add" | "replace";
+}
+
+export async function saveCountLine(c: Cols, s: ClientSession, ctx: CommandCtx, input: CountLineInput) {
+  const now = ctx.now ?? new Date();
+  await ownedOpen(c, s, input.stocktakeId, input.sid);
+  const product = await c.products.findOne({ _id: input.sku }, { session: s });
+  if (!product) throw new NotFound(`Product ${input.sku} not found`);
+  if (product.batchTracked && !input.batchId) throw new DomainError("BATCH_REQUIRED", "Scan or pick the batch for this product", 400);
+  if (!product.batchTracked && input.batchId) throw new DomainError("BATCH_NOT_TRACKED", "This product is counted without a batch", 400);
+  if (input.batchId) {
+    const batch = await c.batches.findOne({ _id: input.batchId }, { session: s });
+    if (!batch || batch.sku !== input.sku) throw new DomainError("BATCH_MISMATCH", "That batch label belongs to a different product", 400);
+  }
+  await c.stocktakeLines.insertOne(
+    {
+      _id: input.lineId, stocktakeId: input.stocktakeId, sku: input.sku, counted: input.counted, mode: input.mode,
+      countedAt: now, clerkId: input.sid, origin: ctx.origin,
+      ...(input.batchId ? { batchId: input.batchId } : {}), // undefined would be stored as null and fail validation
+    },
+    { session: s },
+  );
+  await c.stocktakes.updateOne({ _id: input.stocktakeId }, { $set: { lastActivityAt: now } }, { session: s });
+  const entries = await c.stocktakeLines
+    .find({ stocktakeId: input.stocktakeId, sku: input.sku, batchId: input.batchId ?? { $exists: false } }, { session: s })
+    .sort({ countedAt: 1, _id: 1 })
+    .toArray();
+  const effective = foldCounts(entries).get(countKey(input.sku, input.batchId));
+  return { lineId: input.lineId, counted: effective?.counted ?? input.counted, countedAt: now };
+}
+
+export interface SubmitInput {
+  stocktakeId: string;
+  sid: string;
+  uncounted: "zero" | "leave";
+}
+
+// "zero" records every uncounted product as 0 at submit time; "leave" posts nothing for them.
+export async function submitStocktake(c: Cols, s: ClientSession, ctx: CommandCtx, input: SubmitInput) {
+  const now = ctx.now ?? new Date();
+  const st = await ownedOpen(c, s, input.stocktakeId, input.sid);
+  let zeroed = 0;
+  if (input.uncounted === "zero") {
+    const counted = new Set(await c.stocktakeLines.distinct("sku", { stocktakeId: st._id }, { session: s }));
+    const products = await c.products.find({ _id: { $nin: [...counted] } }, { session: s, projection: { batchTracked: 1 } }).toArray();
+    const rows = await c.inventory.find({ branchId: st.branchId, sku: { $in: products.map((p) => p._id) }, onHand: { $gt: 0 } }, { session: s }).toArray();
+    const docs = products.flatMap((p, i) => {
+      const base = { stocktakeId: st._id, counted: 0, mode: "replace" as const, countedAt: now, clerkId: input.sid, origin: ctx.origin };
+      if (!p.batchTracked) return [{ ...base, _id: `${ctx.commandId}-z${i}`, sku: p._id }];
+      return rows.filter((r) => r.sku === p._id).map((r, j) => ({ ...base, _id: `${ctx.commandId}-z${i}-${j}`, sku: p._id, batchId: r.batchId }));
+    });
+    if (docs.length) await c.stocktakeLines.insertMany(docs, { session: s });
+    zeroed = products.length;
+  }
+  await c.stocktakes.updateOne(
+    { _id: st._id },
+    { $set: { status: "SUBMITTED", submittedAt: now, uncounted: input.uncounted, lastActivityAt: now } },
+    { session: s },
+  );
+  const productsCounted = (await c.stocktakeLines.distinct("sku", { stocktakeId: st._id }, { session: s })).length;
+  return { stocktakeId: st._id, submittedAt: now, productsCounted, zeroed, startedAt: st.openedAt };
+}
+
+export interface ApproveInput {
+  stocktakeId: string;
+  acceptedKeys: string[]; // every flagged line must be explicitly accepted
+}
+
+export async function approveStocktake(c: Cols, s: ClientSession, ctx: CommandCtx, input: ApproveInput) {
+  const now = ctx.now ?? new Date();
+  const plan = await computeStocktakePlan(c, input.stocktakeId, s);
+  if (plan.stocktake.status !== "SUBMITTED") {
+    throw new DomainError("NOT_SUBMITTED", `Stocktake is ${plan.stocktake.status.toLowerCase()}`, 409);
+  }
+  const accepted = new Set(input.acceptedKeys);
+  const missing = plan.lines.filter((l) => l.flagged && !accepted.has(l.key)).map((l) => l.key);
+  if (missing.length) throw new DomainError("REVIEW_REQUIRED", `Review ${missing.length} flagged line(s) before approving`, 400, { missing });
+
+  for (const line of plan.lines.filter((l) => l.needsUnbatched)) {
+    const id = unbatchedBatchId(line.supplierId, line.sku);
+    const parent = await c.products.findOne({ _id: line.sku }, { session: s, projection: { parentSku: 1 } });
+    await c.batches.updateOne(
+      { _id: id },
+      { $setOnInsert: { supplierId: line.supplierId, batchCode: "UNBATCHED", sku: line.sku, parentSku: parent?.parentSku ?? line.sku, receivedAt: now, status: "ACTIVE", createdOrigin: ctx.origin } },
+      { session: s, upsert: true },
+    );
+  }
+  const movements: NewMovement[] = plan.lines.flatMap((l) =>
+    l.adjustments.map((a) => ({
+      type: "ADJUSTMENT" as const,
+      at: now,
+      effectiveAt: l.countedAt,
+      branchId: plan.stocktake.branchId,
+      sku: l.sku,
+      batchId: a.batchId,
+      qty: a.qty,
+      refType: "stocktake" as const,
+      refId: plan.stocktake._id,
+      attributed: a.attributed,
+    })),
+  );
+  await postMovements(c, s, ctx, movements);
+  await c.stocktakes.updateOne({ _id: plan.stocktake._id }, { $set: { status: "APPROVED", approvedAt: now, approvedOrigin: ctx.origin } }, { session: s });
+  const up = movements.filter((m) => m.qty > 0).reduce((n, m) => n + m.qty, 0);
+  const down = -movements.filter((m) => m.qty < 0).reduce((n, m) => n + m.qty, 0);
+  return {
+    stocktakeId: plan.stocktake._id,
+    approvedAt: now,
+    lines: plan.lines.length,
+    adjustedLines: plan.lines.filter((l) => l.adjustments.length).length,
+    unitsAdded: up,
+    unitsRemoved: down,
+    valuePence: plan.lines.reduce((n, l) => n + l.valuePence, 0),
   };
 }
