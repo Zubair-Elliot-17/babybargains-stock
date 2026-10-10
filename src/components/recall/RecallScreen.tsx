@@ -5,6 +5,7 @@ import { useEffect, useMemo, useState } from "react";
 import { DAY, foldMovements, startOfDay, timelineEvents, type CompactMovement, type EventKind } from "@/domain/ledger/fold";
 import { AnimatedNumber } from "./AnimatedNumber";
 import { QuarantineDialog } from "./QuarantineDialog";
+import { count } from "@/lib/plural";
 import styles from "./recall.module.css";
 
 export interface RecallData {
@@ -102,7 +103,7 @@ export function RecallScreen({ data }: { data: RecallData }) {
           )}
           {!recalled && isToday && (
             <span className={styles.actionHint}>
-              Pulls {state.totals.onHand} units from {state.branches.filter((b) => b.onHand > 0).length} branches
+              Pulls {count(state.totals.onHand, "unit")} from {count(state.branches.filter((b) => b.onHand > 0).length, "branch", "branches")}
             </span>
           )}
         </div>

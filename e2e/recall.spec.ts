@@ -66,7 +66,7 @@ test("typed confirm quarantines the batch and shows a pull list", async ({ page 
   await dialog.getByLabel("Type B-4471 to confirm").fill("b-4471");
   await expect(confirm).toBeEnabled();
   await confirm.click();
-  await expect(dialog.getByRole("heading", { name: /Quarantined \d+ units at \d+ branches/ })).toBeVisible();
+  await expect(dialog.getByRole("heading", { name: /Quarantined \d+ units? at \d+ branch(es)?/ })).toBeVisible();
   await expect(dialog.getByRole("columnheader", { name: "Units to pull" })).toBeVisible();
   await page.screenshot({ path: "e2e/__screens__/recall-receipt.png" });
   await dialog.getByRole("button", { name: "Done" }).click();

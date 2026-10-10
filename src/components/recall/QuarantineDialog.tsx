@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import { count } from "@/lib/plural";
 import styles from "./recall.module.css";
 
 interface PullRow {
@@ -76,7 +77,7 @@ export function QuarantineDialog(props: {
     <dialog ref={ref} className={styles.dialog} onClose={() => props.onClose(Boolean(result))} aria-labelledby="q-title">
       {!result ? (
         <form onSubmit={submit}>
-          <h2 id="q-title">Pull {props.units} units from {props.branches} branches?</h2>
+          <h2 id="q-title">Pull {count(props.units, "unit")} from {count(props.branches, "branch", "branches")}?</h2>
           <p>
             Every unit of batch <span className="mono">{props.batchCode}</span> on a shelf is quarantined and can no longer be sold or transferred. This
             can&apos;t be undone.
@@ -91,7 +92,7 @@ export function QuarantineDialog(props: {
         </form>
       ) : (
         <div>
-          <h2 id="q-title">{result.alreadyRecalled ? "Already quarantined" : `Quarantined ${result.units} units at ${result.branches} branches`}</h2>
+          <h2 id="q-title">{result.alreadyRecalled ? "Already quarantined" : `Quarantined ${count(result.units, "unit")} at ${count(result.branches, "branch", "branches")}`}</h2>
           {result.pullList.length > 0 ? (
             <>
               <p>Pull list for store teams:</p>

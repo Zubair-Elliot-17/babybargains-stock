@@ -25,3 +25,11 @@ describe("allocateFifo", () => {
     expect(() => allocateFifo([lot("A", 1, 5)], qty)).toThrow(RangeError);
   });
 });
+
+import { count } from "@/lib/plural";
+
+describe("count", () => {
+  it.each([[1, "1 branch"], [2, "2 branches"], [0, "0 branches"]])("%i → %s", (n, want) => {
+    expect(count(n, "branch", "branches")).toBe(want);
+  });
+});
