@@ -8,7 +8,7 @@ Stock control for a fictional UK chain of baby-goods shops, built on MongoDB wit
 
 <!-- Recall GIF goes here once the live demo is deployed. -->
 
-**Live demo:** _not deployed yet_ · Fictional chain, synthetic data, resets nightly.
+**Live demo:** [babybargains-stock.vercel.app](https://babybargains-stock.vercel.app) (choose Manager) · Fictional chain, synthetic data, resets nightly.
 
 ## Why a ledger, not a counter
 
