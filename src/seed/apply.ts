@@ -48,6 +48,8 @@ export async function writeSeed(db: Db, data: SeedData, anchor: Date): Promise<S
   await insertChunked((d) => c.batches.insertMany(d), data.batches);
   await insertChunked((d) => c.stockPolicies.insertMany(d), data.stockPolicies);
   await insertChunked((d) => c.salesDays.insertMany(d), data.salesDays, 1000);
+  if (data.stocktakes.length) await c.stocktakes.insertMany(data.stocktakes);
+  await insertChunked((d) => c.stocktakeLines.insertMany(d), data.stocktakeLines);
   await insertChunked((d) => c.movements.insertMany(d, { ordered: false }), data.movements);
   await rebuildProjection(db);
   const invariants = await checkLedgerInvariants(db);
@@ -58,6 +60,8 @@ export async function writeSeed(db: Db, data: SeedData, anchor: Date): Promise<S
     batches: data.batches.length,
     movements: data.movements.length,
     salesDays: data.salesDays.length,
+    stocktakes: data.stocktakes.length,
+    stocktakeLines: data.stocktakeLines.length,
   };
   await c.ops.updateOne(
     { _id: "status" },
@@ -80,11 +84,16 @@ export async function resetDemo(db: Db, now = new Date()): Promise<ResetReport> 
   const ops = await c.ops.findOne({ _id: "status" });
   if (!ops) throw new Error("No ops/status document: run `npm run seed` first.");
 
-  const removed = {
+  const removed: Record<string, number> = {
     movements: (await c.movements.deleteMany({ origin: "visitor" })).deletedCount,
     commandLog: (await c.commandLog.deleteMany({ origin: "visitor" })).deletedCount,
     rateLimits: (await c.rateLimits.deleteMany({})).deletedCount,
   };
+  removed.stocktakes = (await c.stocktakes.deleteMany({ origin: "visitor" })).deletedCount;
+  removed.stocktakeLines = (await c.stocktakeLines.deleteMany({ origin: "visitor" })).deletedCount;
+  removed.batches = (await c.batches.deleteMany({ createdOrigin: "visitor" })).deletedCount;
+  // A visitor approving the seeded stocktake: its adjustments were visitor movements (already removed).
+  await c.stocktakes.updateMany({ approvedOrigin: "visitor" }, { $set: { status: "SUBMITTED" }, $unset: { approvedAt: "", approvedOrigin: "" } });
   const restored = await c.batches.updateMany(
     { recallOrigin: "visitor" },
     { $set: { status: "ACTIVE" }, $unset: { recalledAt: "", recallOrigin: "" } },
@@ -97,6 +106,11 @@ export async function resetDemo(db: Db, now = new Date()): Promise<ResetReport> 
     const ms = shiftedDays * DAY;
     const shift = (field: string) => [{ $set: { [field]: { $add: [`$${field}`, ms] } } }];
     await c.movements.updateMany({}, shift("at"));
+    await c.movements.updateMany({ effectiveAt: { $exists: true } }, shift("effectiveAt"));
+    await c.stocktakeLines.updateMany({}, shift("countedAt"));
+    for (const field of ["openedAt", "lastActivityAt", "submittedAt", "approvedAt"]) {
+      await c.stocktakes.updateMany({ [field]: { $exists: true } }, shift(field));
+    }
     await c.batches.updateMany({}, shift("receivedAt"));
     await c.batches.updateMany({ recalledAt: { $exists: true } }, shift("recalledAt"));
     await shiftSalesDays(db, ms);

@@ -1,5 +1,6 @@
 import { allocateFifo, type Lot } from "@/domain/ledger/allocate";
-import type { Batch, Branch, Movement, Product, SalesDay, StockPolicy, Supplier } from "@/domain/schemas";
+import { countKey, planLine } from "@/domain/ledger/stocktake";
+import type { Batch, Branch, Movement, Product, SalesDay, StockPolicy, Stocktake, StocktakeLine, Supplier } from "@/domain/schemas";
 import { BRANCHES, SUPPLIERS, buildCatalogue } from "./catalogue";
 
 // Deterministic 12-month simulation. Uses the same FIFO allocator as runtime sales.
@@ -23,6 +24,8 @@ export interface SeedData {
   movements: Movement[];
   salesDays: SalesDay[];
   stockPolicies: StockPolicy[];
+  stocktakes: Stocktake[];
+  stocktakeLines: StocktakeLine[];
 }
 
 export const HERO_BATCH = "B-4471";
@@ -105,6 +108,8 @@ export function generateSeed(cfg: SeedConfig): SeedData {
   };
 
   const movements: Movement[] = [];
+  const stocktakes: Stocktake[] = [];
+  const stocktakeLines: StocktakeLine[] = [];
   const salesDays: SalesDay[] = [];
   const stockPolicies: StockPolicy[] = [];
   const lots = new Map<string, Lot[]>(); // `${branchId}|${sku}`
@@ -192,6 +197,50 @@ export function generateSeed(cfg: SeedConfig): SeedData {
       }
     }
 
+    // 08:30 seeded stocktakes: approved at the first branch 20 days ago, awaiting review at the second yesterday.
+    const stocktakeBranch = d === cfg.days - 20 ? branches[0] : d === cfg.days - 1 ? branches[1] : undefined;
+    if (stocktakeBranch) {
+      const approved = d === cfg.days - 20;
+      const countedAt = at(d, 8.5);
+      const id = `ST-${stocktakeBranch.code}-${countedAt.toISOString().slice(0, 10)}-seed`;
+      stocktakes.push({
+        _id: id, branchId: stocktakeBranch._id, status: approved ? "APPROVED" : "SUBMITTED", openedAt: at(d, 8), openedBy: "seed",
+        clerkLabel: approved ? "Clerk Priya" : "Clerk Sam", lastActivityAt: countedAt, submittedAt: at(d, 8.6), uncounted: "leave",
+        ...(approved ? { approvedAt: at(d, 8.7), approvedOrigin: "seed" as const } : {}), origin: "seed",
+      });
+      let lineNo = 0;
+      const noisy = (n: number, i: number) => {
+        if (!approved && i % 8 === 3 && n > 0) return Math.max(0, n - 3); // guaranteed lines to review
+        const r = rand();
+        return r < 0.1 ? Math.max(0, n - 1) : r < 0.15 ? n + 1 : n;
+      };
+      for (const p of products) {
+        if (!approved && rand() > 0.4) continue; // the submitted count covers ~40% of products
+        const key = `${stocktakeBranch._id}|${p._id}`;
+        const list = lots.get(key) ?? [];
+        const targets = p.batchTracked ? list.filter((l) => l.onHand > 0).map((l) => l.batchId) : [undefined];
+        for (const batchId of targets) {
+          const expected = batchId ? list.find((l) => l.batchId === batchId)!.onHand : onHand(key);
+          const newest = [...batches.values()].filter((b) => b.sku === p._id && b.status === "ACTIVE").sort((a, b) => b.receivedAt.getTime() - a.receivedAt.getTime())[0];
+          let counted = noisy(expected, lineNo);
+          if (!batchId && counted > expected && !newest) counted = expected;
+          stocktakeLines.push({ _id: `${id}-L${lineNo++}`, stocktakeId: id, sku: p._id, ...(batchId ? { batchId } : {}), counted, mode: "replace", countedAt, clerkId: "seed", origin: "seed" });
+          if (!approved) continue;
+          const plan = planLine(
+            { key: countKey(p._id, batchId), sku: p._id, batchId, counted, expected, pricePence: p.price, lots: batchId ? list.filter((l) => l.batchId === batchId) : list, newestActiveBatchId: newest?._id ?? null },
+            `${p.supplierId}:UNBATCHED:${p._id}`,
+          );
+          for (const a of plan.adjustments) {
+            const lot = list.find((l) => l.batchId === a.batchId);
+            if (lot) lot.onHand += a.qty;
+            else list.push({ batchId: a.batchId, receivedAt: batches.get(a.batchId)!.receivedAt, onHand: a.qty, status: "ACTIVE" });
+            movements.push({ ...base, attributed: a.attributed, type: "ADJUSTMENT", at: at(d, 8.7), effectiveAt: countedAt, branchId: stocktakeBranch._id, sku: p._id, batchId: a.batchId, qty: a.qty, refType: "stocktake", refId: id });
+          }
+          lots.set(key, list.filter((l) => l.onHand > 0));
+        }
+      }
+    }
+
     // 09:00–18:00 sales, FIFO-attributed, recorded on one daily sales document per branch.
     const s = season(new Date(dayStart(d)));
     for (const b of branches) {
@@ -222,5 +271,5 @@ export function generateSeed(cfg: SeedConfig): SeedData {
     }
   }
 
-  return { branches, suppliers: SUPPLIERS, products, batches: [...batches.values()], movements, salesDays, stockPolicies };
+  return { branches, suppliers: SUPPLIERS, products, batches: [...batches.values()], movements, salesDays, stockPolicies, stocktakes, stocktakeLines };
 }
