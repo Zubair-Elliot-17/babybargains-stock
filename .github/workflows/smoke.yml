@@ -1,12 +1,19 @@
 name: Post-deploy smoke check
-# Vercel reports each finished deployment to GitHub; check its health endpoint.
+# Vercel reports each finished deployment to GitHub. Previews are behind Vercel Authentication,
+# so only production is checked; the body must say ok:true (a login redirect is not a pass).
 on: deployment_status
 
 jobs:
   health:
-    if: github.event.deployment_status.state == 'success'
+    if: github.event.deployment_status.state == 'success' && github.event.deployment_status.environment == 'Production'
     runs-on: ubuntu-latest
     steps:
       - run: |
-          url="${{ github.event.deployment_status.environment_url }}"
-          curl --fail --silent --show-error --retry 5 --retry-delay 10 "$url/api/health"
+          url="${{ github.event.deployment_status.environment_url }}/api/health"
+          for i in 1 2 3 4 5; do
+            body=$(curl --silent --show-error --max-redirs 0 "$url" || true)
+            echo "$body"
+            echo "$body" | grep -q '"ok":true' && exit 0
+            sleep 10
+          done
+          exit 1
