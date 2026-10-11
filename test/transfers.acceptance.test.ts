@@ -1,4 +1,5 @@
-import { afterAll, beforeAll, beforeEach, describe, expect, inject, it } from "vitest";
+import { afterAll, beforeAll, beforeEach, describe, expect, inject, it, vi } from "vitest";
+import { createSession } from "@/auth/session";
 import { cols } from "@/domain/collections";
 import { checkLedgerInvariants, listTransferSuggestions, loadTransferInputs, projectionDiff } from "@/domain/ledger/read";
 import { acceptTransferSuggestion, quarantineBatch, receiveStock } from "@/domain/ledger/write";
@@ -10,6 +11,9 @@ import { COT, NEW, OLD, buildWorld, runner } from "./world";
 // Tester-owned acceptance checks for Milestone 3 that the implementer's tests do not cover.
 
 let t: Awaited<ReturnType<typeof freshDb>>;
+// The transfers page checks the manager role itself (requireManagerPage), so it needs a session cookie.
+let token = "";
+vi.mock("next/headers", () => ({ cookies: async () => ({ get: () => ({ value: token }) }) }));
 let run: ReturnType<typeof runner>;
 
 beforeAll(async () => (t = await freshDb()));
@@ -86,6 +90,7 @@ describe("transfers page on FULL data", () => {
     const anchor = new Date();
     const db = t.client.db(`${t.db.databaseName}_page`);
     const saved = { uri: process.env.MONGODB_URI, db: process.env.MONGODB_DB };
+    token = createSession("manager").token;
     try {
       await writeSeed(db, generateSeed({ ...FULL, anchor }), anchor);
       process.env.MONGODB_URI = inject("mongoUri");
