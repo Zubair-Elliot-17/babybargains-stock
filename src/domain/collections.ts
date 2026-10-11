@@ -71,6 +71,8 @@ export async function ensureIndexes(db: Db): Promise<void> {
     c.movements.createIndex({ origin: 1 }),
     c.inventory.createIndex({ branchId: 1, sku: 1, batchId: 1 }, { unique: true }),
     c.inventory.createIndex({ batchId: 1 }),
+    c.inventory.createIndex({ sku: 1, branchId: 1 }), // transfer accept and suggestion preview read one SKU across branches
+    c.stockPolicies.createIndex({ sku: 1 }),
     c.salesDays.createIndex({ branchId: 1, day: 1 }, { unique: true }),
     c.rateLimits.createIndex({ expiresAt: 1 }, { expireAfterSeconds: 0 }),
     c.commandLog.createIndex({ origin: 1 }),

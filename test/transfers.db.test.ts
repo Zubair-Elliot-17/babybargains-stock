@@ -104,6 +104,20 @@ describe("accepting a suggestion", () => {
     expect(await cols(t.db).movements.countDocuments({ refType: "transfer" })).toBe(0);
   });
 
+  it("reads only through indexes", async () => {
+    await t.db.command({ profile: 2 });
+    try {
+      await accept(3);
+    } finally {
+      await t.db.command({ profile: 0 });
+    }
+    const scans = await t.db.collection("system.profile")
+      .find({ ns: { $not: /\.system\./ }, planSummary: /COLLSCAN/ })
+      .project({ ns: 1, op: 1, command: 1 })
+      .toArray();
+    expect(scans).toEqual([]);
+  });
+
   it("refuses a transfer to the same branch as a domain error", async () => {
     await expect(run((c, s, k) => acceptTransferSuggestion(c, s, k, { sku: COT, fromBranchId: "BR-A", toBranchId: "BR-A", qty: 1 })))
       .rejects.toMatchObject({ code: "SAME_BRANCH", status: 400 });
