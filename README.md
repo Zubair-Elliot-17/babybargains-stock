@@ -47,7 +47,26 @@ recorded or counted figures are solid.
 - Demo safety: signed session cookie, server-side role checks, per-session rate limits
   (quarantine 1/hour), structured JSON logs per command, `/api/health`.
 
-Stocktake (clerk phone screen), transfer suggestions, orders/imports and analytics are Milestones 2–4.
+## What's in Milestone 2: stocktake
+
+- **Clerk (phone):** pick a branch at sign-in, start or resume the branch stocktake, scan (camera
+  where the browser supports `BarcodeDetector`) or search, count with a big stepper, and save. The
+  count is blind: no screen shows system quantities. Batch-tracked products (cots, prams, monitors)
+  need a batch; the last one used is remembered. Counting the same product twice asks *add* (second
+  location) or *replace* (recount). A "Not counted yet" tab and an "N of M products counted" footer
+  show coverage; submitting with gaps asks whether to count them as zero or leave them out.
+- **Manager:** a Stocktakes list with an awaiting-review badge, and a review screen that sorts lines
+  by value at risk. Lines off by 3+ units or £50+ need an explicit Accept before approval.
+- **Maths that survives a busy shop:** expected stock is evaluated at the moment each line was
+  counted (current stock minus movements since), so sales during the count are not variances.
+  Approval posts `ADJUSTMENT` movements: shortages come out oldest batch first, surplus goes to the
+  newest active batch, or a per-SKU `UNBATCHED` batch if none is active. The review and the approval
+  share one pure planning function, so what is reviewed is exactly what is posted.
+- Count lines are append-only and idempotent by line id; one open stocktake per branch is enforced
+  by a partial unique index. Recall figures turn solid ("counted") only when an approved batch-level
+  count exists with no trading since.
+
+Transfer suggestions, orders/imports and analytics are Milestones 3–4.
 
 ## Correctness checks
 
@@ -57,6 +76,7 @@ Stocktake (clerk phone screen), transfer suggestions, orders/imports and analyti
 | Live projection equals a fresh fold of the ledger | `projectionDiff` in tests and `npm run verify` |
 | Random command sequences keep every invariant | fast-check property test (found a real bug: deliveries into a recalled batch) |
 | Concurrent sales of the last unit never oversell | integration test, six concurrent sales |
+| Counts interleaved with trading, then approval, keep the ledger exact | fast-check stocktake property test |
 | Sale vs quarantine in both completion orders | interleaving test |
 | Applied validators equal the ones generated from Zod | `test/schemas.test.ts` |
 
@@ -69,7 +89,7 @@ npm install
 npm run db:local          # leave running; prints MONGODB_URI
 cp .env.example .env.local  # paste the URI, set SESSION_SECRET
 npm run seed              # ~10 s, prints sizes and invariant results
-npm run dev               # http://localhost:3000 → Manager → batch B-4471
+npm run dev               # http://localhost:3000 → Manager (batch B-4471) or Clerk (count stock)
 ```
 
 | Command | What it does |

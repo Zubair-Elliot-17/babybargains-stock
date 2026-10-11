@@ -4,19 +4,26 @@ import { useRouter } from "next/navigation";
 import { useState } from "react";
 import styles from "./login.module.css";
 
-export function LoginChoice() {
-  const router = useRouter();
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+const DEFAULT_BRANCH = "BR-LEE";
 
-  async function signIn() {
-    setBusy(true);
+export function LoginChoice({ branches }: { branches: { id: string; name: string }[] }) {
+  const router = useRouter();
+  const [busy, setBusy] = useState<"manager" | "clerk" | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [branchId, setBranchId] = useState(branches.some((b) => b.id === DEFAULT_BRANCH) ? DEFAULT_BRANCH : (branches[0]?.id ?? ""));
+
+  async function signIn(role: "manager" | "clerk") {
+    setBusy(role);
     setError(null);
-    const res = await fetch("/api/session", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ role: "manager" }) });
+    const res = await fetch("/api/session", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(role === "clerk" ? { role, branchId } : { role }),
+    });
     const body = await res.json().catch(() => null);
     if (!res.ok) {
       setError(body?.error?.message ?? "Couldn't sign in. Retry");
-      setBusy(false);
+      setBusy(null);
       return;
     }
     router.push(body.next);
@@ -24,15 +31,26 @@ export function LoginChoice() {
 
   return (
     <div className={styles.choices}>
-      <button className={styles.choice} onClick={signIn} disabled={busy}>
+      <button className={styles.choice} onClick={() => signIn("manager")} disabled={busy !== null}>
         <span className={styles.role}>Manager</span>
         <span className={styles.task}>Track a recall across 15 branches</span>
         <span className={styles.hint}>Opens batch <span className="mono">B-4471</span></span>
       </button>
-      <div className={`${styles.choice} ${styles.disabled}`} aria-disabled="true">
+      <div className={`${styles.choice} ${styles.clerk}`}>
         <span className={styles.role}>Clerk</span>
         <span className={styles.task}>Count stock on a phone</span>
-        <span className={styles.hint}>Arrives with stocktake in Milestone 2</span>
+        <label htmlFor="branch">Branch</label>
+        <div className={styles.clerkRow}>
+          <select id="branch" className="input" value={branchId} onChange={(e) => setBranchId(e.target.value)}>
+            {branches.map((b) => (
+              <option key={b.id} value={b.id}>{b.name}</option>
+            ))}
+          </select>
+          <button className="btn btn-primary" onClick={() => signIn("clerk")} disabled={busy !== null || !branchId}>
+            Start counting
+          </button>
+        </div>
+        <span className={styles.hint}>Opens in a phone-sized frame on desktop</span>
       </div>
       {error && <p role="alert" className="banner banner-error">{error}</p>}
     </div>

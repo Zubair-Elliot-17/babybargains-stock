@@ -103,12 +103,14 @@ export const Batch = z.object({
   status: BatchStatus,
   recalledAt: z.date().optional(),
   recallOrigin: Origin.optional(),
+  createdOrigin: Origin.optional(), // UNBATCHED batches created by a visitor's approval are removed on reset
 });
 export type Batch = z.infer<typeof Batch>;
 
 export const Movement = z.object({
   type: MovementType,
   at: z.date(),
+  effectiveAt: z.date().optional(), // stocktake adjustments: when the item was counted
   branchId: Id,
   sku: Id,
   batchId: Id,
@@ -155,6 +157,39 @@ export const StockPolicy = z.object({
 });
 export type StockPolicy = z.infer<typeof StockPolicy>;
 
+export const StocktakeStatus = z.enum(["OPEN", "SUBMITTED", "APPROVED"]);
+export type StocktakeStatus = z.infer<typeof StocktakeStatus>;
+
+export const Stocktake = z.object({
+  _id: Id,
+  branchId: Id,
+  status: StocktakeStatus,
+  openedAt: z.date(),
+  openedBy: Id, // session id of the counting clerk
+  clerkLabel: z.string().max(40),
+  lastActivityAt: z.date(),
+  submittedAt: z.date().optional(),
+  uncounted: z.enum(["zero", "leave"]).optional(),
+  approvedAt: z.date().optional(),
+  approvedOrigin: Origin.optional(),
+  origin: Origin,
+});
+export type Stocktake = z.infer<typeof Stocktake>;
+
+// Append-only count entries; "replace" resets the running count for a SKU/batch, "add" sums.
+export const StocktakeLine = z.object({
+  _id: Id, // client-generated lineId (idempotent retries)
+  stocktakeId: Id,
+  sku: Id,
+  batchId: Id.optional(),
+  counted: z.number().int().min(0).max(9999),
+  mode: z.enum(["add", "replace"]),
+  countedAt: z.date(),
+  clerkId: Id,
+  origin: Origin,
+});
+export type StocktakeLine = z.infer<typeof StocktakeLine>;
+
 // Validated collections; the migrate script applies these as $jsonSchema validators.
 export const validatedCollections = {
   branches: Branch,
@@ -164,4 +199,6 @@ export const validatedCollections = {
   stockMovements: Movement,
   salesDays: SalesDay,
   stockPolicies: StockPolicy,
+  stocktakes: Stocktake,
+  stocktakeLines: StocktakeLine,
 } as const;

@@ -3,6 +3,7 @@ import { cols } from "@/domain/collections";
 import { currentSession } from "@/lib/command";
 import { getDb } from "@/lib/db";
 import { Wordmark } from "@/components/Wordmark";
+import { awaitingReviewCount } from "@/domain/ledger/read";
 import { NavLinks } from "./NavLinks";
 import styles from "./shell.module.css";
 
@@ -26,7 +27,7 @@ export default async function ManagerLayout({ children }: { children: React.Reac
         <div className={styles.brand}>
           <Wordmark />
         </div>
-        <NavLinks />
+        <NavLinks awaiting={await awaitingReviewCount(await getDb()).catch(() => 0)} />
         <form action="/logout" method="post" className={styles.signout}>
           <span className={styles.who}>Manager (demo)</span>
           <button className="btn" type="submit">Sign out</button>

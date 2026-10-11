@@ -11,7 +11,7 @@ test.describe.configure({ mode: "serial" });
 test("signed-out visitors are sent to the demo login", async ({ page }) => {
   await page.goto("/recall");
   await expect(page).toHaveURL(/\/login/);
-  await expect(page.getByText("Arrives with stocktake in Milestone 2")).toBeVisible();
+  await expect(page.getByRole("button", { name: "Start counting" })).toBeVisible();
 });
 
 test("health check reports the seeded database", async ({ request }) => {

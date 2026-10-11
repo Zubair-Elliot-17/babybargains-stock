@@ -7,13 +7,13 @@ import styles from "./shell.module.css";
 const ITEMS = [
   { href: "/recall", label: "Recall", short: "Rec", milestone: 1 },
   { href: "/stock", label: "Stock", short: "Stk", milestone: 4 },
-  { href: "/stocktakes", label: "Stocktakes", short: "Cnt", milestone: 2 },
+  { href: "/stocktakes", label: "Stocktakes", short: "Cnt", milestone: 1 },
   { href: "/transfers", label: "Transfers", short: "Trf", milestone: 3 },
   { href: "/orders", label: "Orders", short: "Ord", milestone: 4 },
   { href: "/analytics", label: "Analytics", short: "Ana", milestone: 4 },
 ];
 
-export function NavLinks() {
+export function NavLinks({ awaiting = 0 }: { awaiting?: number }) {
   const path = usePathname();
   return (
     <ul className={styles.nav}>
@@ -21,7 +21,10 @@ export function NavLinks() {
         item.milestone === 1 ? (
           <li key={item.href}>
             <Link href={item.href} className={styles.link} aria-current={path.startsWith(item.href) ? "page" : undefined} title={item.label}>
-              <span className={styles.full}>{item.label}</span>
+              <span className={styles.full}>
+                {item.label}
+                {item.href === "/stocktakes" && awaiting > 0 && <span className={styles.badge} aria-label={`${awaiting} awaiting review`}>{awaiting}</span>}
+              </span>
               <span className={styles.short} aria-hidden>{item.short}</span>
             </Link>
           </li>

@@ -77,6 +77,17 @@ export function RecallScreen({ data }: { data: RecallData }) {
     }
   };
 
+  // A branch's figure is "counted" only if nothing traded after its latest approved count.
+  const lastTrade = useMemo(() => {
+    const m = new Map<string, number>();
+    for (const x of data.movements) if (x.type !== "ADJUSTMENT") m.set(x.branchId, Math.max(m.get(x.branchId) ?? 0, x.at));
+    return m;
+  }, [data.movements]);
+  const countedNow = (branchId: string) => {
+    const iso = data.lastCountedAt[branchId];
+    return iso ? (lastTrade.get(branchId) ?? 0) <= Date.parse(iso) : false;
+  };
+
   const recalled = data.status === "RECALLED";
   const shelfLabel = Object.keys(data.lastCountedAt).length ? "On shelf (counted where dated)" : "On shelf (expected)";
   const rows = state.branches.filter((b) => b.received + b.transferredIn > 0);
@@ -190,6 +201,7 @@ export function RecallScreen({ data }: { data: RecallData }) {
             {rows.map((b) => {
               const net = b.transferredIn - b.transferredOut;
               const counted = data.lastCountedAt[b.branchId];
+              const solid = isToday && countedNow(b.branchId);
               return (
                 <tr key={b.branchId}>
                   <th scope="row">{data.branches[b.branchId] ?? b.branchId}</th>
@@ -197,10 +209,10 @@ export function RecallScreen({ data }: { data: RecallData }) {
                   <td className="num" data-label="Transferred">{net > 0 ? `+${net}` : net}</td>
                   <td className="num" data-label="Sold"><span className="estimated" title="FIFO-attributed">{b.sold}</span><span className="sr-only"> estimated</span></td>
                   <td className="num" data-label="On shelf">
-                    {counted ? b.onHand : <><span className="estimated" title="Expected from the ledger">{b.onHand}</span><span className="sr-only"> estimated</span></>}
+                    {solid ? b.onHand : <><span className="estimated" title="Expected from the ledger">{b.onHand}</span><span className="sr-only"> estimated</span></>}
                   </td>
                   <td className="num" data-label="Quarantined">{b.quarantined || "–"}</td>
-                  <td data-label="Status">{counted ? `counted ${fmtShort(Date.parse(counted))}` : "expected"}</td>
+                  <td data-label="Status">{counted ? `counted ${fmtShort(Date.parse(counted))}${solid ? "" : " · trading since"}` : "expected"}</td>
                 </tr>
               );
             })}

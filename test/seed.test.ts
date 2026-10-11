@@ -1,7 +1,7 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { cols } from "@/domain/collections";
-import { findRecall, projectionDiff } from "@/domain/ledger/read";
-import { quarantineBatch, recordSale, runCommand } from "@/domain/ledger/write";
+import { computeStocktakePlan, findRecall, projectionDiff } from "@/domain/ledger/read";
+import { approveStocktake, quarantineBatch, recordSale, runCommand } from "@/domain/ledger/write";
 import { foldMovements } from "@/domain/ledger/fold";
 import { resetDemo, writeSeed } from "@/seed/apply";
 import { HERO_BATCH, RECALLED_BATCH, generateSeed } from "@/seed/generate";
@@ -36,6 +36,12 @@ describe("seed generator", () => {
     expect(now.totals.received).toBeGreaterThan(0);
     expect(now.totals.sold).toBeGreaterThan(0);
 
+    const stocktakes = await cols(t.db).stocktakes.find().sort({ openedAt: 1 }).toArray();
+    expect(stocktakes.map((st) => st.status)).toEqual(["APPROVED", "SUBMITTED"]);
+    const plan = await computeStocktakePlan(cols(t.db), stocktakes[1]._id);
+    expect(plan.lines.length).toBeGreaterThan(5);
+    expect(plan.lines.some((l) => l.flagged)).toBe(true);
+
     const recalled = await findRecall(t.db, RECALLED_BATCH);
     expect(recalled?.batches.every((b) => b.status === "RECALLED")).toBe(true);
     expect(foldMovements(recalled!.movements).totals.onHand).toBe(0);
@@ -52,6 +58,12 @@ describe("nightly reset", () => {
     await runCommand(t.client, t.db, "sale", sk, (cl, s) => recordSale(cl, s, sk, { branchId: anyStock!.branchId, lines: [{ sku: anyStock!.sku, qty: 1 }] }));
     expect(await c.movements.countDocuments({ origin: "visitor" })).toBeGreaterThan(0);
 
+    const submitted = (await c.stocktakes.findOne({ status: "SUBMITTED" }))!;
+    const plan = await computeStocktakePlan(c, submitted._id);
+    const ak = { commandId: "visitor-a", actor: "v", origin: "visitor" as const };
+    await runCommand(t.client, t.db, "approve", ak, (cl, s) => approveStocktake(cl, s, ak, { stocktakeId: submitted._id, acceptedKeys: plan.lines.map((l) => l.key) }));
+    expect((await c.stocktakes.findOne({ _id: submitted._id }))!.status).toBe("APPROVED");
+
     const firstMovementBefore = (await c.movements.find().sort({ at: 1 }).limit(1).next())!.at.getTime();
     const report = await resetDemo(t.db, new Date(anchor.getTime() + 3 * DAY));
 
@@ -67,6 +79,8 @@ describe("nightly reset", () => {
     const sample = await c.salesDays.findOne({});
     expect(sample!._id).toBe(`${sample!.branchId}:${sample!.day.toISOString().slice(0, 10)}`);
     expect(await projectionDiff(t.db)).toEqual([]);
+    expect((await c.stocktakes.findOne({ _id: submitted._id }))!.status).toBe("SUBMITTED");
+    expect(await c.movements.countDocuments({ refId: submitted._id })).toBe(0);
 
     const again = await resetDemo(t.db, new Date(anchor.getTime() + 3 * DAY));
     expect(again.shiftedDays).toBe(0);
