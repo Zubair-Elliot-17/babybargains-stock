@@ -2,9 +2,10 @@ import type { ClientSession, Db } from "mongodb";
 import { cols, type Cols } from "../collections";
 import { NotFound } from "../errors";
 import type { Batch, Branch, Product, Stocktake } from "../schemas";
-import type { Lot } from "./allocate";
-import type { CompactMovement } from "./fold";
+import { allocateFifo, type Lot } from "./allocate";
+import { DAY, type CompactMovement } from "./fold";
 import { foldCounts, planLine, unbatchedBatchId, type EffectiveCount, type PlannedLine } from "./stocktake";
+import { VELOCITY_DAYS, suggestTransfers, type BranchStock, type SkuStock, type TransferSuggestion } from "./transfers";
 
 export interface RecallView {
   batchCode: string;
@@ -350,4 +351,100 @@ export async function batchChoices(db: Db, branchId: string, sku: string): Promi
 
 export async function latestStocktakeForBranch(db: Db, branchId: string): Promise<Stocktake | null> {
   return cols(db).stocktakes.find({ branchId }).sort({ openedAt: -1 }).limit(1).next();
+}
+
+// ── Transfers ────────────────────────────────────────────────────────────────
+
+// Current stock, 8-week sales, policy and stocktake state per SKU and branch. Recalled batches hold
+// no stock (quarantine zeroes them in the same transaction), so on-hand is ACTIVE stock only.
+export async function loadTransferInputs(c: Cols, now: Date, opts: { sku?: string; session?: ClientSession } = {}): Promise<SkuStock[]> {
+  const { session } = opts;
+  const bySku = opts.sku ? { sku: opts.sku } : {};
+  const since = new Date(now.getTime() - VELOCITY_DAYS * DAY);
+  const [policies, products, stock, sold, open] = await Promise.all([
+    c.stockPolicies.find(bySku, { session }).toArray(),
+    c.products.find(opts.sku ? { _id: opts.sku } : {}, { session, projection: { price: 1 } }).toArray(),
+    c.inventory
+      .aggregate<{ _id: { branchId: string; sku: string }; onHand: number }>(
+        [{ $match: { ...bySku, onHand: { $gt: 0 } } }, { $group: { _id: { branchId: "$branchId", sku: "$sku" }, onHand: { $sum: "$onHand" } } }],
+        { session },
+      )
+      .toArray(),
+    c.movements
+      .aggregate<{ _id: { branchId: string; sku: string }; units: number }>(
+        [
+          { $match: { type: "SOLD", at: { $gt: since, $lte: now }, ...bySku } },
+          { $group: { _id: { branchId: "$branchId", sku: "$sku" }, units: { $sum: { $multiply: ["$qty", -1] } } } },
+        ],
+        { session },
+      )
+      .toArray(),
+    c.stocktakes.distinct("branchId", { status: "OPEN" }, { session }),
+  ]);
+  const key = (x: { branchId: string; sku: string }) => `${x.branchId}|${x.sku}`;
+  const onHand = new Map(stock.map((r) => [key(r._id), r.onHand]));
+  const sold56 = new Map(sold.map((r) => [key(r._id), r.units]));
+  const openBranches = new Set(open);
+  const out = new Map(products.map((p) => [p._id, { sku: p._id, pricePence: p.price, branches: [] as BranchStock[] }]));
+  for (const p of policies) {
+    out.get(p.sku)?.branches.push({
+      branchId: p.branchId,
+      onHand: onHand.get(key(p)) ?? 0,
+      sold56: sold56.get(key(p)) ?? 0,
+      policy: { reorderPoint: p.reorderPoint, overstockWeeks: p.overstockWeeks },
+      stocktakeOpen: openBranches.has(p.branchId),
+    });
+  }
+  return [...out.values()].filter((s) => s.branches.length);
+}
+
+export interface TransferRow extends TransferSuggestion {
+  productName: string;
+  fromName: string;
+  toName: string;
+  preview: { batchCode: string; qty: number }[]; // FIFO batches that would move
+}
+
+export interface TransfersView {
+  asOf: Date;
+  suggestions: TransferRow[];
+  branches: Pick<Branch, "_id" | "name">[];
+  blocked: Pick<Branch, "_id" | "name">[]; // branches left out because a stocktake is open
+}
+
+export async function listTransferSuggestions(db: Db, opts: { now?: Date; to?: string } = {}): Promise<TransfersView> {
+  const c = cols(db);
+  const now = opts.now ?? new Date();
+  const [inputs, branches, open] = await Promise.all([
+    loadTransferInputs(c, now),
+    c.branches.find({}, { projection: { name: 1 } }).sort({ name: 1 }).toArray(),
+    c.stocktakes.distinct("branchId", { status: "OPEN" }),
+  ]);
+  const ranked = suggestTransfers(inputs).filter((s) => !opts.to || s.toBranchId === opts.to);
+  const skus = [...new Set(ranked.map((s) => s.sku))];
+  const [products, rows] = await Promise.all([
+    c.products.find({ _id: { $in: skus } }, { projection: { name: 1 } }).toArray(),
+    c.inventory.find({ sku: { $in: skus }, branchId: { $in: [...new Set(ranked.map((s) => s.fromBranchId))] }, onHand: { $gt: 0 } }).toArray(),
+  ]);
+  const batches = await c.batches.find({ _id: { $in: [...new Set(rows.map((r) => r.batchId))] } }, { projection: { batchCode: 1, receivedAt: 1, status: 1 } }).toArray();
+  const batchById = new Map(batches.map((b) => [b._id, b]));
+  const names = new Map(branches.map((b) => [b._id, b.name]));
+  const productName = new Map(products.map((p) => [p._id, p.name]));
+  const suggestions = ranked.map((s) => {
+    const lots: Lot[] = rows
+      .filter((r) => r.branchId === s.fromBranchId && r.sku === s.sku && batchById.has(r.batchId))
+      .map((r) => {
+        const b = batchById.get(r.batchId)!;
+        return { batchId: r.batchId, onHand: r.onHand, receivedAt: b.receivedAt, status: b.status, unbatched: b.batchCode === "UNBATCHED" };
+      });
+    const preview = allocateFifo(lots, s.qty).allocations.map((a) => ({ batchCode: batchById.get(a.batchId)!.batchCode, qty: a.qty }));
+    return {
+      ...s,
+      productName: productName.get(s.sku) ?? s.sku,
+      fromName: names.get(s.fromBranchId) ?? s.fromBranchId,
+      toName: names.get(s.toBranchId) ?? s.toBranchId,
+      preview,
+    };
+  });
+  return { asOf: now, suggestions, branches, blocked: branches.filter((b) => open.includes(b._id)) };
 }
