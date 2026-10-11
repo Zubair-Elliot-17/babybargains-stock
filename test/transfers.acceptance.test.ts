@@ -83,6 +83,18 @@ describe("transfers acceptance (ledger)", () => {
     expect(await count()).toBe(2);
     expect(await projectionDiff(t.db)).toEqual([]);
   });
+
+  // One read of the OPEN stocktakes feeds both the suggestions and the "blocked" note, so they can't disagree.
+  it("the suggestions list reads the stocktakes collection once", async () => {
+    await t.db.command({ profile: 2 });
+    try {
+      await listTransferSuggestions(t.db);
+    } finally {
+      await t.db.command({ profile: 0 });
+    }
+    const reads = await t.db.collection("system.profile").find({ ns: `${t.db.databaseName}.stocktakes` }).project({ op: 1, command: 1 }).toArray();
+    expect(reads).toHaveLength(1);
+  });
 });
 
 describe("transfers page on FULL data", () => {

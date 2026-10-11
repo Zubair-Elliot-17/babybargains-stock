@@ -20,8 +20,11 @@ test("a clerk replaying a manager page's navigation payload gets none of its dat
 
   // [request, text only the page's data would contain]
   const captured: [Request, string][] = [];
-  captured.push([await navigate(page, nav("Stocktakes"), /^\/stocktakes$/), "-seed"]);
-  captured.push([await navigate(page, () => page.getByRole("link", { name: "Review", exact: true }).first().click(), /^\/stocktakes\/ST-/), "valuePence"]);
+  // Use the Approved tab: the seed always has one APPROVED stocktake, whereas the SUBMITTED list is
+  // emptied by stocktake.spec.ts, so this test passes in any file order.
+  await navigate(page, nav("Stocktakes"), /^\/stocktakes$/);
+  captured.push([await navigate(page, () => page.getByRole("link", { name: /^Approved/ }).click(), /^\/stocktakes$/), "-seed"]);
+  captured.push([await navigate(page, () => page.getByRole("link", { name: "View", exact: true }).first().click(), /^\/stocktakes\/ST-/), "valuePence"]);
   captured.push([await navigate(page, nav("Transfers"), /^\/transfers$/), "fromBranchId"]);
   captured.push([await navigate(page, nav("Recall"), /^\/recall$/), "B-3920"]);
 
