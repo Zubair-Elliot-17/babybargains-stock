@@ -4,8 +4,9 @@ import { cols, type Cols } from "../collections";
 import { DomainError, InsufficientStock, NotFound, type ShortLine } from "../errors";
 import type { Movement, Origin, Stocktake } from "../schemas";
 import { allocateFifo, type Lot } from "./allocate";
-import { computeStocktakePlan } from "./read";
+import { computeStocktakePlan, loadTransferInputs } from "./read";
 import { countKey, foldCounts, unbatchedBatchId } from "./stocktake";
+import { suggestForSku } from "./transfers";
 
 // The only runtime write path for stock. Every command runs in one transaction:
 //
@@ -186,7 +187,7 @@ export interface TransferInput {
 }
 
 export async function transferStock(c: Cols, s: ClientSession, ctx: CommandCtx, input: TransferInput) {
-  if (input.fromBranchId === input.toBranchId) throw new RangeError("Cannot transfer to the same branch");
+  if (input.fromBranchId === input.toBranchId) throw new DomainError("SAME_BRANCH", "Pick two different branches", 400);
   const { allocations, shortBy } = allocateFifo(await lotsFor(c, s, input.fromBranchId, input.sku), input.qty);
   if (shortBy > 0) {
     throw new InsufficientStock([
@@ -204,6 +205,28 @@ export async function transferStock(c: Cols, s: ClientSession, ctx: CommandCtx, 
     ]),
   );
   return { moved: input.qty, allocations };
+}
+
+// Accept re-derives the suggestion inside the transaction, so a stale screen can never move more
+// than the ledger supports right now.
+export async function acceptTransferSuggestion(c: Cols, s: ClientSession, ctx: CommandCtx, input: TransferInput) {
+  if (input.fromBranchId === input.toBranchId) throw new DomainError("SAME_BRANCH", "Pick two different branches", 400);
+  const open = await c.stocktakes.distinct("branchId", { branchId: { $in: [input.fromBranchId, input.toBranchId] }, status: "OPEN" }, { session: s });
+  if (open.length) {
+    throw new DomainError("STOCKTAKE_OPEN", "A stocktake is in progress at one of these branches. Try again once it is submitted", 409, { branchIds: open });
+  }
+  const [stock] = await loadTransferInputs(c, ctx.now ?? new Date(), { sku: input.sku, session: s });
+  const fresh = stock ? suggestForSku(stock).find((x) => x.fromBranchId === input.fromBranchId && x.toBranchId === input.toBranchId) : undefined;
+  const suggestedQty = fresh?.qty ?? 0;
+  if (input.qty > suggestedQty) {
+    throw new DomainError(
+      "SUGGESTION_STALE",
+      suggestedQty ? `Stock has changed. The suggestion is now ${suggestedQty}` : "Stock has changed. This transfer is no longer suggested",
+      409,
+      { suggestedQty },
+    );
+  }
+  return transferStock(c, s, ctx, input);
 }
 
 export interface PullListRow {

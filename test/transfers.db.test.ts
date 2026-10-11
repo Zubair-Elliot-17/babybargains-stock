@@ -1,7 +1,8 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { cols } from "@/domain/collections";
-import { listTransferSuggestions, loadTransferInputs } from "@/domain/ledger/read";
-import { openStocktake, receiveStock, recordSale } from "@/domain/ledger/write";
+import { DomainError } from "@/domain/errors";
+import { checkLedgerInvariants, listTransferSuggestions, loadTransferInputs, projectionDiff } from "@/domain/ledger/read";
+import { acceptTransferSuggestion, openStocktake, receiveStock, recordSale, transferStock } from "@/domain/ledger/write";
 import { migrate } from "@/seed/apply";
 import { freshDb } from "./helpers";
 import { COT, NEW, OLD, TOY, TOYB, buildWorld, runner } from "./world";
@@ -63,5 +64,50 @@ describe("transfer suggestions from the ledger", () => {
     const view = await listTransferSuggestions(t.db);
     expect(view.suggestions).toEqual([]);
     expect(view.blocked).toEqual([{ _id: "BR-B", name: "Bravo" }]);
+  });
+});
+
+describe("accepting a suggestion", () => {
+  const accept = (qty: number, extra = {}, sku = COT) =>
+    run((c, s, k) => acceptTransferSuggestion(c, s, k, { sku, fromBranchId: "BR-A", toBranchId: "BR-B", qty }), extra);
+  const onHand = async (branchId: string, batchId: string) => (await cols(t.db).inventory.findOne({ branchId, batchId }))?.onHand ?? 0;
+
+  it("posts an instant FIFO transfer pair and the suggestion is gone afterwards", async () => {
+    const { result } = await accept(3);
+    expect(result).toMatchObject({ moved: 3, allocations: [{ batchId: OLD, qty: 3 }] });
+    expect([await onHand("BR-A", OLD), await onHand("BR-B", OLD)]).toEqual([3, 3]);
+    const pair = await cols(t.db).movements.find({ refType: "transfer" }).toArray();
+    expect(pair.map((m) => [m.type, m.branchId, m.qty])).toEqual([["TRANSFER_OUT", "BR-A", -3], ["TRANSFER_IN", "BR-B", 3]]);
+    expect((await checkLedgerInvariants(t.db)).violations).toEqual([]);
+    expect(await projectionDiff(t.db)).toEqual([]);
+    expect((await listTransferSuggestions(t.db)).suggestions.map((s) => s.sku)).toEqual([TOY]);
+  });
+
+  it("is idempotent for a resent commandId", async () => {
+    await accept(3, { commandId: "accept-1" });
+    const again = await accept(3, { commandId: "accept-1" });
+    expect(again.replayed).toBe(true);
+    expect(await cols(t.db).movements.countDocuments({ refType: "transfer" })).toBe(2);
+  });
+
+  it("refuses more than the fresh suggestion, reporting what is suggested now", async () => {
+    const err = await accept(4).catch((e) => e);
+    expect(err).toBeInstanceOf(DomainError);
+    expect(err).toMatchObject({ code: "SUGGESTION_STALE", status: 409, details: { suggestedQty: 3 } });
+    await accept(3);
+    await expect(accept(3)).rejects.toMatchObject({ code: "SUGGESTION_STALE", details: { suggestedQty: 0 } });
+  });
+
+  it("refuses while either branch has an open stocktake", async () => {
+    await run((c, s, k) => openStocktake(c, s, k, { branchId: "BR-A", sid: "clerk", clerkLabel: "Clerk" }));
+    await expect(accept(3)).rejects.toMatchObject({ code: "STOCKTAKE_OPEN", status: 409 });
+    expect(await cols(t.db).movements.countDocuments({ refType: "transfer" })).toBe(0);
+  });
+
+  it("refuses a transfer to the same branch as a domain error", async () => {
+    await expect(run((c, s, k) => acceptTransferSuggestion(c, s, k, { sku: COT, fromBranchId: "BR-A", toBranchId: "BR-A", qty: 1 })))
+      .rejects.toMatchObject({ code: "SAME_BRANCH", status: 400 });
+    await expect(run((c, s, k) => transferStock(c, s, k, { sku: COT, fromBranchId: "BR-A", toBranchId: "BR-A", qty: 1 })))
+      .rejects.toMatchObject({ code: "SAME_BRANCH", status: 400 });
   });
 });
