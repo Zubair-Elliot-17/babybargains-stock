@@ -1,0 +1,147 @@
+.meta {
+  margin: var(--space-2) 0 0;
+  max-width: 72ch;
+  color: var(--color-ink-muted);
+  font-size: var(--text-meta);
+}
+
+.filter {
+  display: flex;
+  align-items: flex-end;
+  gap: var(--space-3);
+  margin: var(--space-6) 0 var(--space-4);
+}
+
+.filter select {
+  min-width: 240px;
+}
+
+.empty {
+  color: var(--color-ink-muted);
+}
+
+.withPanel {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 340px;
+  gap: var(--space-6);
+  align-items: start;
+}
+
+.table tr[data-selected] {
+  background: var(--color-surface-quiet);
+}
+
+.sub {
+  display: block;
+  font-weight: 400;
+  font-size: 12px;
+  color: var(--color-ink-muted);
+}
+
+.panel {
+  position: sticky;
+  top: var(--space-6);
+  display: grid;
+  gap: var(--space-3);
+  padding: var(--space-4) 0 var(--space-4) var(--space-6);
+  border-left: 1px solid var(--color-hairline);
+}
+
+.panel h2 {
+  margin: 0;
+}
+
+.panel h2:focus {
+  outline: none;
+}
+
+.facts {
+  margin: 0;
+  display: grid;
+  gap: var(--space-3);
+}
+
+.facts div {
+  padding-bottom: var(--space-3);
+  border-bottom: 1px solid var(--color-hairline);
+}
+
+.facts dt {
+  font-size: var(--text-meta);
+  font-weight: 500;
+  color: var(--color-ink-muted);
+}
+
+.facts dd {
+  margin: 0;
+}
+
+.small {
+  font-size: var(--text-meta);
+  font-weight: 500;
+  color: var(--color-ink-muted);
+}
+
+.batches {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  font-size: var(--text-table);
+}
+
+.actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: var(--space-3);
+}
+
+.toast {
+  position: fixed;
+  right: var(--space-6);
+  bottom: var(--space-6);
+  max-width: 420px;
+  margin: 0;
+  padding: var(--space-3) var(--space-4);
+  border-radius: var(--radius);
+  background: var(--color-ink);
+  color: var(--color-surface);
+}
+
+.toast:empty {
+  display: none;
+}
+
+.narrow {
+  display: none;
+}
+
+/* Tablet: the table keeps the full width and the panel slides over it from the right. */
+@media (max-width: 1023px) {
+  .withPanel {
+    grid-template-columns: 1fr;
+  }
+  .panel {
+    position: fixed;
+    top: 0;
+    right: 0;
+    bottom: 0;
+    z-index: 10;
+    width: min(360px, 100%);
+    overflow-y: auto;
+    align-content: start;
+    padding: var(--space-6);
+    background: var(--color-surface);
+  }
+}
+
+/* Phone layouts are deferred (TODOS.md). */
+@media (max-width: 767px) {
+  .narrow {
+    display: block;
+    color: var(--color-ink-muted);
+  }
+  .table,
+  .panel {
+    display: none;
+  }
+}
