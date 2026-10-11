@@ -1,10 +1,10 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { cols } from "@/domain/collections";
-import { computeStocktakePlan, findRecall, projectionDiff } from "@/domain/ledger/read";
+import { computeStocktakePlan, findRecall, listTransferSuggestions, projectionDiff } from "@/domain/ledger/read";
 import { approveStocktake, quarantineBatch, recordSale, runCommand } from "@/domain/ledger/write";
 import { foldMovements } from "@/domain/ledger/fold";
 import { resetDemo, writeSeed } from "@/seed/apply";
-import { HERO_BATCH, RECALLED_BATCH, generateSeed } from "@/seed/generate";
+import { FULL, HERO_BATCH, PREVIEW, RECALLED_BATCH, generateSeed } from "@/seed/generate";
 import { freshDb } from "./helpers";
 
 let t: Awaited<ReturnType<typeof freshDb>>;
@@ -45,6 +45,24 @@ describe("seed generator", () => {
     const recalled = await findRecall(t.db, RECALLED_BATCH);
     expect(recalled?.batches.every((b) => b.status === "RECALLED")).toBe(true);
     expect(foldMovements(recalled!.movements).totals.onHand).toBe(0);
+  });
+});
+
+describe("transfer scenario", () => {
+  it.each([["PREVIEW", PREVIEW], ["FULL", FULL]] as const)("%s has at least 10 transfer suggestions, listed in under a second", async (_name, cfg) => {
+    const db = t.client.db(`${t.db.databaseName}_x`);
+    try {
+      await writeSeed(db, generateSeed({ ...cfg, anchor }), anchor);
+      const started = Date.now();
+      const view = await listTransferSuggestions(db, { now: anchor });
+      const ms = Date.now() - started;
+      expect(view.suggestions.length).toBeGreaterThanOrEqual(10);
+      expect(new Set(view.suggestions.map((s) => s.toBranchId)).size).toBeGreaterThanOrEqual(2);
+      expect(view.suggestions.every((s) => s.preview.reduce((n, p) => n + p.qty, 0) === s.qty)).toBe(true);
+      if (cfg === FULL) expect(ms).toBeLessThan(1000);
+    } finally {
+      await db.dropDatabase();
+    }
   });
 });
 

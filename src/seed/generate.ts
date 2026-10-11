@@ -34,6 +34,14 @@ export const RECALLED_BATCH = "B-3920";
 
 const DAY = 86_400_000;
 const CYCLE_DAYS = 28;
+// Transfer scenario: a few SKUs were over-ordered and sell slowly at one branch, while another
+// branch had a demand spike and missed its last delivery.
+const SCENARIO_DAYS = 70; // donor: one 4× order 10 weeks ago, then sales thinned to 40%
+const SCENARIO_OVER_ORDER = 4;
+const SCENARIO_KEEP_SALES = 0.4;
+const SCENARIO_SPIKE_DAYS = 14; // recipient: extra demand at 3× its usual rate
+const SCENARIO_SPIKE = 3;
+const SCENARIO_SKIPPED_DELIVERY_DAYS = 14;
 
 function mulberry32(seed: number) {
   return () => {
@@ -107,6 +115,21 @@ export function generateSeed(cfg: SeedConfig): SeedData {
     return b;
   };
 
+  // Own RNG stream: the scenario's picks and draws don't consume the main simulation's stream.
+  const scenarioRand = mulberry32(cfg.seed + 1);
+  const scenario = new Map<string, { donor: string; recipient: string }>();
+  if (branches.length > 1) {
+    const pool = [...products];
+    const n = Math.min(pool.length, Math.max(18, Math.round(products.length * 0.05)));
+    for (let i = 0; i < n; i++) {
+      const [p] = pool.splice(Math.floor(scenarioRand() * pool.length), 1);
+      const donor = Math.floor(scenarioRand() * branches.length);
+      const recipient = (donor + 1 + Math.floor(scenarioRand() * (branches.length - 1))) % branches.length;
+      scenario.set(p._id, { donor: branches[donor]._id, recipient: branches[recipient]._id });
+    }
+  }
+  const inScenario = (d: number, days: number) => d >= cfg.days - days;
+
   const movements: Movement[] = [];
   const stocktakes: Stocktake[] = [];
   const stocktakeLines: StocktakeLine[] = [];
@@ -158,9 +181,11 @@ export function generateSeed(cfg: SeedConfig): SeedData {
       for (const p of products) {
         const key = `${b._id}|${p._id}`;
         const pol = policy.get(key)!;
-        if (onHand(key) > pol.rp) continue;
+        const overOrder = scenario.get(p._id)?.donor === b._id && d === cfg.days - SCENARIO_DAYS;
+        if (onHand(key) > pol.rp && !overOrder) continue;
+        if (scenario.get(p._id)?.recipient === b._id && inScenario(d, SCENARIO_SKIPPED_DELIVERY_DAYS)) continue;
         const batch = batchFor(p, d);
-        const qty = d === 0 ? pol.order * 2 : pol.order;
+        const qty = d === 0 ? pol.order * 2 : overOrder ? pol.order * SCENARIO_OVER_ORDER : pol.order;
         const list = lots.get(key) ?? [];
         const lot = list.find((l) => l.batchId === batch._id);
         if (lot) lot.onHand += qty;
@@ -174,6 +199,7 @@ export function generateSeed(cfg: SeedConfig): SeedData {
     if (d % 14 === 7 && branches.length > 1) {
       for (let i = 0; i < Math.max(2, Math.round(products.length / 25)); i++) {
         const p = products[Math.floor(rand() * products.length)];
+        if (scenario.has(p._id) && inScenario(d, SCENARIO_DAYS)) continue; // would rebalance the scenario away
         const ranked = branches.map((b) => ({ b, n: onHand(`${b._id}|${p._id}`) })).sort((x, y) => y.n - x.n);
         const from = ranked[0];
         const to = ranked[ranked.length - 1];
@@ -249,6 +275,10 @@ export function generateSeed(cfg: SeedConfig): SeedData {
       for (const p of products) {
         const units = poisson(rand, policy.get(`${b._id}|${p._id}`)!.lambda * s);
         if (units > 0) events.push({ minute: Math.floor(rand() * 540), p, units });
+        if (scenario.get(p._id)?.recipient === b._id && inScenario(d, SCENARIO_SPIKE_DAYS)) {
+          const extra = poisson(scenarioRand, policy.get(`${b._id}|${p._id}`)!.lambda * SCENARIO_SPIKE);
+          if (extra > 0) events.push({ minute: Math.floor(scenarioRand() * 540), p, units: extra });
+        }
       }
       events.sort((x, y) => x.minute - y.minute);
       for (const [i, e] of events.entries()) {
@@ -256,6 +286,7 @@ export function generateSeed(cfg: SeedConfig): SeedData {
         const available = onHand(key);
         const qty = Math.min(e.units, available);
         if (qty <= 0) continue; // lost sale: shelf empty
+        if (scenario.get(e.p._id)?.donor === b._id && inScenario(d, SCENARIO_DAYS) && scenarioRand() >= SCENARIO_KEEP_SALES) continue;
         const { allocations } = allocateFifo(lots.get(key)!, qty);
         take(key, allocations);
         const when = new Date(dayStart(d) + 9 * 3_600_000 + e.minute * 60_000 + i);
