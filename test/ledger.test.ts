@@ -63,6 +63,15 @@ describe("recordSale", () => {
     expect(again).toEqual({ result: first.result, replayed: true });
     expect(await cols(t.db).movements.countDocuments({ type: "SOLD" })).toBe(1);
   });
+
+  it("refuses a resent commandId whose request fingerprint differs", async () => {
+    const k = ctx({ fingerprint: "a" });
+    const sale = (fingerprint: string) => runCommand(t.client, t.db, "sale", { ...k, fingerprint }, (c, s) => recordSale(c, s, k, { branchId: "BR-A", lines: [{ sku: COT, qty: 1 }] }));
+    await sale("a");
+    await expect(sale("b")).rejects.toMatchObject({ code: "COMMAND_ID_REUSED", status: 409 });
+    expect((await sale("a")).replayed).toBe(true);
+    expect(await cols(t.db).movements.countDocuments({ type: "SOLD" })).toBe(1);
+  });
 });
 
 describe("transferStock", () => {

@@ -15,6 +15,7 @@ import type {
 export interface CommandLogEntry {
   _id: string; // client-generated commandId
   type: string;
+  fingerprint?: string; // hash of command type + body + session; a reused commandId must match it
   result: unknown;
   at: Date;
   origin: "seed" | "visitor";

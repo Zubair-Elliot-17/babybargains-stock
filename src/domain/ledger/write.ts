@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 import { MongoServerError, type ClientSession, type Db, type MongoClient } from "mongodb";
-import { cols, type Cols } from "../collections";
+import { cols, type Cols, type CommandLogEntry } from "../collections";
 import { DomainError, InsufficientStock, NotFound, type ShortLine } from "../errors";
 import type { Movement, Origin, Stocktake } from "../schemas";
 import { allocateFifo, type Lot } from "./allocate";
@@ -22,6 +22,7 @@ export interface CommandCtx {
   actor: string;
   origin: Origin;
   now?: Date;
+  fingerprint?: string; // see CommandLogEntry.fingerprint
 }
 
 export type NewMovement = Omit<Movement, "at" | "actor" | "origin"> & { at?: Date };
@@ -62,6 +63,14 @@ export async function postMovements(
   );
 }
 
+// A resent commandId replays its first result only when it is the same request; reusing it for a
+// different command, body or session is refused rather than silently answered with another result.
+export function assertSameCommand(prior: Pick<CommandLogEntry, "fingerprint">, fingerprint: string | undefined): void {
+  if (fingerprint && prior.fingerprint && prior.fingerprint !== fingerprint) {
+    throw new DomainError("COMMAND_ID_REUSED", "This request ID was already used for a different request", 409);
+  }
+}
+
 // Runs fn inside a transaction, recording its result under commandId so retries are idempotent.
 export async function runCommand<T>(
   client: MongoClient,
@@ -76,7 +85,7 @@ export async function runCommand<T>(
     let result!: T;
     await session.withTransaction(async () => {
       await c.commandLog.insertOne(
-        { _id: ctx.commandId, type, result: null, at: ctx.now ?? new Date(), origin: ctx.origin },
+        { _id: ctx.commandId, type, ...(ctx.fingerprint ? { fingerprint: ctx.fingerprint } : {}), result: null, at: ctx.now ?? new Date(), origin: ctx.origin },
         { session },
       );
       result = await fn(c, session);
@@ -86,7 +95,10 @@ export async function runCommand<T>(
   } catch (err) {
     if (err instanceof MongoServerError && err.code === 11000 && String(err.message).includes("commandLog")) {
       const prior = await c.commandLog.findOne({ _id: ctx.commandId });
-      if (prior) return { result: prior.result as T, replayed: true };
+      if (prior) {
+        assertSameCommand(prior, ctx.fingerprint);
+        return { result: prior.result as T, replayed: true };
+      }
     }
     throw err;
   } finally {
