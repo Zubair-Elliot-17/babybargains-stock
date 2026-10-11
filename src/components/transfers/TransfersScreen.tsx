@@ -50,6 +50,7 @@ export function TransfersScreen({ rows, emptyText }: { rows: TransferRow[]; empt
 
   function open(row: TransferRow, button: HTMLButtonElement) {
     opener.current = button;
+    refocus.current = false; // a refresh that never landed shouldn't move focus later
     setSelected(row);
     setCommandId(crypto.randomUUID()); // one id per opened suggestion, so a retried Accept is idempotent
     setError(null);
@@ -82,7 +83,6 @@ export function TransfersScreen({ rows, emptyText }: { rows: TransferRow[]; empt
       // Moved, or stock changed since this list loaded (409): either way, reload the suggestions.
       setSelected(null);
       notify(res.ok ? `Moved ${count(row.qty, "unit")} of ${row.productName} from ${row.fromName} to ${row.toName}.` : message);
-      opener.current?.focus();
       refocus.current = true;
       router.refresh();
     } catch {
@@ -140,7 +140,7 @@ export function TransfersScreen({ rows, emptyText }: { rows: TransferRow[]; empt
       )}
 
       {selected && (
-        <aside className={styles.panel} aria-labelledby="transfer-heading" onKeyDown={(e) => e.key === "Escape" && close()}>
+        <aside className={styles.panel} aria-labelledby="transfer-heading" onKeyDown={(e) => e.key === "Escape" && !busy && close()}>
           <h2 id="transfer-heading" ref={heading} tabIndex={-1}>
             Move {count(selected.qty, "unit")} · {selected.productName}
           </h2>
@@ -171,7 +171,7 @@ export function TransfersScreen({ rows, emptyText }: { rows: TransferRow[]; empt
           </ul>
           {error && <p className="banner banner-error" role="alert">{error}</p>}
           <div className={styles.actions}>
-            <button className="btn" type="button" onClick={close}>Close</button>
+            <button className="btn" type="button" disabled={busy} onClick={close}>Close</button>
             <button className="btn btn-primary" type="button" disabled={busy} onClick={() => accept(selected)}>
               {busy ? "Moving…" : "Accept transfer"}
             </button>

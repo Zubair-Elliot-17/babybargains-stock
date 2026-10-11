@@ -76,7 +76,7 @@ test("manager reviews the top suggestion and accepts it", async ({ page }) => {
   await expect(page.locator("tbody button:focus")).toHaveCount(1);
 });
 
-test("Review buttons stay disabled while an Accept is in flight", async ({ page }) => {
+test("Review buttons and Close stay disabled while an Accept is in flight", async ({ page }) => {
   await signInManager(page);
   await page.goto("/transfers");
   let release!: () => void;
@@ -90,6 +90,10 @@ test("Review buttons stay disabled while an Accept is in flight", async ({ page 
   await page.getByRole("button", { name: "Accept transfer" }).click();
   await expect(page.getByRole("button", { name: "Moving…" })).toBeDisabled();
   for (const b of await page.locator("tbody button").all()) await expect(b).toBeDisabled();
+  // Closing mid-request would hide a failure, so the panel stays put until the answer arrives.
+  await expect(page.getByRole("button", { name: "Close" })).toBeDisabled();
+  await page.getByRole("heading", { name: /^Move / }).press("Escape");
+  await expect(page.getByRole("complementary")).toBeVisible();
   release();
   await expect(page.getByRole("complementary").getByRole("alert")).toContainText("Couldn't save");
   for (const b of await page.locator("tbody button").all()) await expect(b).toBeEnabled();
