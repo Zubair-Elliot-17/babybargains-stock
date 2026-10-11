@@ -72,6 +72,35 @@ test("manager reviews the top suggestion and accepts it", async ({ page }) => {
   await expect(page.getByRole("status").filter({ hasText: `Moved ${top.qty} unit` })).toContainText(`from ${top.from} to ${top.to}`);
   await expect(page.getByRole("button", { name: top.label })).toHaveCount(0);
   await expect(page.getByRole("complementary")).toHaveCount(0);
+  // The accepted row is gone, so focus lands on the next suggestion rather than dropping to the page.
+  await expect(page.locator("tbody button:focus")).toHaveCount(1);
+});
+
+test("Review buttons stay disabled while an Accept is in flight", async ({ page }) => {
+  await signInManager(page);
+  await page.goto("/transfers");
+  let release!: () => void;
+  const held = new Promise<void>((r) => (release = r));
+  await page.route("/api/transfers", async (route) => {
+    await held;
+    await route.fulfill({ status: 500, json: { error: { code: "INTERNAL", message: "Couldn't save. Retry" } } });
+  });
+  const [first] = await suggestions(page);
+  await page.getByRole("button", { name: first.label }).click();
+  await page.getByRole("button", { name: "Accept transfer" }).click();
+  await expect(page.getByRole("button", { name: "Moving…" })).toBeDisabled();
+  for (const b of await page.locator("tbody button").all()) await expect(b).toBeDisabled();
+  release();
+  await expect(page.getByRole("complementary").getByRole("alert")).toContainText("Couldn't save");
+  for (const b of await page.locator("tbody button").all()) await expect(b).toBeEnabled();
+});
+
+test("an unknown receiving branch says so instead of showing an empty list", async ({ page }) => {
+  await signInManager(page);
+  await page.goto("/transfers?to=BR-NOPE");
+  await expect(page.getByRole("main").getByRole("alert")).toContainText("isn't a branch");
+  await expect(page.getByText("No branch is both over its cover")).toHaveCount(0);
+  await expect(page.getByRole("main").getByRole("alert").getByRole("link", { name: "Show all branches" })).toHaveAttribute("href", "/transfers");
 });
 
 test("filtering by receiving branch shows only transfers into it", async ({ page }) => {

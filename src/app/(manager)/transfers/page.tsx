@@ -25,6 +25,16 @@ export default async function TransfersPage({ searchParams }: { searchParams: Pr
     );
   }
   const to = view.branches.find((b) => b._id === requested);
+  if (requested && !to) {
+    return (
+      <>
+        <h1>Transfers</h1>
+        <p className="banner banner-error" role="alert">
+          &ldquo;{requested}&rdquo; isn&apos;t a branch. <Link href="/transfers">Show all branches</Link>
+        </p>
+      </>
+    );
+  }
   const n = view.suggestions.length;
   return (
     <>
@@ -50,13 +60,10 @@ export default async function TransfersPage({ searchParams }: { searchParams: Pr
           Left out while a stocktake is in progress: {view.blocked.map((b) => b.name).join(", ")}.
         </p>
       )}
-      {n === 0 ? (
-        <p className={styles.empty}>
-          {to ? `No transfers into ${to.name} right now.` : "No branch is both over its cover and able to help one below its reorder point."}
-        </p>
-      ) : (
-        <TransfersScreen rows={view.suggestions} />
-      )}
+      <TransfersScreen
+        rows={view.suggestions}
+        emptyText={to ? `No transfers into ${to.name} right now.` : "No branch is both over its cover and able to help one below its reorder point."}
+      />
     </>
   );
 }

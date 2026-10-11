@@ -20,7 +20,7 @@ function Cover({ weeks }: { weeks: number | null }) {
   );
 }
 
-export function TransfersScreen({ rows }: { rows: TransferRow[] }) {
+export function TransfersScreen({ rows, emptyText }: { rows: TransferRow[]; emptyText: string }) {
   const router = useRouter();
   const [selected, setSelected] = useState<TransferRow | null>(null);
   const [commandId, setCommandId] = useState("");
@@ -29,10 +29,24 @@ export function TransfersScreen({ rows }: { rows: TransferRow[] }) {
   const [toast, setToast] = useState<string | null>(null);
   const heading = useRef<HTMLHeadingElement>(null);
   const opener = useRef<HTMLButtonElement | null>(null);
+  const table = useRef<HTMLTableElement>(null);
+  const empty = useRef<HTMLParagraphElement>(null);
+  const refocus = useRef(false); // after an Accept, once the refreshed rows arrive
+  const toastTimer = useRef<ReturnType<typeof setTimeout>>(undefined);
 
   useEffect(() => {
     if (selected) heading.current?.focus();
   }, [selected]);
+
+  // The accepted row usually disappears on refresh, taking its Review button (and focus) with it.
+  useEffect(() => {
+    if (!refocus.current) return;
+    refocus.current = false;
+    const target = opener.current?.isConnected ? opener.current : (table.current?.querySelector<HTMLButtonElement>("tbody button") ?? empty.current);
+    target?.focus();
+  }, [rows]);
+
+  useEffect(() => () => clearTimeout(toastTimer.current), []);
 
   function open(row: TransferRow, button: HTMLButtonElement) {
     opener.current = button;
@@ -43,7 +57,8 @@ export function TransfersScreen({ rows }: { rows: TransferRow[] }) {
 
   function notify(message: string) {
     setToast(message);
-    setTimeout(() => setToast((t) => (t === message ? null : t)), 6000);
+    clearTimeout(toastTimer.current);
+    toastTimer.current = setTimeout(() => setToast(null), 6000);
   }
 
   function close() {
@@ -68,6 +83,7 @@ export function TransfersScreen({ rows }: { rows: TransferRow[] }) {
       setSelected(null);
       notify(res.ok ? `Moved ${count(row.qty, "unit")} of ${row.productName} from ${row.fromName} to ${row.toName}.` : message);
       opener.current?.focus();
+      refocus.current = true;
       router.refresh();
     } catch {
       setError("Couldn't reach the server. Retry");
@@ -78,44 +94,50 @@ export function TransfersScreen({ rows }: { rows: TransferRow[] }) {
 
   return (
     <div className={selected ? styles.withPanel : undefined}>
-      <p className={styles.narrow}>Transfers needs a wider screen. Open it on a tablet or desktop.</p>
-      <table className={styles.table}>
-        <thead>
-          <tr>
-            <th scope="col">Product</th>
-            <th scope="col">From</th>
-            <th scope="col">To</th>
-            <th scope="col" className="num">Units</th>
-            <th scope="col" className="num">Value</th>
-            <th scope="col"><span className="sr-only">Action</span></th>
-          </tr>
-        </thead>
-        <tbody>
-          {rows.map((r) => (
-            <tr key={rowKey(r)} data-selected={selected && rowKey(selected) === rowKey(r) ? "" : undefined}>
-              <th scope="row">
-                {r.productName}
-                <span className={`${styles.sub} mono`}>{r.sku}</span>
-              </th>
-              <td>
-                {r.fromName}
-                <span className={styles.sub}>{r.from.onHand} on hand · <Cover weeks={r.from.coverWeeks} /></span>
-              </td>
-              <td>
-                {r.toName}
-                <span className={styles.sub}>{r.to.onHand} on hand · reorder at {r.to.reorderPoint}</span>
-              </td>
-              <td className="num">{r.qty}</td>
-              <td className="num">{money(r.valuePence)}</td>
-              <td>
-                <button className="btn" type="button" onClick={(e) => open(r, e.currentTarget)} aria-label={`Review transfer of ${r.productName} from ${r.fromName} to ${r.toName}`}>
-                  Review
-                </button>
-              </td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
+      {rows.length === 0 ? (
+        <p className={styles.empty} ref={empty} tabIndex={-1}>{emptyText}</p>
+      ) : (
+        <>
+          <p className={styles.narrow}>Transfers needs a wider screen. Open it on a tablet or desktop.</p>
+          <table className={styles.table} ref={table}>
+            <thead>
+              <tr>
+                <th scope="col">Product</th>
+                <th scope="col">From</th>
+                <th scope="col">To</th>
+                <th scope="col" className="num">Units</th>
+                <th scope="col" className="num">Value</th>
+                <th scope="col"><span className="sr-only">Action</span></th>
+              </tr>
+            </thead>
+            <tbody>
+              {rows.map((r) => (
+                <tr key={rowKey(r)} data-selected={selected && rowKey(selected) === rowKey(r) ? "" : undefined}>
+                  <th scope="row">
+                    {r.productName}
+                    <span className={`${styles.sub} mono`}>{r.sku}</span>
+                  </th>
+                  <td>
+                    {r.fromName}
+                    <span className={styles.sub}>{r.from.onHand} on hand · <Cover weeks={r.from.coverWeeks} /></span>
+                  </td>
+                  <td>
+                    {r.toName}
+                    <span className={styles.sub}>{r.to.onHand} on hand · reorder at {r.to.reorderPoint}</span>
+                  </td>
+                  <td className="num">{r.qty}</td>
+                  <td className="num">{money(r.valuePence)}</td>
+                  <td>
+                    <button className="btn" type="button" disabled={busy} onClick={(e) => open(r, e.currentTarget)} aria-label={`Review transfer of ${r.productName} from ${r.fromName} to ${r.toName}`}>
+                      Review
+                    </button>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </>
+      )}
 
       {selected && (
         <aside className={styles.panel} aria-labelledby="transfer-heading" onKeyDown={(e) => e.key === "Escape" && close()}>
