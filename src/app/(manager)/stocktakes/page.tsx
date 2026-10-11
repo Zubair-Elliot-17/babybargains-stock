@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { requireManagerPage } from "@/auth/session";
 import { listStocktakes, type StocktakeSummary } from "@/domain/ledger/read";
 import { getDb } from "@/lib/db";
 import { when } from "@/lib/format";
@@ -13,6 +14,7 @@ const TABS = [
 ] as const;
 
 export default async function StocktakesPage({ searchParams }: { searchParams: Promise<{ tab?: string }> }) {
+  await requireManagerPage();
   const requested = (await searchParams).tab;
   const tab = TABS.find((t) => t.id === requested)?.id ?? "SUBMITTED";
   const all = await listStocktakes(await getDb());

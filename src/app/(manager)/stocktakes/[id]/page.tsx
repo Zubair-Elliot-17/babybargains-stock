@@ -1,4 +1,5 @@
 import { notFound } from "next/navigation";
+import { requireManagerPage } from "@/auth/session";
 import { cols } from "@/domain/collections";
 import { NotFound } from "@/domain/errors";
 import { computeStocktakePlan } from "@/domain/ledger/read";
@@ -9,6 +10,7 @@ import { ReviewScreen, type ReviewLine } from "@/components/stocktakes/ReviewScr
 export const metadata = { title: "Review stocktake · BabyBargains Stock" };
 
 export default async function ReviewPage({ params }: { params: Promise<{ id: string }> }) {
+  await requireManagerPage();
   const { id } = await params;
   const db = await getDb();
   let plan;

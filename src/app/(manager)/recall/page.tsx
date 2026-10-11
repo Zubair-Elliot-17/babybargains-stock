@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { requireManagerPage } from "@/auth/session";
 import { findRecall, recentRecalls, suggestBatchCodes } from "@/domain/ledger/read";
 import { getDb } from "@/lib/db";
 import { RecallScreen, type RecallData } from "@/components/recall/RecallScreen";
@@ -15,6 +16,7 @@ async function load(batch: string) {
 }
 
 export default async function RecallPage({ searchParams }: { searchParams: Promise<{ batch?: string }> }) {
+  await requireManagerPage();
   const batch = (await searchParams).batch?.trim();
   if (!batch) {
     const recent = await recentRecalls(await getDb());

@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { requireManagerPage } from "@/auth/session";
 import { listTransferSuggestions, type TransfersView } from "@/domain/ledger/read";
 import { getDb } from "@/lib/db";
 import { count } from "@/lib/plural";
@@ -8,6 +9,7 @@ import styles from "@/components/transfers/transfers.module.css";
 export const metadata = { title: "Transfers · BabyBargains Stock" };
 
 export default async function TransfersPage({ searchParams }: { searchParams: Promise<{ to?: string }> }) {
+  await requireManagerPage();
   const requested = (await searchParams).to;
   let view: TransfersView;
   try {
