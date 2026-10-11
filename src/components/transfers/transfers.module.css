@@ -38,6 +38,13 @@
   color: var(--color-ink-muted);
 }
 
+/* Beside the panel the table is narrow and long SKUs split mid-code; the panel shows the SKU. */
+@media (min-width: 1280px) {
+  .withPanel .table th .sub {
+    display: none;
+  }
+}
+
 .panel {
   position: sticky;
   top: var(--space-6);
@@ -115,8 +122,8 @@
   display: none;
 }
 
-/* Tablet: the table keeps the full width and the panel slides over it from the right. */
-@media (max-width: 1023px) {
+/* Below 1280px the table and a side panel don't both fit: the panel slides over the table instead. */
+@media (max-width: 1279px) {
   .withPanel {
     grid-template-columns: 1fr;
   }

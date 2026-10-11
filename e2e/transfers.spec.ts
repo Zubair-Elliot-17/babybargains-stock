@@ -66,6 +66,11 @@ test("manager reviews the top suggestion and accepts it", async ({ page }) => {
   await expect(panel.getByText("Batches that move (oldest first)")).toBeVisible();
   await expect(panel.locator("li")).not.toHaveCount(0);
   await expect(panel.getByText(/wks cover|no sales in 8 wks/).first()).toHaveClass(/estimated/);
+  // An empty branch says so, rather than an estimate of "0.0 wks".
+  await expect(panel).not.toContainText(/\b0\.0 wks/);
+  if (/^0 on hand/.test(await page.locator("tbody tr[data-selected] td").nth(1).locator("span").innerText())) {
+    await expect(panel).toContainText("out of stock");
+  }
   await page.screenshot({ path: "e2e/__screens__/transfers-panel.png", fullPage: true });
 
   await panel.getByRole("button", { name: "Accept transfer" }).click();
@@ -97,6 +102,20 @@ test("Review buttons and Close stay disabled while an Accept is in flight", asyn
   release();
   await expect(page.getByRole("complementary").getByRole("alert")).toContainText("Couldn't save");
   for (const b of await page.locator("tbody button").all()) await expect(b).toBeEnabled();
+});
+
+test("the selected row stays on screen beside the panel, without the table running under it", async ({ page }) => {
+  await page.setViewportSize({ width: 1280, height: 720 });
+  await signInManager(page);
+  await page.goto("/transfers");
+  const last = page.locator("tbody tr").last();
+  await last.scrollIntoViewIfNeeded();
+  await last.getByRole("button").click();
+  await expect(page.getByRole("complementary")).toBeVisible();
+  await expect(page.locator("tbody tr[data-selected]")).toBeInViewport({ ratio: 0.95 });
+  const tableRight = await page.locator("table").evaluate((t) => t.getBoundingClientRect().right);
+  const panelLeft = await page.getByRole("complementary").evaluate((a) => a.getBoundingClientRect().left);
+  expect(tableRight).toBeLessThanOrEqual(panelLeft);
 });
 
 test("an unknown receiving branch says so instead of showing an empty list", async ({ page }) => {

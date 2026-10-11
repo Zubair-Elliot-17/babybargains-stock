@@ -43,3 +43,11 @@ test("a clerk replaying a manager page's navigation payload gets none of its dat
     await clerk.dispose();
   }
 });
+
+test("a signed-in clerk who opens a manager page is sent back to counting, not to sign-in", async ({ page }) => {
+  expect((await page.request.post("/api/session", { data: { role: "clerk", branchId: "BR-LEE" } })).ok()).toBeTruthy();
+  for (const path of ["/transfers", "/recall", "/stocktakes"]) {
+    await page.goto(path);
+    await expect(page, `clerk opening ${path}`).toHaveURL(/\/count$/);
+  }
+});

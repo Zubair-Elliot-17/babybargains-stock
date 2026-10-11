@@ -11,6 +11,7 @@ const rowKey = (r: TransferRow) => `${r.sku}|${r.fromBranchId}|${r.toBranchId}`;
 
 // Weeks of cover is derived from 8 weeks of sales, so it is shown as an estimate (DESIGN.md).
 function Cover({ weeks }: { weeks: number | null }) {
+  if (weeks === 0) return <span>out of stock</span>; // a fact, not an estimate
   const text = weeks === null ? "no sales in 8 wks" : `${weeks < 10 ? weeks.toFixed(1) : Math.round(weeks)} wks cover`;
   return (
     <span className="estimated" title="Estimated from sales over the last 8 weeks">
@@ -34,8 +35,11 @@ export function TransfersScreen({ rows, emptyText }: { rows: TransferRow[]; empt
   const refocus = useRef(false); // after an Accept, once the refreshed rows arrive
   const toastTimer = useRef<ReturnType<typeof setTimeout>>(undefined);
 
+  // Opening the panel narrows the table, which can push the selected row off screen.
   useEffect(() => {
-    if (selected) heading.current?.focus();
+    if (!selected) return;
+    heading.current?.focus({ preventScroll: true });
+    table.current?.querySelector("tr[data-selected]")?.scrollIntoView({ block: "nearest" });
   }, [selected]);
 
   // The accepted row usually disappears on refresh, taking its Review button (and focus) with it.

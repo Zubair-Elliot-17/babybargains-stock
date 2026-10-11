@@ -57,6 +57,7 @@ export function requireRole(session: Session | null, role: Role): Session {
 // the layout's check does not run for it: every manager page must call this itself.
 export async function requireManagerPage(): Promise<Session> {
   const session = verifySession((await cookies()).get(COOKIE)?.value);
+  if (session?.role === "clerk") redirect("/count");
   if (!session || session.role !== "manager") redirect("/login");
   return session;
 }
