@@ -94,6 +94,13 @@ export async function runCommand<T>(
   }
 }
 
+// Commands that read "is a stocktake open here?" and commands that open or close one touch no shared
+// document otherwise, so two such transactions could both commit (write skew). Writing the branch
+// docs makes them conflict; withTransaction retries the loser, which then sees the other's result.
+async function lockBranches(c: Cols, s: ClientSession, branchIds: string[]) {
+  await c.branches.updateMany({ _id: { $in: branchIds } }, { $inc: { lockRev: 1 } }, { session: s });
+}
+
 async function lotsFor(c: Cols, session: ClientSession, branchId: string, sku: string): Promise<Lot[]> {
   const rows = await c.inventory.find({ branchId, sku, onHand: { $gt: 0 } }, { session }).toArray();
   if (!rows.length) return [];
@@ -211,6 +218,7 @@ export async function transferStock(c: Cols, s: ClientSession, ctx: CommandCtx, 
 // than the ledger supports right now.
 export async function acceptTransferSuggestion(c: Cols, s: ClientSession, ctx: CommandCtx, input: TransferInput) {
   if (input.fromBranchId === input.toBranchId) throw new DomainError("SAME_BRANCH", "Pick two different branches", 400);
+  await lockBranches(c, s, [input.fromBranchId, input.toBranchId]);
   const open = await c.stocktakes.distinct("branchId", { branchId: { $in: [input.fromBranchId, input.toBranchId] }, status: "OPEN" }, { session: s });
   if (open.length) {
     throw new DomainError("STOCKTAKE_OPEN", "A stocktake is in progress at one of these branches. Try again once it is submitted", 409, { branchIds: open });
@@ -310,6 +318,7 @@ export interface OpenInput {
 // Resumes the clerk's OPEN stocktake for the branch, takes over an idle one, or opens a new one.
 export async function openStocktake(c: Cols, s: ClientSession, ctx: CommandCtx, input: OpenInput): Promise<Stocktake> {
   const now = ctx.now ?? new Date();
+  await lockBranches(c, s, [input.branchId]);
   const open = await c.stocktakes.findOne({ branchId: input.branchId, status: "OPEN" }, { session: s });
   if (open) {
     if (open.openedBy !== input.sid && now.getTime() - open.lastActivityAt.getTime() < STALE_MS) {
@@ -394,6 +403,7 @@ export interface SubmitInput {
 export async function submitStocktake(c: Cols, s: ClientSession, ctx: CommandCtx, input: SubmitInput) {
   const now = ctx.now ?? new Date();
   const st = await ownedOpen(c, s, input.stocktakeId, input.sid);
+  await lockBranches(c, s, [st.branchId]);
   let zeroed = 0;
   if (input.uncounted === "zero") {
     const counted = new Set(await c.stocktakeLines.distinct("sku", { stocktakeId: st._id }, { session: s }));

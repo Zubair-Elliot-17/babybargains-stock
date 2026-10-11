@@ -2,10 +2,10 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { cols } from "@/domain/collections";
 import { DomainError } from "@/domain/errors";
 import { checkLedgerInvariants, listTransferSuggestions, loadTransferInputs, projectionDiff } from "@/domain/ledger/read";
-import { acceptTransferSuggestion, openStocktake, receiveStock, recordSale, transferStock } from "@/domain/ledger/write";
+import { acceptTransferSuggestion, openStocktake, receiveStock, recordSale, submitStocktake, transferStock } from "@/domain/ledger/write";
 import { migrate } from "@/seed/apply";
 import { freshDb } from "./helpers";
-import { COT, NEW, OLD, TOY, TOYB, buildWorld, runner } from "./world";
+import { COT, NEW, OLD, TOY, TOYB, buildWorld, ctx, runner } from "./world";
 
 let t: Awaited<ReturnType<typeof freshDb>>;
 let run: ReturnType<typeof runner>;
@@ -109,5 +109,35 @@ describe("accepting a suggestion", () => {
       .rejects.toMatchObject({ code: "SAME_BRANCH", status: 400 });
     await expect(run((c, s, k) => transferStock(c, s, k, { sku: COT, fromBranchId: "BR-A", toBranchId: "BR-A", qty: 1 })))
       .rejects.toMatchObject({ code: "SAME_BRANCH", status: 400 });
+  });
+});
+
+describe("accept vs stocktake race", () => {
+  const lockRev = async (branchId: string) => (await cols(t.db).branches.findOne({ _id: branchId }))?.lockRev ?? 0;
+
+  it("accept, stocktake open and stocktake submit each bump the branch lock they depend on", async () => {
+    await run((c, s, k) => acceptTransferSuggestion(c, s, k, { sku: COT, fromBranchId: "BR-A", toBranchId: "BR-B", qty: 1 }));
+    expect([await lockRev("BR-A"), await lockRev("BR-B")]).toEqual([1, 1]);
+    const { result: st } = await run((c, s, k) => openStocktake(c, s, k, { branchId: "BR-B", sid: "clerk", clerkLabel: "Clerk" }));
+    expect([await lockRev("BR-A"), await lockRev("BR-B")]).toEqual([1, 2]);
+    await run((c, s, k) => submitStocktake(c, s, k, { stocktakeId: st._id, sid: "clerk", uncounted: "leave" }));
+    expect([await lockRev("BR-A"), await lockRev("BR-B")]).toEqual([1, 3]);
+  });
+
+  it("a stocktake opening while an accept is uncommitted conflicts instead of both committing", async () => {
+    const a = t.client.startSession();
+    const b = t.client.startSession();
+    try {
+      a.startTransaction();
+      await acceptTransferSuggestion(cols(t.db), a, ctx(), { sku: COT, fromBranchId: "BR-A", toBranchId: "BR-B", qty: 1 });
+      b.startTransaction();
+      const err = await openStocktake(cols(t.db), b, ctx(), { branchId: "BR-B", sid: "clerk", clerkLabel: "Clerk" }).catch((e) => e);
+      expect(err?.hasErrorLabel?.("TransientTransactionError")).toBe(true); // withTransaction retries, then sees the transfer
+      await b.abortTransaction().catch(() => {});
+      await a.commitTransaction();
+    } finally {
+      await a.endSession();
+      await b.endSession();
+    }
   });
 });
