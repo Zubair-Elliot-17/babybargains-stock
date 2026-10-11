@@ -49,6 +49,38 @@ describe("seed generator", () => {
 });
 
 describe("transfer scenario", () => {
+  it("leaves every other SKU's history and the hero batch unchanged", () => {
+    const cfg = { ...PREVIEW, anchor };
+    const on = generateSeed(cfg);
+    const off = generateSeed({ ...cfg, transferScenario: false });
+    expect(on.transferScenario.length).toBeGreaterThanOrEqual(10);
+    expect(off.transferScenario).toEqual([]);
+    const touched = new Set(on.transferScenario);
+    // refIds and the millisecond tie-break depend on how many sales share a day, so compare by minute.
+    const history = (d: typeof on, keep: (m: (typeof on.movements)[number]) => boolean) =>
+      d.movements.filter(keep).map((m) => [m.type, m.branchId, m.sku, m.batchId, m.qty, Math.floor(m.at.getTime() / 60_000)].join("|")).sort();
+    const others = (m: (typeof on.movements)[number]) => !touched.has(m.sku);
+    expect(history(on, others)).toEqual(history(off, others));
+    const lines = (d: typeof on) => d.stocktakeLines.filter((l) => !touched.has(l.sku)).map((l) => [l.stocktakeId, l.sku, l.batchId, l.counted].join("|")).sort();
+    expect(lines(on)).toEqual(lines(off));
+    const heroIds = new Set(on.batches.filter((b) => b.batchCode === HERO_BATCH).map((b) => b._id));
+    const hero = (m: (typeof on.movements)[number]) => heroIds.has(m.batchId);
+    expect(history(on, hero).length).toBeGreaterThan(0);
+    expect(history(on, hero)).toEqual(history(off, hero));
+  });
+
+  // Values from the pre-Milestone-3 generator (628fe5d): the scenario must not move the recall demo's figures.
+  it.each([
+    ["PREVIEW", "2026-06-30T23:00:00Z", 4, PREVIEW],
+    ["PREVIEW", "2026-10-11T12:00:00Z", 6, PREVIEW],
+    ["FULL", "2026-06-30T23:00:00Z", 11, FULL],
+    ["FULL", "2026-10-11T12:00:00Z", 24, FULL],
+  ] as const)("%s at %s keeps the hero batch's on-hand at %i", (_name, at, expected, cfg) => {
+    const data = generateSeed({ ...cfg, anchor: new Date(at) });
+    const heroIds = new Set(data.batches.filter((b) => b.batchCode === HERO_BATCH).map((b) => b._id));
+    expect(data.movements.filter((m) => heroIds.has(m.batchId)).reduce((n, m) => n + m.qty, 0)).toBe(expected);
+  }, 30_000);
+
   it.each([["PREVIEW", PREVIEW], ["FULL", FULL]] as const)("%s has at least 10 transfer suggestions, listed in under a second", async (_name, cfg) => {
     const db = t.client.db(`${t.db.databaseName}_x`);
     try {
