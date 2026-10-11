@@ -1,4 +1,5 @@
 import { spawn } from "node:child_process";
+import { mkdirSync, writeFileSync } from "node:fs";
 import { MongoClient } from "mongodb";
 import { MongoMemoryReplSet } from "mongodb-memory-server";
 import { writeSeed } from "@/seed/apply";
@@ -7,6 +8,9 @@ import { PREVIEW, generateSeed } from "@/seed/generate";
 // Self-contained E2E backend: in-memory replica set + preview seed + Next server.
 const rs = await MongoMemoryReplSet.create({ replSet: { count: 1, storageEngine: "wiredTiger" } });
 const uri = rs.getUri();
+const URI_FILE = ".data/e2e-mongo-uri"; // read by specs that check the ledger after their writes
+mkdirSync(".data", { recursive: true });
+writeFileSync(URI_FILE, uri);
 const client = await MongoClient.connect(uri);
 const anchor = new Date();
 const report = await writeSeed(client.db("bb_e2e"), generateSeed({ ...PREVIEW, anchor }), anchor);
