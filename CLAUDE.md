@@ -16,3 +16,10 @@ Key routing rules:
 - Save progress → invoke /context-save
 - Resume context → invoke /context-restore
 - Author a backlog-ready spec/issue → invoke /spec
+
+## Testing
+
+- Unit/integration (vitest, real in-memory Mongo replica set): `npm test`
+- Typecheck and lint: `npm run typecheck`, `npm run lint`
+- E2E (Playwright): `npm run build && E2E_PROD=1 npm run test:e2e`. This is what CI runs. Under `next dev`
+  (no `E2E_PROD`) the first run after file churn can loop on /login; use the production build for a clean signal.
