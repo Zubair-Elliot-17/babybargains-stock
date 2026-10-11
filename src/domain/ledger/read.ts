@@ -357,7 +357,11 @@ export async function latestStocktakeForBranch(db: Db, branchId: string): Promis
 
 // Current stock, 8-week sales, policy and stocktake state per SKU and branch. Recalled batches hold
 // no stock (quarantine zeroes them in the same transaction), so on-hand is ACTIVE stock only.
-export async function loadTransferInputs(c: Cols, now: Date, opts: { sku?: string; session?: ClientSession } = {}): Promise<SkuStock[]> {
+export async function loadTransferInputs(
+  c: Cols,
+  now: Date,
+  opts: { sku?: string; session?: ClientSession; openBranchIds?: string[] } = {}, // openBranchIds: already read by the caller
+): Promise<SkuStock[]> {
   const { session } = opts;
   const bySku = opts.sku ? { sku: opts.sku } : {};
   const since = new Date(now.getTime() - VELOCITY_DAYS * DAY);
@@ -379,7 +383,7 @@ export async function loadTransferInputs(c: Cols, now: Date, opts: { sku?: strin
         { session },
       )
       .toArray(),
-    c.stocktakes.distinct("branchId", { status: "OPEN" }, { session }),
+    opts.openBranchIds ?? c.stocktakes.distinct("branchId", { status: "OPEN" }, { session }),
   ]);
   const key = (x: { branchId: string; sku: string }) => `${x.branchId}|${x.sku}`;
   const onHand = new Map(stock.map((r) => [key(r._id), r.onHand]));
@@ -415,11 +419,11 @@ export interface TransfersView {
 export async function listTransferSuggestions(db: Db, opts: { now?: Date; to?: string } = {}): Promise<TransfersView> {
   const c = cols(db);
   const now = opts.now ?? new Date();
-  const [inputs, branches, open] = await Promise.all([
-    loadTransferInputs(c, now),
-    c.branches.find({}, { projection: { name: 1 } }).sort({ name: 1 }).toArray(),
+  const [open, branches] = await Promise.all([
     c.stocktakes.distinct("branchId", { status: "OPEN" }),
+    c.branches.find({}, { projection: { name: 1 } }).sort({ name: 1 }).toArray(),
   ]);
+  const inputs = await loadTransferInputs(c, now, { openBranchIds: open });
   const ranked = suggestTransfers(inputs).filter((s) => !opts.to || s.toBranchId === opts.to);
   const skus = [...new Set(ranked.map((s) => s.sku))];
   const [products, rows] = await Promise.all([
