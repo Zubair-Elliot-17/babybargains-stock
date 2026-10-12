@@ -506,6 +506,6 @@ export async function approveStocktake(c: Cols, s: ClientSession, ctx: CommandCt
     unitsAdded: up,
     unitsRemoved: down,
     unitsQuarantined: plan.lines.reduce((n, l) => n + l.quarantined, 0),
-    valuePence: plan.lines.reduce((n, l) => n + l.valuePence, 0),
+    valuePence: plan.lines.reduce((n, l) => n + (l.quarantined ? 0 : l.valuePence), 0), // a quarantined line's whole variance is quarantined
   };
 }

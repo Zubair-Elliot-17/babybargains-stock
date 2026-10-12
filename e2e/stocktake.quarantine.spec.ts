@@ -30,7 +30,7 @@ test("units found on a recalled batch are shown and reported as quarantined", as
     const boxes = page.getByRole("checkbox");
     for (let i = 0; i < (await boxes.count()); i++) await boxes.nth(i).check();
     await page.getByRole("button", { name: "Approve stocktake" }).click();
-    await expect(page.getByRole("status").filter({ hasText: /^Approved:/ })).toContainText("0 units removed, 2 added, 2 quarantined (");
+    await expect(page.getByRole("status").filter({ hasText: /^Approved:/ })).toContainText("0 units removed, 2 added, 2 quarantined (£0.00 at retail).");
 
     const onHand = await db.collection("inventory").find({ batchId: batch!._id, onHand: { $gt: 0 } }).toArray();
     expect(onHand).toEqual([]);

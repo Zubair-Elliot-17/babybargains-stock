@@ -161,6 +161,16 @@ describe("found units on a recalled batch", () => {
     expect((await checkLedgerInvariants(t.db)).violations).toEqual([]);
   });
 
+  it("the approval's retail value leaves out quarantined units", async () => {
+    await recallB1();
+    const st = (await open()).result;
+    await count(st._id, COT, 3, OLD); // +3 quarantined, £300 at retail
+    await count(st._id, TOY, 6); // +2 at £5
+    await run((c, s, k) => submitStocktake(c, s, k, { stocktakeId: st._id, sid: "clerk-1", uncounted: "leave" }));
+    const { result } = await run((c, s, k) => approveStocktake(c, s, k, { stocktakeId: st._id, acceptedKeys: [`${COT}|${OLD}`] }));
+    expect(result).toMatchObject({ unitsAdded: 5, unitsQuarantined: 3, valuePence: 1000 });
+  });
+
   it("posts the pair once: a replayed approval returns the first result, a second one is refused", async () => {
     await recallB1();
     const id = await countFound(2);
