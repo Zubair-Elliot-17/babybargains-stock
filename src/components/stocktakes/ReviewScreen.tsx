@@ -168,13 +168,14 @@ function LineTable({ lines, accept }: { lines: ReviewLine[]; accept?: { accepted
             <th scope="row">
               {l.productName}
               <span className={styles.sub}>counted {when(l.countedAt)} UTC{l.clampedBy ? ` · ${l.clampedBy} sold since; adjustment capped` : ""}
-                {l.quarantined ? ` · Recalled batch: ${count(l.quarantined, "found unit")} quarantined` : ""}</span>
+                {l.quarantined ? <> · <span className={styles.warn}>{`Recalled batch: ${count(l.quarantined, "found unit")} quarantined`}</span></> : null}</span>
             </th>
             <td className={`mono ${styles.code}`}>{l.batchCode ?? "–"}</td>
             <td className="num"><span className="estimated" title="System stock at the moment this line was counted">{l.expected}</span></td>
             <td className="num">{l.counted}</td>
-            <td className={`num ${l.variance < 0 ? styles.neg : styles.pos}`}>{l.variance > 0 ? `+${l.variance}` : l.variance}</td>
-            <td className="num">{money(l.valuePence)}</td>
+            {/* Quarantined units never become sellable: neutral variance, no retail value (matches the approval total). */}
+            <td className={`num ${l.quarantined ? "" : l.variance < 0 ? styles.neg : styles.pos}`}>{l.variance > 0 ? `+${l.variance}` : l.variance}</td>
+            <td className="num">{money(l.quarantined ? 0 : l.valuePence)}</td>
             {accept && (
               <td>
                 <label className={styles.accept}>
