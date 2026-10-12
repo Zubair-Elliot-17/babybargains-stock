@@ -192,6 +192,32 @@ describe("found units on a recalled batch", () => {
     expect((await checkLedgerInvariants(t.db)).violations).toEqual([]);
   });
 
+  it("a recall that snapshotted before an approval committed conflicts, and its retry pulls the found units", async () => {
+    await run((c, s, k) => recordSale(c, s, k, { branchId: "BR-A", lines: [{ sku: COT, qty: 2 }] })); // OLD row at 0
+    const id = await countFound(2);
+    const a = t.client.startSession();
+    const r = t.client.startSession();
+    try {
+      a.startTransaction();
+      const approved = await approveStocktake(cols(t.db), a, ctx(), { stocktakeId: id, acceptedKeys: [`${COT}|${OLD}`] });
+      expect(approved).toMatchObject({ unitsAdded: 2, unitsQuarantined: 0 }); // B-1 still ACTIVE: a bare +2
+      r.startTransaction();
+      await cols(t.db).batches.findOne({ _id: OLD }, { session: r }); // snapshot: OLD at 0 here
+      await a.commitTransaction();
+      const err = await quarantineBatch(cols(t.db), r, ctx(), { batchCode: "B-1" }).catch((e) => e);
+      expect(err?.hasErrorLabel?.("TransientTransactionError")).toBe(true); // its branch-lock write conflicts
+      await r.abortTransaction().catch(() => {});
+    } finally {
+      await a.endSession();
+      await r.endSession();
+    }
+    const { result } = await recallB1();
+    expect(result).toMatchObject({ units: 2, branches: 1 });
+    expect(await onHand(OLD)).toBe(0);
+    expect(await projectionDiff(t.db)).toEqual([]);
+    expect((await checkLedgerInvariants(t.db)).violations).toEqual([]);
+  });
+
   it.each([
     { name: "a bare stocktake ADJUSTMENT", moves: [{ type: "ADJUSTMENT", qty: 2 }], want: /stocktake st-x nets 2 on recalled .*B-1/ },
     { name: "an unpaired stocktake RECALLED", moves: [{ type: "ADJUSTMENT", qty: 2 }, { type: "RECALLED", qty: -1 }], want: /nets 1/ },
