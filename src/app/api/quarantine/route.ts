@@ -1,7 +1,7 @@
 import { z } from "zod";
 import { DomainError } from "@/domain/errors";
 import { normaliseBatchCode } from "@/domain/ledger/read";
-import { quarantineBatch } from "@/domain/ledger/write";
+import { assertRecallable, quarantineBatch } from "@/domain/ledger/write";
 import { CommandId, handleCommand } from "@/lib/command";
 
 const BatchCode = z.string().trim().min(1).max(40).transform(normaliseBatchCode);
@@ -17,6 +17,7 @@ export async function POST(req: Request) {
       if (input.confirmCode !== input.batchCode) {
         throw new DomainError("CONFIRM_MISMATCH", `Type ${input.batchCode} to confirm`, 400);
       }
+      assertRecallable(input.batchCode);
     },
     run: (c, s, ctx, input) => quarantineBatch(c, s, ctx, { batchCode: input.batchCode }),
   });

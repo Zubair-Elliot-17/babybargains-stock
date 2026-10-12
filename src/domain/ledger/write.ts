@@ -269,6 +269,11 @@ export interface QuarantineResult {
   branches: number;
 }
 
+// UNBATCHED is a per-SKU catch-all for found stock, not a supplier batch; recalling it would pull unrelated units.
+export function assertRecallable(batchCode: string): void {
+  if (batchCode === "UNBATCHED") throw new DomainError("UNBATCHED_RECALL", "Stock without a batch code can't be recalled; recall the supplier's batch code", 400);
+}
+
 // Marks every ACTIVE batch with this code RECALLED and pulls its current stock everywhere.
 export async function quarantineBatch(
   c: Cols,
@@ -276,8 +281,7 @@ export async function quarantineBatch(
   ctx: CommandCtx,
   input: { batchCode: string },
 ): Promise<QuarantineResult> {
-  // UNBATCHED is a per-SKU catch-all for found stock, not a supplier batch; recalling it would pull unrelated units.
-  if (input.batchCode === "UNBATCHED") throw new DomainError("UNBATCHED_RECALL", "Stock without a batch code can't be recalled; recall the supplier's batch code", 400);
+  assertRecallable(input.batchCode); // backstop: the route refuses it before spending rate-limit budget
   const now = ctx.now ?? new Date();
   const all = await c.batches.find({ batchCode: input.batchCode }, { session: s }).toArray();
   if (!all.length) throw new NotFound(`No batch ${input.batchCode} found`);
