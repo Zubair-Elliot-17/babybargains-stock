@@ -190,6 +190,27 @@ describe("accept vs stocktake race", () => {
     }
   });
 
+  it("two uncommitted accepts on the same donor conflict instead of both moving the surplus", async () => {
+    const a = t.client.startSession();
+    const b = t.client.startSession();
+    try {
+      a.startTransaction();
+      await acceptTransferSuggestion(cols(t.db), a, ctx(), { sku: COT, fromBranchId: "BR-A", toBranchId: "BR-B", qty: 3 });
+      b.startTransaction();
+      const err = await acceptTransferSuggestion(cols(t.db), b, ctx(), { sku: COT, fromBranchId: "BR-A", toBranchId: "BR-B", qty: 3 }).catch((e) => e);
+      expect(err?.hasErrorLabel?.("TransientTransactionError")).toBe(true);
+      await b.abortTransaction().catch(() => {});
+      await a.commitTransaction();
+    } finally {
+      await a.endSession();
+      await b.endSession();
+    }
+    // withTransaction's retry then sees the first move.
+    await expect(run((c, s, k) => acceptTransferSuggestion(c, s, k, { sku: COT, fromBranchId: "BR-A", toBranchId: "BR-B", qty: 3 })))
+      .rejects.toMatchObject({ code: "SUGGESTION_STALE", details: { suggestedQty: 0 } });
+    expect(await cols(t.db).movements.countDocuments({ refType: "transfer" })).toBe(2);
+  });
+
   it("a count line that revives an idle stocktake conflicts with an uncommitted accept", async () => {
     const { result: st } = await run((c, s, k) => openStocktake(c, s, k, { branchId: "BR-B", sid: "clerk", clerkLabel: "Clerk" }), { now: new Date(Date.now() - 3 * 3_600_000) });
     const a = t.client.startSession();

@@ -104,14 +104,17 @@ export function TransfersScreen({ rows, emptyText }: { rows: TransferRow[]; empt
       const body = await res.json().catch(() => null);
       const message = body?.error?.message ?? "Couldn't move the stock. Retry";
       const code = body?.error?.code;
-      if (code === "COMMAND_ID_REUSED") {
-        setCommandId(crypto.randomUUID()); // nothing ran; a fresh id lets the next Accept go through
-        return setError("Nothing moved. Accept again to retry.");
-      }
-      if (!res.ok && code !== "SUGGESTION_STALE" && code !== "STOCKTAKE_OPEN") return setError(message);
-      // Moved, or the list is out of date (stock changed or a stocktake started): reload the suggestions.
+      // The body is fixed per opened suggestion, so a reused id means this Accept already ran (under an
+      // earlier sign-in). Never offer to move it again; show the refreshed list instead.
+      const sent = code === "COMMAND_ID_REUSED";
+      if (!res.ok && !sent && code !== "SUGGESTION_STALE" && code !== "STOCKTAKE_OPEN") return setError(message);
+      // Moved, already sent, or the list is out of date (stock changed or a stocktake started): reload it.
       setSelected(null);
-      notify(res.ok ? `Moved ${count(row.qty, "unit")} of ${row.productName} from ${row.fromName} to ${row.toName}.` : message);
+      notify(
+        res.ok
+          ? `Moved ${count(row.qty, "unit")} of ${row.productName} from ${row.fromName} to ${row.toName}.`
+          : sent ? "This transfer was already sent. The list is up to date." : message,
+      );
       refocus.current = true;
       router.refresh();
     } catch {
