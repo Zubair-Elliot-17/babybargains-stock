@@ -2,7 +2,7 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { cols } from "@/domain/collections";
 import { DomainError } from "@/domain/errors";
 import { checkLedgerInvariants, listTransferSuggestions, loadTransferInputs, projectionDiff } from "@/domain/ledger/read";
-import { acceptTransferSuggestion, openStocktake, receiveStock, recordSale, submitStocktake, transferStock } from "@/domain/ledger/write";
+import { acceptTransferSuggestion, openStocktake, receiveStock, recordSale, saveCountLine, submitStocktake, transferStock } from "@/domain/ledger/write";
 import { migrate } from "@/seed/apply";
 import { freshDb } from "./helpers";
 import { COT, NEW, OLD, TOY, TOYB, buildWorld, ctx, runner } from "./world";
@@ -41,6 +41,17 @@ describe("transfer suggestions from the ledger", () => {
       { branchId: "BR-A", onHand: 20, sold56: 0, policy: { reorderPoint: 2, overstockWeeks: 6 }, stocktakeOpen: false },
       { branchId: "BR-B", onHand: 0, sold56: 3, policy: { reorderPoint: 2, overstockWeeks: 6 }, stocktakeOpen: false },
     ]));
+  });
+
+  it("uses whole UTC days, so a suggestion seen in the morning is still the one accepted at night", async () => {
+    const dayStart = new Date(new Date().toISOString().slice(0, 10)).getTime();
+    // Inside a window sliding back from 06:00, outside one sliding back from 18:00.
+    await run((c, s, k) => receiveStock(c, s, k, { branchId: "BR-B", sku: TOY, batchId: TOYB, qty: 1 }), { now: new Date(dayStart - 57 * DAY) });
+    await run((c, s, k) => recordSale(c, s, k, { branchId: "BR-B", lines: [{ sku: TOY, qty: 1 }] }), { now: new Date(dayStart - 56 * DAY + 12 * 3_600_000) });
+    const sold = async (hour: number) =>
+      (await loadTransferInputs(cols(t.db), new Date(dayStart + hour * 3_600_000), { skus: [TOY] }))[0].branches.find((b) => b.branchId === "BR-B")!.sold56;
+    expect(await sold(0.01)).toBe(3);
+    expect(await sold(23.99)).toBe(3);
   });
 
   it("lists ranked suggestions with names and the FIFO batches that would move", async () => {
@@ -171,6 +182,24 @@ describe("accept vs stocktake race", () => {
       b.startTransaction();
       const err = await openStocktake(cols(t.db), b, ctx(), { branchId: "BR-B", sid: "clerk", clerkLabel: "Clerk" }).catch((e) => e);
       expect(err?.hasErrorLabel?.("TransientTransactionError")).toBe(true); // withTransaction retries, then sees the transfer
+      await b.abortTransaction().catch(() => {});
+      await a.commitTransaction();
+    } finally {
+      await a.endSession();
+      await b.endSession();
+    }
+  });
+
+  it("a count line that revives an idle stocktake conflicts with an uncommitted accept", async () => {
+    const { result: st } = await run((c, s, k) => openStocktake(c, s, k, { branchId: "BR-B", sid: "clerk", clerkLabel: "Clerk" }), { now: new Date(Date.now() - 3 * 3_600_000) });
+    const a = t.client.startSession();
+    const b = t.client.startSession();
+    try {
+      a.startTransaction();
+      await acceptTransferSuggestion(cols(t.db), a, ctx(), { sku: COT, fromBranchId: "BR-A", toBranchId: "BR-B", qty: 1 }); // idle: not blocked
+      b.startTransaction();
+      const err = await saveCountLine(cols(t.db), b, ctx(), { stocktakeId: st._id, lineId: "line-1", sid: "clerk", sku: TOY, counted: 1, mode: "replace" }).catch((e) => e);
+      expect(err?.hasErrorLabel?.("TransientTransactionError")).toBe(true);
       await b.abortTransaction().catch(() => {});
       await a.commitTransaction();
     } finally {

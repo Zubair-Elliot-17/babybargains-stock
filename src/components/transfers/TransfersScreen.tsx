@@ -3,18 +3,19 @@
 import { useRouter } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
 import type { TransferRow } from "@/domain/ledger/read";
+import { VELOCITY_WEEKS } from "@/domain/ledger/transfers";
 import { money } from "@/lib/format";
 import { count } from "@/lib/plural";
 import styles from "./transfers.module.css";
 
 const rowKey = (r: TransferRow) => `${r.sku}|${r.fromBranchId}|${r.toBranchId}`;
 
-// Weeks of cover is derived from 8 weeks of sales, so it is shown as an estimate (DESIGN.md).
+// Weeks of cover is derived from VELOCITY_WEEKS of sales, so it is shown as an estimate (DESIGN.md).
 function Cover({ weeks }: { weeks: number | null }) {
   if (weeks === 0) return <span>out of stock</span>; // a fact, not an estimate
-  const text = weeks === null ? "no sales in 8 wks" : `${weeks < 10 ? weeks.toFixed(1) : Math.round(weeks)} wks cover`;
+  const text = weeks === null ? `no sales in ${VELOCITY_WEEKS} wks` : `${weeks < 10 ? weeks.toFixed(1) : Math.round(weeks)} wks cover`;
   return (
-    <span className="estimated" title="Estimated from sales over the last 8 weeks">
+    <span className="estimated" title={`Estimated from sales over the last ${VELOCITY_WEEKS} weeks`}>
       {text}
       <span className="sr-only"> (estimated)</span>
     </span>
@@ -41,7 +42,7 @@ export function TransfersScreen({ rows, emptyText }: { rows: TransferRow[]; empt
   useEffect(() => {
     const d = sheet.current;
     if (!isOpen || !d) return;
-    const narrow = matchMedia("(max-width: 1279px)");
+    const narrow = matchMedia("(max-width: 1279px)"); // same breakpoint as transfers.module.css
     const sync = () => {
       if (d.open) d.close();
       if (narrow.matches) d.showModal();
@@ -168,7 +169,13 @@ export function TransfersScreen({ rows, emptyText }: { rows: TransferRow[]; empt
       )}
 
       {selected && (
-        <dialog ref={sheet} className={styles.sheet} aria-labelledby="transfer-heading" onCancel={(e) => e.preventDefault()}>
+        <dialog
+          ref={sheet}
+          className={styles.sheet}
+          aria-labelledby="transfer-heading"
+          onCancel={(e) => e.preventDefault()}
+          onClose={() => !sheet.current?.open && close()} // the browser can still close it (repeated Escape)
+        >
           <aside className={styles.panel} aria-labelledby="transfer-heading" onKeyDown={(e) => e.key === "Escape" && !busy && close()}>
             <h2 id="transfer-heading" ref={heading} tabIndex={-1}>
               Move {count(selected.qty, "unit")} · {selected.productName}

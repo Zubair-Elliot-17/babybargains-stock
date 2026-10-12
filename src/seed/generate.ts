@@ -81,10 +81,16 @@ export function generateSeed(cfg: SeedConfig): SeedData {
   // The stocktakes' main-stream draws depend on stock, which the scenario changes. Replaying the
   // plain run's stocktake decisions for every other SKU keeps the main stream, and so every
   // non-scenario SKU's history, identical to the dataset without the scenario.
-  return simulate(cfg, simulate({ ...cfg, transferScenario: false }).tape).data;
+  return simulate(cfg, simulate({ ...cfg, transferScenario: false }, undefined, true).tape).data;
 }
 
-function simulate(cfg: SeedConfig, baseline?: StocktakeTape): { data: SeedData; tape: StocktakeTape } {
+// tapeOnly: the plain run only needs its stocktake tape, so its output rows are dropped as they're made.
+function simulate(cfg: SeedConfig, baseline?: StocktakeTape, tapeOnly = false): { data: SeedData; tape: StocktakeTape } {
+  const rows = <T>(): T[] => {
+    const a: T[] = [];
+    if (tapeOnly) a.push = () => 0;
+    return a;
+  };
   const mainRand = mulberry32(cfg.seed);
   let draws = 0;
   const rand = () => (draws++, mainRand());
@@ -146,10 +152,10 @@ function simulate(cfg: SeedConfig, baseline?: StocktakeTape): { data: SeedData; 
   }
   const inScenario = (d: number, days: number) => d >= cfg.days - days;
 
-  const movements: Movement[] = [];
+  const movements = rows<Movement>();
   const stocktakes: Stocktake[] = [];
-  const stocktakeLines: StocktakeLine[] = [];
-  const salesDays: SalesDay[] = [];
+  const stocktakeLines = rows<StocktakeLine>();
+  const salesDays = rows<SalesDay>();
   const stockPolicies: StockPolicy[] = [];
   const lots = new Map<string, Lot[]>(); // `${branchId}|${sku}`
   const policy = new Map<string, { rp: number; order: number; lambda: number }>();

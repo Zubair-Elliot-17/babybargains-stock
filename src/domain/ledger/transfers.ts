@@ -15,7 +15,7 @@ export interface BranchStock {
   onHand: number; // ACTIVE batches only (UNBATCHED included); recalled stock never counts
   sold56: number; // units SOLD in the last VELOCITY_DAYS
   policy: { reorderPoint: number; overstockWeeks: number } | null;
-  stocktakeOpen: boolean; // an active OPEN stocktake (idle < 2h) freezes the branch on both sides
+  stocktakeOpen: boolean; // an active OPEN stocktake (see activeStocktakes) freezes the branch on both sides
 }
 
 export interface SkuStock {

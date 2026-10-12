@@ -52,6 +52,11 @@ export function QuarantineDialog(props: {
         body: JSON.stringify({ commandId: commandId.current, batchCode: props.batchCode, confirmCode: typed }),
       });
       const body = await res.json().catch(() => null);
+      if (body?.error?.code === "COMMAND_ID_REUSED") {
+        commandId.current = crypto.randomUUID(); // a fresh id gets a real answer
+        setError("That request was already sent. Quarantine again to retry.");
+        return;
+      }
       if (!res.ok) {
         const retryAt = body?.error?.details?.retryAt;
         setError(

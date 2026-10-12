@@ -18,7 +18,6 @@ const { default: TransfersPage } = await import("@/app/(manager)/transfers/page"
 const render = async (to?: string) =>
   JSON.stringify((await TransfersPage({ searchParams: Promise.resolve(to ? { to } : {}) })).props, (k, v) => (k === "type" && typeof v !== "string" ? undefined : v));
 const view = (over: Partial<TransfersView> = {}): TransfersView => ({
-  asOf: new Date(),
   suggestions: [],
   branches: [{ _id: "BR-A", name: "Alpha" }, { _id: "BR-B", name: "Bravo" }],
   blocked: [],

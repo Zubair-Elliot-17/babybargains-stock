@@ -81,17 +81,18 @@ describe("transfer scenario", () => {
     expect(data.movements.filter((m) => heroIds.has(m.batchId)).reduce((n, m) => n + m.qty, 0)).toBe(expected);
   }, 30_000);
 
-  it.each([["PREVIEW", PREVIEW], ["FULL", FULL]] as const)("%s has at least 10 transfer suggestions, listed in under a second", async (_name, cfg) => {
+  it.each([["PREVIEW", PREVIEW], ["FULL", FULL]] as const)("%s has at least 10 transfer suggestions, and each branch's view matches the full list", async (_name, cfg) => {
     const db = t.client.db(`${t.db.databaseName}_x`);
     try {
       await writeSeed(db, generateSeed({ ...cfg, anchor }), anchor);
-      const started = Date.now();
       const view = await listTransferSuggestions(db, { now: anchor });
-      const ms = Date.now() - started;
       expect(view.suggestions.length).toBeGreaterThanOrEqual(10);
       expect(new Set(view.suggestions.map((s) => s.toBranchId)).size).toBeGreaterThanOrEqual(2);
       expect(view.suggestions.every((s) => s.preview.reduce((n, p) => n + p.qty, 0) === s.qty)).toBe(true);
-      if (cfg === FULL) expect(ms).toBeLessThan(1000);
+      // ?to= loads only the SKUs that branch is short of; it must not change what is suggested.
+      for (const b of view.branches) {
+        expect((await listTransferSuggestions(db, { now: anchor, to: b._id })).suggestions).toEqual(view.suggestions.filter((s) => s.toBranchId === b._id));
+      }
     } finally {
       await db.dropDatabase();
     }

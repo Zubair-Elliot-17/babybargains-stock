@@ -355,29 +355,32 @@ export async function latestStocktakeForBranch(db: Db, branchId: string): Promis
 
 // ── Transfers ────────────────────────────────────────────────────────────────
 
-// Current stock, 8-week sales, policy and stocktake state per SKU and branch. Recalled batches hold
-// no stock (quarantine zeroes them in the same transaction), so on-hand is ACTIVE stock only.
+// Current stock, 8-week sales, policy and stocktake state per SKU and branch. On-hand is ACTIVE stock
+// only: quarantine zeroes a recalled batch, but a later stocktake can put found units back on it.
 export async function loadTransferInputs(
   c: Cols,
   now: Date,
-  opts: { sku?: string; session?: ClientSession; openBranchIds?: string[] } = {}, // openBranchIds: already read by the caller
+  opts: { skus?: string[]; session?: ClientSession; openBranchIds?: string[] } = {}, // openBranchIds: already read by the caller
 ): Promise<SkuStock[]> {
   const { session } = opts;
-  const bySku = opts.sku ? { sku: opts.sku } : {};
-  const since = new Date(now.getTime() - VELOCITY_DAYS * DAY);
+  const bySku = opts.skus ? { sku: { $in: opts.skus } } : {};
+  // Whole UTC days ending tonight, so the page and a later Accept the same day see the same sales.
+  const until = new Date(Math.floor(now.getTime() / DAY) * DAY + DAY);
+  const since = new Date(until.getTime() - VELOCITY_DAYS * DAY);
+  const recalled = await c.batches.distinct("_id", { ...bySku, status: "RECALLED" }, { session });
   const [policies, products, stock, sold, open] = await Promise.all([
     c.stockPolicies.find(bySku, { session }).toArray(),
-    c.products.find(opts.sku ? { _id: opts.sku } : {}, { session, projection: { price: 1 } }).toArray(),
+    c.products.find(opts.skus ? { _id: { $in: opts.skus } } : {}, { session, projection: { price: 1 } }).toArray(),
     c.inventory
       .aggregate<{ _id: { branchId: string; sku: string }; onHand: number }>(
-        [{ $match: { ...bySku, onHand: { $gt: 0 } } }, { $group: { _id: { branchId: "$branchId", sku: "$sku" }, onHand: { $sum: "$onHand" } } }],
+        [{ $match: { ...bySku, onHand: { $gt: 0 }, batchId: { $nin: recalled } } }, { $group: { _id: { branchId: "$branchId", sku: "$sku" }, onHand: { $sum: "$onHand" } } }],
         { session },
       )
       .toArray(),
     c.movements
       .aggregate<{ _id: { branchId: string; sku: string }; units: number }>(
         [
-          { $match: { type: "SOLD", at: { $gt: since, $lte: now }, ...bySku } },
+          { $match: { type: "SOLD", at: { $gte: since, $lt: until }, ...bySku } },
           { $group: { _id: { branchId: "$branchId", sku: "$sku" }, units: { $sum: { $multiply: ["$qty", -1] } } } },
         ],
         { session },
@@ -410,10 +413,25 @@ export interface TransferRow extends TransferSuggestion {
 }
 
 export interface TransfersView {
-  asOf: Date;
   suggestions: TransferRow[];
   branches: Pick<Branch, "_id" | "name">[];
   blocked: Pick<Branch, "_id" | "name">[]; // branches left out because a stocktake is open
+}
+
+// SKUs below their reorder point at one branch, counting ACTIVE stock as loadTransferInputs does.
+async function shortSkus(c: Cols, branchId: string): Promise<string[]> {
+  const recalled = await c.batches.distinct("_id", { status: "RECALLED" });
+  const [policies, stock] = await Promise.all([
+    c.stockPolicies.find({ branchId }, { projection: { sku: 1, reorderPoint: 1 } }).toArray(),
+    c.inventory
+      .aggregate<{ _id: string; onHand: number }>([
+        { $match: { branchId, onHand: { $gt: 0 }, batchId: { $nin: recalled } } },
+        { $group: { _id: "$sku", onHand: { $sum: "$onHand" } } },
+      ])
+      .toArray(),
+  ]);
+  const onHand = new Map(stock.map((r) => [r._id, r.onHand]));
+  return policies.filter((p) => (onHand.get(p.sku) ?? 0) < p.reorderPoint).map((p) => p.sku);
 }
 
 export async function listTransferSuggestions(db: Db, opts: { now?: Date; to?: string } = {}): Promise<TransfersView> {
@@ -423,7 +441,8 @@ export async function listTransferSuggestions(db: Db, opts: { now?: Date; to?: s
     c.stocktakes.distinct("branchId", activeStocktakes(now)),
     c.branches.find({}, { projection: { name: 1 } }).sort({ name: 1 }).toArray(),
   ]);
-  const inputs = await loadTransferInputs(c, now, { openBranchIds: open });
+  // A receiving-branch view only needs the SKUs that branch is short of (whole SKUs, so matching is unchanged).
+  const inputs = await loadTransferInputs(c, now, { skus: opts.to ? await shortSkus(c, opts.to) : undefined, openBranchIds: open });
   const ranked = suggestTransfers(inputs).filter((s) => !opts.to || s.toBranchId === opts.to);
   const skus = [...new Set(ranked.map((s) => s.sku))];
   const [products, rows] = await Promise.all([
@@ -451,5 +470,5 @@ export async function listTransferSuggestions(db: Db, opts: { now?: Date; to?: s
       preview,
     };
   });
-  return { asOf: now, suggestions, branches, blocked: branches.filter((b) => open.includes(b._id)) };
+  return { suggestions, branches, blocked: branches.filter((b) => open.includes(b._id)) };
 }

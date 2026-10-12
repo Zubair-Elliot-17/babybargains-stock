@@ -63,6 +63,10 @@ export function ReviewScreen(props: {
         body: JSON.stringify({ commandId: commandId.current, acceptedKeys: [...accepted] }),
       });
       const body = await res.json().catch(() => null);
+      if (body?.error?.code === "COMMAND_ID_REUSED") {
+        commandId.current = crypto.randomUUID(); // a fresh id gets a real answer (approved, or the current state)
+        return setError("That request was already sent. Approve again to retry.");
+      }
       if (!res.ok) return setError(body?.error?.message ?? "Couldn't approve. Retry");
       setResult(body.result);
       router.refresh();

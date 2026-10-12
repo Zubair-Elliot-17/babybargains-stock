@@ -73,7 +73,8 @@ recorded or counted figures are solid.
   retail value. Filter by receiving branch; Review opens a side panel with before/after stock and the
   batches that would move (oldest first); Accept moves the stock at once as a `TRANSFER_OUT/IN` pair.
 - **The rule, per SKU and branch** (policy from `stockPolicies`: reorder point `rp`, overstock weeks
-  `W`; velocity `v` = units sold in the last 8 weeks ÷ 8):
+  `W`; velocity `v` = units sold in the last 8 weeks ÷ 8, counted in whole UTC days so a suggestion holds
+  all day):
   - *donor:* weeks of cover (`onHand ÷ v`, infinite with no sales) above `W`; it keeps
     `max(⌈W·v⌉, rp+1)` and offers the rest.
   - *recipient:* `onHand < rp`; it is refilled to `max(rp+1, ⌈W/2·v⌉)`.
@@ -86,7 +87,7 @@ recorded or counted figures are solid.
   result. The screen and the command share one pure function (`src/domain/ledger/transfers.ts`).
 - **Known limit:** velocity counts recorded sales, so a branch that sold out loses sales it could not
   record and looks slower than it is (see TODOS.md).
-- The seed adds a deterministic scenario (separate random stream): 18 SKUs (or 5% of the catalogue)
+- The seed adds a deterministic scenario (separate random stream): 18 SKUs (or 5% of the catalogue if that is more)
   over-ordered at one branch with slow sales, and short at another after a demand spike and a missed
   delivery, so the demo always has suggestions.
 

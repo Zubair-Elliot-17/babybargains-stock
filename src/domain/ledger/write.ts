@@ -239,7 +239,7 @@ export async function acceptTransferSuggestion(c: Cols, s: ClientSession, ctx: C
   if (open.length) {
     throw new DomainError("STOCKTAKE_OPEN", "A stocktake is in progress at one of these branches. Try again once it is submitted", 409, { branchIds: open });
   }
-  const [stock] = await loadTransferInputs(c, now, { sku: input.sku, session: s });
+  const [stock] = await loadTransferInputs(c, now, { skus: [input.sku], session: s });
   const fresh = stock ? suggestForSku(stock).find((x) => x.fromBranchId === input.fromBranchId && x.toBranchId === input.toBranchId) : undefined;
   const suggestedQty = fresh?.qty ?? 0;
   if (input.qty > suggestedQty) {
@@ -381,7 +381,9 @@ export interface CountLineInput {
 
 export async function saveCountLine(c: Cols, s: ClientSession, ctx: CommandCtx, input: CountLineInput) {
   const now = ctx.now ?? new Date();
-  await ownedOpen(c, s, input.stocktakeId, input.sid);
+  const st = await ownedOpen(c, s, input.stocktakeId, input.sid);
+  // An idle stocktake doesn't block transfers; reviving it must conflict with an Accept in flight.
+  if (now.getTime() - st.lastActivityAt.getTime() >= STALE_MS) await lockBranches(c, s, [st.branchId]);
   const product = await c.products.findOne({ _id: input.sku }, { session: s });
   if (!product) throw new NotFound(`Product ${input.sku} not found`);
   if (product.batchTracked && !input.batchId) throw new DomainError("BATCH_REQUIRED", "Scan or pick the batch for this product", 400);

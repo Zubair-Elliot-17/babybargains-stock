@@ -216,6 +216,31 @@ test("below 1280px the panel opens modal over the table and Escape returns focus
   await expect(opener).toBeFocused();
 });
 
+test("if the browser closes the modal panel itself, the screen follows and the panel reopens", async ({ page }) => {
+  await page.setViewportSize({ width: 1024, height: 768 });
+  await signInManager(page);
+  await page.goto("/transfers");
+  const [first] = await suggestions(page);
+  const opener = page.getByRole("button", { name: first.label });
+  await opener.click();
+  const dialog = page.getByRole("dialog");
+  await expect(dialog).toBeVisible();
+  // Chrome closes a modal dialog natively on a repeated Escape, even when the cancel event is prevented.
+  await dialog.evaluate((d: HTMLDialogElement) => d.close());
+  await expect(page.locator("dialog")).toHaveCount(0);
+  await expect(opener).toBeFocused();
+  await opener.click();
+  await expect(dialog).toBeVisible();
+});
+
+test("the toast's live region is in the accessibility tree before any message, so screen readers announce it", async ({ page }) => {
+  await signInManager(page);
+  await page.goto("/transfers");
+  await expect(page.locator("tbody tr").first()).toBeVisible();
+  await expect(page.getByRole("status")).toHaveCount(1); // getByRole skips display:none regions
+  await expect(page.getByRole("status")).toHaveText("");
+});
+
 test("an unknown receiving branch says so instead of showing an empty list", async ({ page }) => {
   await signInManager(page);
   await page.goto("/transfers?to=BR-NOPE");

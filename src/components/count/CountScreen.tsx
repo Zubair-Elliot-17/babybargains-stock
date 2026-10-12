@@ -125,21 +125,25 @@ export function CountScreen(props: {
         body: JSON.stringify({ commandId: pending.lineId, sku: pending.sku, batchId: pending.batchId, counted: pending.counted, mode: pending.mode }),
       });
       const body = await res.json().catch(() => null);
-      if (!res.ok) {
+      // The line id is only reused by this retry, so COMMAND_ID_REUSED means the server already holds this
+      // line (saved before a re-login). A new id would count it twice.
+      const held = body?.error?.code === "COMMAND_ID_REUSED";
+      if (!res.ok && !held) {
         setFailed({ pending, message: body?.error?.message ?? "Not saved. Retry" });
         return;
       }
+      const result = held ? { counted: pending.counted, countedAt: new Date().toISOString() } : body.result;
       const name = bySku.get(pending.sku)?.name ?? pending.sku;
       setEntries((list) => [
         ...list,
         {
           _id: pending.lineId, sku: pending.sku, batchId: pending.batchId,
           batchCode: batches?.find((b) => b.batchId === pending.batchId)?.batchCode,
-          counted: pending.counted, mode: pending.mode, countedAt: body.result.countedAt,
+          counted: pending.counted, mode: pending.mode, countedAt: result.countedAt,
         },
       ]);
       if (pending.batchId) safeSet(`bb-batch:${pending.sku}`, pending.batchId);
-      setNotice(`Saved · ${name} × ${body.result.counted}`);
+      setNotice(`Saved · ${name} × ${result.counted}`);
       setProduct(null);
       setEditing(false);
       setQty(1);

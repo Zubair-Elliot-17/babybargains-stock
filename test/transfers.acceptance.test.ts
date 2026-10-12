@@ -36,7 +36,7 @@ describe("transfers acceptance (ledger)", () => {
 
   it("never counts or moves stock from a RECALLED batch, even when it is the oldest", async () => {
     await run((c, s, k) => quarantineBatch(c, s, k, { batchCode: "B-1" }));
-    const [cot] = await loadTransferInputs(cols(t.db), new Date(), { sku: COT });
+    const [cot] = await loadTransferInputs(cols(t.db), new Date(), { skus: [COT] });
     expect(cot.branches.find((b) => b.branchId === "BR-A")!.onHand).toBe(6);
 
     const view = await listTransferSuggestions(t.db);
@@ -54,6 +54,15 @@ describe("transfers acceptance (ledger)", () => {
     expect(await projectionDiff(t.db)).toEqual([]);
   });
 
+  // A stocktake can put found units back on a recalled batch (TODOS.md P1); they are not sellable.
+  it("ignores stock sitting on a RECALLED batch", async () => {
+    await run((c, s, k) => quarantineBatch(c, s, k, { batchCode: "B-1" }));
+    await cols(t.db).inventory.updateOne({ branchId: "BR-A", batchId: OLD }, { $set: { onHand: 4 } });
+    const [cot] = await loadTransferInputs(cols(t.db), new Date(), { skus: [COT] });
+    expect(cot.branches.find((b) => b.branchId === "BR-A")!.onHand).toBe(6);
+    expect((await listTransferSuggestions(t.db)).suggestions.map((s) => [s.qty, s.preview])).toEqual([[3, [{ batchCode: "B-2", qty: 3 }]]]);
+  });
+
   it("with every batch recalled, the donor has nothing to offer", async () => {
     await run((c, s, k) => quarantineBatch(c, s, k, { batchCode: "B-1" }));
     await run((c, s, k) => quarantineBatch(c, s, k, { batchCode: "B-2" }));
@@ -63,23 +72,23 @@ describe("transfers acceptance (ledger)", () => {
     ).rejects.toMatchObject({ code: "SUGGESTION_STALE", details: { suggestedQty: 0 } });
   });
 
-  it("a replayed commandId posts nothing, even with a different body", async () => {
+  it("a replayed commandId posts nothing: the same body replays, a different body is refused", async () => {
     const first = await run(
       (c, s, k) => acceptTransferSuggestion(c, s, k, { sku: COT, fromBranchId: "BR-A", toBranchId: "BR-B", qty: 2 }),
-      { commandId: "acc-same" },
+      { commandId: "acc-same", fingerprint: "qty-2" },
     );
     const count = () => cols(t.db).movements.countDocuments({ refType: "transfer" });
     expect(await count()).toBe(2);
     const same = await run(
       (c, s, k) => acceptTransferSuggestion(c, s, k, { sku: COT, fromBranchId: "BR-A", toBranchId: "BR-B", qty: 2 }),
-      { commandId: "acc-same" },
+      { commandId: "acc-same", fingerprint: "qty-2" },
     );
     expect(same).toEqual({ result: first.result, replayed: true });
-    const different = await run(
+    const different = run(
       (c, s, k) => acceptTransferSuggestion(c, s, k, { sku: COT, fromBranchId: "BR-A", toBranchId: "BR-B", qty: 1 }),
-      { commandId: "acc-same" },
+      { commandId: "acc-same", fingerprint: "qty-1" },
     );
-    expect(different).toEqual({ result: first.result, replayed: true });
+    await expect(different).rejects.toMatchObject({ code: "COMMAND_ID_REUSED", status: 409 });
     expect(await count()).toBe(2);
     expect(await projectionDiff(t.db)).toEqual([]);
   });
@@ -98,7 +107,7 @@ describe("transfers acceptance (ledger)", () => {
 });
 
 describe("transfers page on FULL data", () => {
-  it("the server page loads suggestions and builds its markup in under a second", async () => {
+  it("the server page loads suggestions with an index-led sales read", async () => {
     const anchor = new Date();
     const db = t.client.db(`${t.db.databaseName}_page`);
     const saved = { uri: process.env.MONGODB_URI, db: process.env.MONGODB_DB };
@@ -119,7 +128,20 @@ describe("transfers page on FULL data", () => {
         expect(markup).toMatch(/\d+ suggestions/);
       }
       console.log(`transfers page on FULL: ${timings.map((ms) => ms.toFixed(0)).join(", ")} ms`);
-      expect(Math.max(...timings)).toBeLessThan(1000);
+      // Deterministic stand-in for "fast": the year of movements is never scanned, only the window's sales.
+      await db.command({ profile: 2 });
+      try {
+        await TransfersPage({ searchParams: Promise.resolve({}) });
+      } finally {
+        await db.command({ profile: 0 });
+      }
+      const reads = await db.collection("system.profile").find({ ns: `${db.databaseName}.stockMovements` }).toArray();
+      const sold = await db.collection("stockMovements").countDocuments({ type: "SOLD", at: { $gte: new Date(anchor.getTime() - 57 * 86_400_000) } });
+      expect(reads.length).toBeGreaterThan(0);
+      for (const r of reads) {
+        expect(r.planSummary).not.toMatch(/COLLSCAN/);
+        expect(r.keysExamined).toBeLessThanOrEqual(sold);
+      }
     } finally {
       process.env.MONGODB_URI = saved.uri;
       process.env.MONGODB_DB = saved.db;

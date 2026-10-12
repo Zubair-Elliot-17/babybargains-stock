@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { requireManagerPage } from "@/auth/session";
 import { listTransferSuggestions, type TransfersView } from "@/domain/ledger/read";
+import { VELOCITY_WEEKS } from "@/domain/ledger/transfers";
 import { getDb } from "@/lib/db";
 import { count } from "@/lib/plural";
 import { TransfersScreen } from "@/components/transfers/TransfersScreen";
@@ -42,7 +43,7 @@ export default async function TransfersPage({ searchParams }: { searchParams: Pr
       <h1>Transfers · {n ? `${count(n, "suggestion")}${to ? ` into ${to.name}` : ""}` : "nothing to move"}</h1>
       <p className={styles.meta}>
         Stock from branches with more than their overstock weeks of cover, to branches below their reorder point. Cover uses sales
-        from the last 8 weeks. Accepting moves the stock now, oldest batches first.
+        from the last {VELOCITY_WEEKS} weeks. Accepting moves the stock now, oldest batches first.
       </p>
       <form className={styles.filter} action="/transfers" method="get">
         <div>
