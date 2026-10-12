@@ -170,7 +170,7 @@ function LineTable({ lines, accept }: { lines: ReviewLine[]; accept?: { accepted
               <span className={styles.sub}>counted {when(l.countedAt)} UTC{l.clampedBy ? ` · ${l.clampedBy} sold since; adjustment capped` : ""}
                 {l.quarantined ? ` · Recalled batch: ${count(l.quarantined, "found unit")} quarantined` : ""}</span>
             </th>
-            <td className="mono">{l.batchCode ?? "–"}</td>
+            <td className={`mono ${styles.code}`}>{l.batchCode ?? "–"}</td>
             <td className="num"><span className="estimated" title="System stock at the moment this line was counted">{l.expected}</span></td>
             <td className="num">{l.counted}</td>
             <td className={`num ${l.variance < 0 ? styles.neg : styles.pos}`}>{l.variance > 0 ? `+${l.variance}` : l.variance}</td>

@@ -25,8 +25,16 @@ test("units found on a recalled batch are shown and reported as quarantined", as
     await page.goto("/login");
     await page.getByRole("button", { name: /Manager/ }).click();
     await page.waitForURL(/\/recall/);
+    await page.setViewportSize({ width: 1024, height: 768 });
     await page.goto(`/stocktakes/${stocktakeId}`);
     await expect(page.getByText("Recalled batch: 2 found units quarantined")).toBeVisible();
+    // The longer note must not squeeze the batch code onto two lines (cells share a row's height, so count line boxes).
+    const batchLines = await page.getByRole("cell", { name: RECALLED_BATCH, exact: true }).evaluate((td) => {
+      const r = document.createRange();
+      r.selectNodeContents(td);
+      return new Set([...r.getClientRects()].map((x) => Math.round(x.top))).size;
+    });
+    expect(batchLines).toBe(1);
     const boxes = page.getByRole("checkbox");
     for (let i = 0; i < (await boxes.count()); i++) await boxes.nth(i).check();
     await page.getByRole("button", { name: "Approve stocktake" }).click();
