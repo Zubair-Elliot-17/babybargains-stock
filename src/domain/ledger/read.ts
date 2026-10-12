@@ -257,7 +257,7 @@ export async function computeStocktakePlan(c: Cols, stocktakeId: string, session
         return { batchId: r.batchId, onHand: r.onHand, receivedAt: b.receivedAt, status: b.status, unbatched: b.batchCode === "UNBATCHED" };
       });
     const planned = planLine(
-      { key: x.key, sku: x.sku, batchId: x.batchId, counted: x.counted, expected, pricePence: product.price, lots, newestActiveBatchId: newest.get(x.sku)?.id ?? null },
+      { key: x.key, sku: x.sku, batchId: x.batchId, counted: x.counted, expected, pricePence: product.price, lots, newestActiveBatchId: newest.get(x.sku)?.id ?? null, batchRecalled: !!x.batchId && batchById.get(x.batchId)?.status === "RECALLED" },
       unbatchedBatchId(product.supplierId, x.sku),
     );
     return { ...planned, countedAt: x.countedAt, productName: product.name, batchCode: x.batchId ? batchById.get(x.batchId)?.batchCode : undefined, supplierId: product.supplierId };
