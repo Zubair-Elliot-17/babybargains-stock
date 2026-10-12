@@ -16,6 +16,7 @@ export interface BranchState {
   sold: number;
   adjusted: number;
   quarantined: number;
+  found: number; // units a stocktake found on the batch after its recall (quarantined again at once)
   onHand: number;
 }
 
@@ -24,10 +25,10 @@ export interface FoldResult {
   branches: BranchState[];
 }
 
-const empty = () => ({ received: 0, transferredIn: 0, transferredOut: 0, sold: 0, adjusted: 0, quarantined: 0, onHand: 0 });
+const empty = () => ({ received: 0, transferredIn: 0, transferredOut: 0, sold: 0, adjusted: 0, quarantined: 0, found: 0, onHand: 0 });
 
 // Movements must be sorted by `at`; asOf is inclusive.
-export function foldMovements(movements: CompactMovement[], asOf = Number.POSITIVE_INFINITY): FoldResult {
+export function foldMovements(movements: CompactMovement[], asOf = Number.POSITIVE_INFINITY, recalledAt = Number.POSITIVE_INFINITY): FoldResult {
   const byBranch = new Map<string, BranchState>();
   const totals = empty();
   for (const m of movements) {
@@ -40,7 +41,10 @@ export function foldMovements(movements: CompactMovement[], asOf = Number.POSITI
         case "TRANSFER_IN": s.transferredIn += m.qty; break;
         case "TRANSFER_OUT": s.transferredOut -= m.qty; break;
         case "SOLD": s.sold -= m.qty; break;
-        case "ADJUSTMENT": s.adjusted += m.qty; break;
+        case "ADJUSTMENT":
+          s.adjusted += m.qty;
+          if (m.qty > 0 && m.at > recalledAt) s.found += m.qty;
+          break;
         case "RECALLED": s.quarantined -= m.qty; break;
       }
       s.onHand += m.qty;
