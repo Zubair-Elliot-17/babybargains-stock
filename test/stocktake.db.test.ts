@@ -157,6 +157,7 @@ describe("found units on a recalled batch", () => {
     ]);
     expect(await onHand(OLD)).toBe(0);
     expect(await projectionDiff(t.db)).toEqual([]);
+    expect((await checkLedgerInvariants(t.db)).violations).toEqual([]);
   });
 
   it("posts the pair once: a replayed approval returns the first result, a second one is refused", async () => {
@@ -187,5 +188,29 @@ describe("found units on a recalled batch", () => {
     expect(result).toMatchObject({ unitsAdded: 1, unitsQuarantined: 1 });
     expect(await onHand(OLD)).toBe(0);
     expect(await projectionDiff(t.db)).toEqual([]);
+    expect((await checkLedgerInvariants(t.db)).violations).toEqual([]);
+  });
+
+  it.each([
+    { name: "a bare stocktake ADJUSTMENT", moves: [{ type: "ADJUSTMENT", qty: 2 }], want: /stocktake st-x nets 2 on recalled .*B-1/ },
+    { name: "an unpaired stocktake RECALLED", moves: [{ type: "ADJUSTMENT", qty: 2 }, { type: "RECALLED", qty: -1 }], want: /nets 1/ },
+    { name: "a stocktake ADJUSTMENT taking units off", moves: [{ type: "ADJUSTMENT", qty: -1 }, { type: "RECALLED", qty: 1 }], want: /2 movement\(s\) after recall/ },
+    { name: "a SOLD", moves: [{ type: "SOLD", qty: -1, refType: "sale" }], want: /1 movement\(s\) after recall/ },
+    { name: "a TRANSFER", moves: [{ type: "TRANSFER_IN", qty: 1, refType: "transfer" }], want: /1 movement\(s\) after recall/ },
+    { name: "a pair from a non-stocktake ref", moves: [{ type: "ADJUSTMENT", qty: 1, refType: "quarantine" }, { type: "RECALLED", qty: -1, refType: "quarantine" }], want: /2 movement\(s\) after recall/ },
+  ])("invariant 3 reports $name after the recall", async ({ moves, want }) => {
+    const { result } = await recallB1();
+    const at = new Date(result.recalledAt.getTime() + 1000);
+    await cols(t.db).movements.insertMany(moves.map((m) => ({
+      branchId: "BR-A", sku: COT, batchId: OLD, refType: "stocktake", refId: "st-x", attributed: false, actor: "t", origin: "visitor", at, ...m,
+    })) as never);
+    const { violations } = await checkLedgerInvariants(t.db);
+    expect(violations.some((v) => want.test(v))).toBe(true);
+  });
+
+  it("invariant 3 still reports stock left on a recalled batch", async () => {
+    await recallB1();
+    await cols(t.db).inventory.updateOne({ branchId: "BR-A", batchId: OLD }, { $set: { onHand: 1 } });
+    expect((await checkLedgerInvariants(t.db)).violations).toContain(`recalled batch ${OLD} still has stock in 1 row(s)`);
   });
 });

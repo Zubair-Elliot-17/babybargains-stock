@@ -140,11 +140,21 @@ export async function checkLedgerInvariants(db: Db, maxViolations = 20): Promise
     .toArray();
   unbalanced.forEach((t) => push(`transfer ${t._id} nets ${t.net}`));
 
-  // 3. Nothing but the RECALLED movement touches a batch after its recall.
+  // 3. After its recall a batch only takes stocktake quarantine pairs (ADJUSTMENT +n, RECALLED -n).
   const recalled = await c.batches.find({ status: "RECALLED" }, { projection: { recalledAt: 1 } }).toArray();
   for (const b of recalled) {
-    const late = await c.movements.countDocuments({ batchId: b._id, at: { $gt: b.recalledAt! }, type: { $ne: "RECALLED" } });
+    const after = await c.movements
+      .find({ batchId: b._id, at: { $gt: b.recalledAt! } }, { projection: { type: 1, qty: 1, refType: 1, refId: 1, branchId: 1 } })
+      .toArray();
+    const paired = (m: (typeof after)[number]) => m.refType === "stocktake" && ((m.type === "ADJUSTMENT" && m.qty > 0) || (m.type === "RECALLED" && m.qty < 0));
+    const late = after.filter((m) => !paired(m)).length;
     if (late) push(`${late} movement(s) after recall on ${b._id}`);
+    const net = new Map<string, { refId: string; branchId: string; qty: number }>();
+    for (const m of after.filter(paired)) {
+      const k = `${m.refId}|${m.branchId}`;
+      net.set(k, { refId: m.refId, branchId: m.branchId, qty: (net.get(k)?.qty ?? 0) + m.qty });
+    }
+    for (const g of net.values()) if (g.qty !== 0) push(`stocktake ${g.refId} nets ${g.qty} on recalled ${b._id} at ${g.branchId}`);
     const left = await c.inventory.countDocuments({ batchId: b._id, onHand: { $gt: 0 } });
     if (left) push(`recalled batch ${b._id} still has stock in ${left} row(s)`);
   }
@@ -355,8 +365,7 @@ export async function latestStocktakeForBranch(db: Db, branchId: string): Promis
 
 // ── Transfers ────────────────────────────────────────────────────────────────
 
-// Current stock, 8-week sales, policy and stocktake state per SKU and branch. On-hand is ACTIVE stock
-// only: quarantine zeroes a recalled batch, but a later stocktake can put found units back on it.
+// Current stock, 8-week sales, policy and stocktake state per SKU and branch. On-hand is ACTIVE stock only.
 export async function loadTransferInputs(
   c: Cols,
   now: Date,
