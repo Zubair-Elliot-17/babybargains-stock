@@ -19,6 +19,7 @@ export interface ReviewLine {
   valuePence: number;
   flagged: boolean;
   clampedBy: number;
+  quarantined: number;
   countedAt: string;
 }
 
@@ -26,6 +27,7 @@ interface Approved {
   adjustedLines: number;
   unitsAdded: number;
   unitsRemoved: number;
+  unitsQuarantined?: number;
   valuePence: number;
 }
 
@@ -110,7 +112,7 @@ export function ReviewScreen(props: {
 
       {result && (
         <p className="banner" role="status">
-          Approved: {count(result.adjustedLines, "line")} adjusted, {result.unitsRemoved} units removed, {result.unitsAdded} added ({money(result.valuePence)} at retail).
+          Approved: {count(result.adjustedLines, "line")} adjusted, {result.unitsRemoved} units removed, {result.unitsAdded} added{result.unitsQuarantined ? `, ${result.unitsQuarantined} quarantined` : ""} ({money(result.valuePence)} at retail).
         </p>
       )}
 
@@ -165,7 +167,8 @@ function LineTable({ lines, accept }: { lines: ReviewLine[]; accept?: { accepted
           <tr key={l.key}>
             <th scope="row">
               {l.productName}
-              <span className={styles.sub}>counted {when(l.countedAt)} UTC{l.clampedBy ? ` · ${l.clampedBy} sold since; adjustment capped` : ""}</span>
+              <span className={styles.sub}>counted {when(l.countedAt)} UTC{l.clampedBy ? ` · ${l.clampedBy} sold since; adjustment capped` : ""}
+                {l.quarantined ? ` · Recalled batch: ${count(l.quarantined, "found unit")} quarantined` : ""}</span>
             </th>
             <td className="mono">{l.batchCode ?? "–"}</td>
             <td className="num"><span className="estimated" title="System stock at the moment this line was counted">{l.expected}</span></td>
