@@ -2,15 +2,6 @@
 
 Deferred during plan review. Each has the context needed to pick it up later.
 
-## Found units on a recalled batch (P1)
-- **What:** stocktake approval posts a positive count variance straight onto the counted batch, even
-  when that batch is RECALLED (`planLine` in `src/domain/ledger/stocktake.ts`). That puts sellable-looking
-  stock back on a recalled batch and breaks the "nothing touches a batch after its recall" invariant.
-- **Why:** recalled units found on a shelf must stay quarantined, not return to stock.
-- **Context:** found in the Milestone 3 /ship review. Transfers already ignore stock on RECALLED batches
-  (`loadTransferInputs`); recall pull lists and stock screens don't. Decide whether approval records
-  found recalled units as a quarantine movement or refuses the line, then add a ledger property case.
-
 ## Velocity window: 56 whole days (P3)
 - **What:** end the transfers velocity window at today 00:00 UTC so it covers 56 whole days.
 - **Why:** today it is 55 whole days plus today's partial day over 8 weeks, so early in the UTC day
