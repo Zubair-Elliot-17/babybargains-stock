@@ -5,7 +5,7 @@ import { checkLedgerInvariants, computeStocktakePlan, findRecall, projectionDiff
 import { approveStocktake, openStocktake, quarantineBatch, receiveStock, recordSale, saveCountLine, submitStocktake } from "@/domain/ledger/write";
 import { migrate } from "@/seed/apply";
 import { freshDb } from "./helpers";
-import { COT, NEW, OLD, TOY, TOYB, buildWorld, runner } from "./world";
+import { COT, NEW, OLD, TOY, TOYB, buildWorld, ctx, runner } from "./world";
 
 let t: Awaited<ReturnType<typeof freshDb>>;
 let run: ReturnType<typeof runner>;
@@ -167,5 +167,25 @@ describe("found units on a recalled batch", () => {
     expect(again).toEqual({ result: first.result, replayed: true });
     await expect(approve(id)).rejects.toMatchObject({ code: "NOT_SUBMITTED", status: 409 });
     expect(await cols(t.db).movements.countDocuments({ refType: "stocktake", refId: id })).toBe(2);
+  });
+
+  it("a recall committing mid-approval conflicts, and the retry quarantines the found units", async () => {
+    await run((c, s, k) => recordSale(c, s, k, { branchId: "BR-A", lines: [{ sku: COT, qty: 2 }] })); // OLD sold out: the recall pulls nothing here
+    const id = await countFound(1);
+    const a = t.client.startSession();
+    try {
+      a.startTransaction();
+      await cols(t.db).stocktakes.findOne({ _id: id }, { session: a }); // snapshot: B-1 still ACTIVE
+      await recallB1();
+      const err = await approveStocktake(cols(t.db), a, ctx(), { stocktakeId: id, acceptedKeys: [`${COT}|${OLD}`] }).catch((e) => e);
+      expect(err?.hasErrorLabel?.("TransientTransactionError")).toBe(true); // withTransaction retries with the recall visible
+      await a.abortTransaction().catch(() => {});
+    } finally {
+      await a.endSession();
+    }
+    const { result } = await approve(id);
+    expect(result).toMatchObject({ unitsAdded: 1, unitsQuarantined: 1 });
+    expect(await onHand(OLD)).toBe(0);
+    expect(await projectionDiff(t.db)).toEqual([]);
   });
 });

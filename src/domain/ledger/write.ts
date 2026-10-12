@@ -284,6 +284,8 @@ export async function quarantineBatch(
     const recalledAt = all.map((b) => b.recalledAt).filter(Boolean).sort().at(-1) ?? now;
     return { batchCode: input.batchCode, alreadyRecalled: true, recalledAt, pullList: [], units: 0, branches: 0 };
   }
+  // An approval reads batch status without writing the batch; locking every branch makes it retry after this.
+  await lockBranches(c, s, await c.branches.distinct("_id", {}, { session: s }));
   const rows = await c.inventory
     .find({ batchId: { $in: active.map((b) => b._id) }, onHand: { $gt: 0 } }, { session: s })
     .toArray();
