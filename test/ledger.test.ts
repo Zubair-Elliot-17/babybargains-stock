@@ -125,6 +125,17 @@ describe("quarantineBatch", () => {
     expect((await checkLedgerInvariants(t.db)).ok).toBe(true);
   });
 
+  it("refuses to recall the UNBATCHED code and posts nothing", async () => {
+    const id = "SUP-W:UNBATCHED:TOY-T";
+    await cols(t.db).batches.insertOne({ _id: id, supplierId: "SUP-W", batchCode: "UNBATCHED", sku: TOY, parentSku: TOY, receivedAt: new Date(), status: "ACTIVE" });
+    await run((c, s, k) => receiveStock(c, s, k, { branchId: "BR-A", sku: TOY, batchId: id, qty: 2 }));
+    const before = await cols(t.db).movements.countDocuments();
+    await expect(run((c, s, k) => quarantineBatch(c, s, k, { batchCode: "UNBATCHED" }))).rejects.toMatchObject({ code: "UNBATCHED_RECALL", status: 400 });
+    expect(await cols(t.db).movements.countDocuments()).toBe(before);
+    expect(await cols(t.db).batches.findOne({ _id: id })).toMatchObject({ status: "ACTIVE" });
+    expect(await onHand("BR-A", id)).toBe(2);
+  });
+
   // Invariant: nothing but the RECALLED movement touches a batch after its recall.
   it.each(["quarantine-first", "sale-first"])("holds the recall invariant when sale and quarantine race (%s)", async (order) => {
     const sale = () => run((c, s, k) => recordSale(c, s, k, { branchId: "BR-A", lines: [{ sku: COT, qty: 2 }] }));

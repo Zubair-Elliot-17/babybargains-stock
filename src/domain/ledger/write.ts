@@ -276,6 +276,8 @@ export async function quarantineBatch(
   ctx: CommandCtx,
   input: { batchCode: string },
 ): Promise<QuarantineResult> {
+  // UNBATCHED is a per-SKU catch-all for found stock, not a supplier batch; recalling it would pull unrelated units.
+  if (input.batchCode === "UNBATCHED") throw new DomainError("UNBATCHED_RECALL", "Stock without a batch code can't be recalled; recall the supplier's batch code", 400);
   const now = ctx.now ?? new Date();
   const all = await c.batches.find({ batchCode: input.batchCode }, { session: s }).toArray();
   if (!all.length) throw new NotFound(`No batch ${input.batchCode} found`);
