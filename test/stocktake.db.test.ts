@@ -150,9 +150,10 @@ describe("found units on a recalled batch", () => {
     const id = await countFound(3);
     const { result } = await approve(id);
     expect(result).toMatchObject({ unitsAdded: 3, unitsRemoved: 0, unitsQuarantined: 3 });
+    const { countedAt } = (await cols(t.db).stocktakeLines.findOne({ stocktakeId: id }))!;
     const pair = await cols(t.db).movements.find({ refType: "stocktake" }, { projection: { _id: 0, actor: 0, origin: 0 } }).toArray();
     expect(pair).toEqual([
-      { type: "ADJUSTMENT", at: result.approvedAt, effectiveAt: expect.any(Date), branchId: "BR-A", sku: COT, batchId: OLD, qty: 3, refType: "stocktake", refId: id, attributed: false },
+      { type: "ADJUSTMENT", at: result.approvedAt, effectiveAt: countedAt, branchId: "BR-A", sku: COT, batchId: OLD, qty: 3, refType: "stocktake", refId: id, attributed: false },
       { type: "RECALLED", at: result.approvedAt, effectiveAt: pair[0].effectiveAt, branchId: "BR-A", sku: COT, batchId: OLD, qty: -3, refType: "stocktake", refId: id, attributed: false },
     ]);
     expect(await onHand(OLD)).toBe(0);
