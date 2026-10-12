@@ -1,6 +1,5 @@
-import { redirect } from "next/navigation";
+import { requireManagerPage } from "@/auth/session";
 import { cols } from "@/domain/collections";
-import { currentSession } from "@/lib/command";
 import { getDb } from "@/lib/db";
 import { Wordmark } from "@/components/Wordmark";
 import { awaitingReviewCount } from "@/domain/ledger/read";
@@ -19,8 +18,7 @@ async function resetStatus(): Promise<string> {
 }
 
 export default async function ManagerLayout({ children }: { children: React.ReactNode }) {
-  const session = await currentSession();
-  if (!session || session.role !== "manager") redirect("/login");
+  await requireManagerPage();
   return (
     <div className={styles.shell}>
       <nav className={styles.rail} aria-label="Main">

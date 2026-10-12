@@ -1,4 +1,4 @@
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import type { ClientSession } from "mongodb";
 import { cookies } from "next/headers";
 import { NextResponse } from "next/server";
@@ -7,7 +7,7 @@ import { consume, type ActionClass } from "@/auth/rateLimit";
 import { COOKIE, requireRole, verifySession, type Role, type Session } from "@/auth/session";
 import { cols, type Cols } from "@/domain/collections";
 import { DomainError } from "@/domain/errors";
-import { runCommand, type CommandCtx } from "@/domain/ledger/write";
+import { assertSameCommand, runCommand, type CommandCtx } from "@/domain/ledger/write";
 import { logCommand } from "@/ops/log";
 import { getClient, getDb } from "./db";
 
@@ -34,6 +34,7 @@ export async function handleCommand<I extends { commandId: string }, T>(
   req: Request,
   opts: {
     name: string;
+    target?: string; // route param (e.g. stocktake id), part of the fingerprint
     role: Role;
     actionClass: ActionClass;
     input: z.ZodType<I>;
@@ -49,15 +50,17 @@ export async function handleCommand<I extends { commandId: string }, T>(
     session = requireRole(await currentSession(), opts.role);
     const input = opts.input.parse(await req.json());
     commandId = input.commandId;
+    const fingerprint = createHash("sha256").update(JSON.stringify([opts.name, session.sid, input, ...(opts.target ? [opts.target] : [])])).digest("hex");
     const [client, db] = await Promise.all([getClient(), getDb()]);
     const prior = await cols(db).commandLog.findOne({ _id: commandId, result: { $ne: null } });
     if (prior) {
+      assertSameCommand(prior, fingerprint);
       logCommand({ requestId, role: session.role, branchId: session.branchId, command: opts.name, commandId, outcome: "replayed", ms: Date.now() - started });
       return NextResponse.json({ result: prior.result, replayed: true });
     }
     opts.precheck?.(input);
     await consume(db, session.sid, opts.actionClass);
-    const ctx: CommandCtx = { commandId, actor: `${session.role}:${session.sid.slice(0, 8)}`, origin: "visitor" };
+    const ctx: CommandCtx = { commandId, actor: `${session.role}:${session.sid.slice(0, 8)}`, origin: "visitor", fingerprint };
     const { result, replayed } = await runCommand(client, db, opts.name, ctx, (c, s) => opts.run(c, s, ctx, input, session!));
     logCommand({ requestId, role: session.role, branchId: session.branchId, command: opts.name, commandId, outcome: replayed ? "replayed" : "ok", ms: Date.now() - started });
     return NextResponse.json({ result, replayed });

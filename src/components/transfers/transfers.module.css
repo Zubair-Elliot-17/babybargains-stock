@@ -1,0 +1,174 @@
+.meta {
+  margin: var(--space-2) 0 0;
+  max-width: 72ch;
+  color: var(--color-ink-muted);
+  font-size: var(--text-meta);
+}
+
+.filter {
+  display: flex;
+  align-items: flex-end;
+  gap: var(--space-3);
+  margin: var(--space-6) 0 var(--space-4);
+}
+
+.filter select {
+  min-width: 240px;
+}
+
+.empty {
+  color: var(--color-ink-muted);
+}
+
+.withPanel {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 340px;
+  gap: var(--space-6);
+  align-items: start;
+}
+
+.table tr[data-selected] {
+  background: var(--color-surface-quiet);
+}
+
+.sub {
+  display: block;
+  font-weight: 400;
+  font-size: var(--text-meta);
+  color: var(--color-ink-muted);
+}
+
+/* Beside the panel the table is narrow and long SKUs split mid-code; the panel shows the SKU. */
+@media (min-width: 1280px) {
+  .withPanel .table th .sub {
+    display: none;
+  }
+}
+
+/* A <dialog>: shown in place beside the table, or modal over it below 1280px. */
+.sheet {
+  position: sticky;
+  inset: var(--space-6) auto auto;
+  width: auto;
+  max-width: none;
+  max-height: none;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  color: inherit;
+  background: transparent;
+}
+
+.sheet::backdrop {
+  background: rgba(31, 42, 46, 0.4);
+}
+
+.panel {
+  display: grid;
+  gap: var(--space-3);
+  padding: var(--space-4) 0 var(--space-4) var(--space-6);
+  border-left: 1px solid var(--color-hairline);
+}
+
+.panel h2 {
+  margin: 0;
+}
+
+.panel h2:focus:not(:focus-visible) {
+  outline: none;
+}
+
+.facts {
+  margin: 0;
+  display: grid;
+  gap: var(--space-3);
+}
+
+.facts div {
+  padding-bottom: var(--space-3);
+  border-bottom: 1px solid var(--color-hairline);
+}
+
+.facts dt {
+  font-size: var(--text-meta);
+  font-weight: 500;
+  color: var(--color-ink-muted);
+}
+
+.facts dd {
+  margin: 0;
+}
+
+.small {
+  font-size: var(--text-meta);
+  font-weight: 500;
+  color: var(--color-ink-muted);
+}
+
+.batches {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  font-size: var(--text-table);
+}
+
+.actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: var(--space-3);
+}
+
+.toast {
+  position: fixed;
+  right: var(--space-6);
+  bottom: var(--space-6);
+  max-width: 420px;
+  margin: 0;
+  padding: var(--space-3) var(--space-4);
+  border-radius: var(--radius);
+  background: var(--color-ink);
+  color: var(--color-surface);
+}
+
+/* Empty, the live region stays rendered (no box): one that was display:none may not be announced. */
+.toast:empty {
+  padding: 0;
+  background: none;
+}
+
+.narrow {
+  display: none;
+}
+
+/* Below 1280px the table and a side panel don't both fit: the panel slides over the table instead.
+   Keep in step with the matchMedia query in TransfersScreen.tsx. */
+@media (max-width: 1279px) {
+  .withPanel {
+    grid-template-columns: 1fr;
+  }
+  .sheet {
+    position: fixed;
+    inset: 0 0 0 auto;
+    width: min(360px, 100%);
+    height: auto;
+    overflow-y: auto;
+    background: var(--color-surface);
+    box-shadow: var(--shadow-dialog);
+  }
+  .panel {
+    align-content: start;
+    padding: var(--space-6);
+  }
+}
+
+/* Phone layouts are deferred (TODOS.md). */
+@media (max-width: 767px) {
+  .narrow {
+    display: block;
+    color: var(--color-ink-muted);
+  }
+  .table,
+  .sheet {
+    display: none;
+  }
+}

@@ -11,6 +11,7 @@ export interface SeedConfig {
   days: number;
   seed: number;
   anchor: Date; // last simulated day ends here
+  transferScenario?: boolean; // default on; off only to compare against in tests
 }
 
 export const FULL: Omit<SeedConfig, "anchor"> = { branches: 15, skus: 300, days: 365, seed: 42 };
@@ -26,6 +27,7 @@ export interface SeedData {
   stockPolicies: StockPolicy[];
   stocktakes: Stocktake[];
   stocktakeLines: StocktakeLine[];
+  transferScenario: string[]; // SKUs given the over/under-stock scenario
 }
 
 export const HERO_BATCH = "B-4471";
@@ -34,6 +36,14 @@ export const RECALLED_BATCH = "B-3920";
 
 const DAY = 86_400_000;
 const CYCLE_DAYS = 28;
+// Transfer scenario: a few SKUs were over-ordered and sell slowly at one branch, while another
+// branch had a demand spike and missed its last delivery.
+const SCENARIO_DAYS = 70; // donor: one 4× order 10 weeks ago, then sales thinned to 40%
+const SCENARIO_OVER_ORDER = 4;
+const SCENARIO_KEEP_SALES = 0.4;
+const SCENARIO_SPIKE_DAYS = 14; // recipient: extra demand at 3× its usual rate
+const SCENARIO_SPIKE = 3;
+const SCENARIO_SKIPPED_DELIVERY_DAYS = 14;
 
 function mulberry32(seed: number) {
   return () => {
@@ -63,8 +73,27 @@ function season(date: Date): number {
   return m === 10 || m === 11 ? 1.6 : m === 0 ? 0.8 : m >= 5 && m <= 7 ? 1.1 : 1;
 }
 
+// What a seeded stocktake decided, keyed by stocktake id, plus how many main-stream draws it made.
+type StocktakeTape = Map<string, { draws: number; skipped: Set<string>; counted: Map<string, number> }>;
+
 export function generateSeed(cfg: SeedConfig): SeedData {
-  const rand = mulberry32(cfg.seed);
+  if (cfg.branches < 2 || cfg.transferScenario === false) return simulate({ ...cfg, transferScenario: false }).data;
+  // The stocktakes' main-stream draws depend on stock, which the scenario changes. Replaying the
+  // plain run's stocktake decisions for every other SKU keeps the main stream, and so every
+  // non-scenario SKU's history, identical to the dataset without the scenario.
+  return simulate(cfg, simulate({ ...cfg, transferScenario: false }, undefined, true).tape).data;
+}
+
+// tapeOnly: the plain run only needs its stocktake tape, so its output rows are dropped as they're made.
+function simulate(cfg: SeedConfig, baseline?: StocktakeTape, tapeOnly = false): { data: SeedData; tape: StocktakeTape } {
+  const rows = <T>(): T[] => {
+    const a: T[] = [];
+    if (tapeOnly) a.push = () => 0;
+    return a;
+  };
+  const mainRand = mulberry32(cfg.seed);
+  let draws = 0;
+  const rand = () => (draws++, mainRand());
   const branches = BRANCHES.slice(0, cfg.branches);
   const products = buildCatalogue(cfg.skus);
   const anchorDay = Math.floor(cfg.anchor.getTime() / DAY) * DAY;
@@ -107,14 +136,31 @@ export function generateSeed(cfg: SeedConfig): SeedData {
     return b;
   };
 
-  const movements: Movement[] = [];
+  // Own RNG stream: the scenario's picks and draws don't consume the main simulation's stream. The
+  // hero and recalled products are never picked, keeping the recall demo's figures stable.
+  const scenarioRand = mulberry32(cfg.seed + 1);
+  const scenario = new Map<string, { donor: string; recipient: string }>();
+  if (branches.length > 1 && cfg.transferScenario !== false) {
+    const pool = products.filter((p) => p.parentSku !== HERO_PARENT && p.parentSku !== recalledParent);
+    const n = Math.min(pool.length, Math.max(18, Math.round(products.length * 0.05)));
+    for (let i = 0; i < n; i++) {
+      const [p] = pool.splice(Math.floor(scenarioRand() * pool.length), 1);
+      const donor = Math.floor(scenarioRand() * branches.length);
+      const recipient = (donor + 1 + Math.floor(scenarioRand() * (branches.length - 1))) % branches.length;
+      scenario.set(p._id, { donor: branches[donor]._id, recipient: branches[recipient]._id });
+    }
+  }
+  const inScenario = (d: number, days: number) => d >= cfg.days - days;
+
+  const movements = rows<Movement>();
   const stocktakes: Stocktake[] = [];
-  const stocktakeLines: StocktakeLine[] = [];
-  const salesDays: SalesDay[] = [];
+  const stocktakeLines = rows<StocktakeLine>();
+  const salesDays = rows<SalesDay>();
   const stockPolicies: StockPolicy[] = [];
   const lots = new Map<string, Lot[]>(); // `${branchId}|${sku}`
   const policy = new Map<string, { rp: number; order: number; lambda: number }>();
   const base = { attributed: false, actor: "seed", origin: "seed" as const };
+  const tape: StocktakeTape = new Map();
 
   for (const b of branches) {
     for (const p of products) {
@@ -158,9 +204,11 @@ export function generateSeed(cfg: SeedConfig): SeedData {
       for (const p of products) {
         const key = `${b._id}|${p._id}`;
         const pol = policy.get(key)!;
-        if (onHand(key) > pol.rp) continue;
+        const overOrder = scenario.get(p._id)?.donor === b._id && d === cfg.days - SCENARIO_DAYS;
+        if (onHand(key) > pol.rp && !overOrder) continue;
+        if (scenario.get(p._id)?.recipient === b._id && inScenario(d, SCENARIO_SKIPPED_DELIVERY_DAYS)) continue;
         const batch = batchFor(p, d);
-        const qty = d === 0 ? pol.order * 2 : pol.order;
+        const qty = d === 0 ? pol.order * 2 : overOrder ? pol.order * SCENARIO_OVER_ORDER : pol.order;
         const list = lots.get(key) ?? [];
         const lot = list.find((l) => l.batchId === batch._id);
         if (lot) lot.onHand += qty;
@@ -174,6 +222,7 @@ export function generateSeed(cfg: SeedConfig): SeedData {
     if (d % 14 === 7 && branches.length > 1) {
       for (let i = 0; i < Math.max(2, Math.round(products.length / 25)); i++) {
         const p = products[Math.floor(rand() * products.length)];
+        if (scenario.has(p._id) && inScenario(d, SCENARIO_DAYS)) continue; // would rebalance the scenario away
         const ranked = branches.map((b) => ({ b, n: onHand(`${b._id}|${p._id}`) })).sort((x, y) => y.n - x.n);
         const from = ranked[0];
         const to = ranked[ranked.length - 1];
@@ -209,21 +258,32 @@ export function generateSeed(cfg: SeedConfig): SeedData {
         ...(approved ? { approvedAt: at(d, 8.7), approvedOrigin: "seed" as const } : {}), origin: "seed",
       });
       let lineNo = 0;
-      const noisy = (n: number, i: number) => {
+      const noisy = (r: () => number, n: number, i: number) => {
         if (!approved && i % 8 === 3 && n > 0) return Math.max(0, n - 3); // guaranteed lines to review
-        const r = rand();
-        return r < 0.1 ? Math.max(0, n - 1) : r < 0.15 ? n + 1 : n;
+        const x = r();
+        return x < 0.1 ? Math.max(0, n - 1) : x < 0.15 ? n + 1 : n;
       };
+      const drawsBefore = draws;
+      const rec = baseline?.get(id);
+      const taped = { draws: 0, skipped: new Set<string>(), counted: new Map<string, number>() };
+      const replay = (sku: string) => rec !== undefined && !scenario.has(sku);
+      const stRand = rec ? scenarioRand : rand; // scenario SKUs' own decisions
       for (const p of products) {
-        if (!approved && rand() > 0.4) continue; // the submitted count covers ~40% of products
+        if (!approved && (replay(p._id) ? rec!.skipped.has(p._id) : stRand() > 0.4)) { // the submitted count covers ~40% of products
+          taped.skipped.add(p._id);
+          continue;
+        }
         const key = `${stocktakeBranch._id}|${p._id}`;
         const list = lots.get(key) ?? [];
         const targets = p.batchTracked ? list.filter((l) => l.onHand > 0).map((l) => l.batchId) : [undefined];
         for (const batchId of targets) {
           const expected = batchId ? list.find((l) => l.batchId === batchId)!.onHand : onHand(key);
           const newest = [...batches.values()].filter((b) => b.sku === p._id && b.status === "ACTIVE").sort((a, b) => b.receivedAt.getTime() - a.receivedAt.getTime())[0];
-          let counted = noisy(expected, lineNo);
+          const lineKey = `${p._id}|${batchId ?? ""}`;
+          let counted = replay(p._id) ? rec!.counted.get(lineKey) : noisy(stRand, expected, lineNo);
+          if (counted === undefined) throw new Error(`seed: stocktake replay out of step at ${id} ${lineKey}`);
           if (!batchId && counted > expected && !newest) counted = expected;
+          taped.counted.set(lineKey, counted);
           stocktakeLines.push({ _id: `${id}-L${lineNo++}`, stocktakeId: id, sku: p._id, ...(batchId ? { batchId } : {}), counted, mode: "replace", countedAt, clerkId: "seed", origin: "seed" });
           if (!approved) continue;
           const plan = planLine(
@@ -239,6 +299,9 @@ export function generateSeed(cfg: SeedConfig): SeedData {
           lots.set(key, list.filter((l) => l.onHand > 0));
         }
       }
+      if (rec) while (draws - drawsBefore < rec.draws) rand(); // advance the main stream as the plain run did
+      taped.draws = draws - drawsBefore;
+      tape.set(id, taped);
     }
 
     // 09:00–18:00 sales, FIFO-attributed, recorded on one daily sales document per branch.
@@ -249,6 +312,10 @@ export function generateSeed(cfg: SeedConfig): SeedData {
       for (const p of products) {
         const units = poisson(rand, policy.get(`${b._id}|${p._id}`)!.lambda * s);
         if (units > 0) events.push({ minute: Math.floor(rand() * 540), p, units });
+        if (scenario.get(p._id)?.recipient === b._id && inScenario(d, SCENARIO_SPIKE_DAYS)) {
+          const extra = poisson(scenarioRand, policy.get(`${b._id}|${p._id}`)!.lambda * SCENARIO_SPIKE);
+          if (extra > 0) events.push({ minute: Math.floor(scenarioRand() * 540), p, units: extra });
+        }
       }
       events.sort((x, y) => x.minute - y.minute);
       for (const [i, e] of events.entries()) {
@@ -256,6 +323,7 @@ export function generateSeed(cfg: SeedConfig): SeedData {
         const available = onHand(key);
         const qty = Math.min(e.units, available);
         if (qty <= 0) continue; // lost sale: shelf empty
+        if (scenario.get(e.p._id)?.donor === b._id && inScenario(d, SCENARIO_DAYS) && scenarioRand() >= SCENARIO_KEEP_SALES) continue;
         const { allocations } = allocateFifo(lots.get(key)!, qty);
         take(key, allocations);
         const when = new Date(dayStart(d) + 9 * 3_600_000 + e.minute * 60_000 + i);
@@ -271,5 +339,5 @@ export function generateSeed(cfg: SeedConfig): SeedData {
     }
   }
 
-  return { branches, suppliers: SUPPLIERS, products, batches: [...batches.values()], movements, salesDays, stockPolicies, stocktakes, stocktakeLines };
+  return { data: { branches, suppliers: SUPPLIERS, products, batches: [...batches.values()], movements, salesDays, stockPolicies, stocktakes, stocktakeLines, transferScenario: [...scenario.keys()] }, tape };
 }

@@ -20,7 +20,7 @@ Here every change is a movement in `stockMovements` (`RECEIVED`, `SOLD`, `TRANSF
 that ledger, updated in the same transaction.
 
 ```
-command ─► commandLog insert (duplicate commandId → return the first result)
+command ─► commandLog insert (duplicate commandId: same body → return the first result, different → 409 COMMAND_ID_REUSED)
         ─► FIFO allocation (pure function, shared by seed, server and browser)
         ─► postMovements, one transaction:
               negative qty: inventory.updateOne({.., onHand ≥ n}, {$inc: -n}); no match → abort
@@ -66,7 +66,32 @@ recorded or counted figures are solid.
   by a partial unique index. Recall figures turn solid ("counted") only when an approved batch-level
   count exists with no trading since.
 
-Transfer suggestions, orders/imports and analytics are Milestones 3–4.
+## What's in Milestone 3: transfer suggestions
+
+- **Manager (desktop/tablet):** a Transfers screen listing moves from branches holding too much of a
+  SKU to branches below its reorder point, ranked by units that no longer need reordering, then
+  retail value. Filter by receiving branch; Review opens a side panel with before/after stock and the
+  batches that would move (oldest first); Accept moves the stock at once as a `TRANSFER_OUT/IN` pair.
+- **The rule, per SKU and branch** (policy from `stockPolicies`: reorder point `rp`, overstock weeks
+  `W`; velocity `v` = units sold in the last 8 weeks ÷ 8, counted in whole UTC days so a suggestion holds
+  all day):
+  - *donor:* weeks of cover (`onHand ÷ v`, infinite with no sales) above `W`; it keeps
+    `max(⌈W·v⌉, rp+1)` and offers the rest.
+  - *recipient:* `onHand < rp`; it is refilled to `max(rp+1, ⌈W/2·v⌉)`.
+  - Lowest-cover recipients are served first, each from the donor with the most surplus left. A
+    branch with an open stocktake is left out on both sides, unless it has been idle for 2 hours (the
+    same rule that lets another clerk take it over).
+- **Accept re-checks.** The suggestion is recomputed from the ledger inside the transaction: asking
+  for more than it now allows returns 409 `SUGGESTION_STALE` with the current quantity, an open
+  stocktake at either branch returns 409 `STOCKTAKE_OPEN`, and a resent `commandId` replays the first
+  result. The screen and the command share one pure function (`src/domain/ledger/transfers.ts`).
+- **Known limit:** velocity counts recorded sales, so a branch that sold out loses sales it could not
+  record and looks slower than it is (see TODOS.md).
+- The seed adds a deterministic scenario (separate random stream): 18 SKUs (or 5% of the catalogue if that is more)
+  over-ordered at one branch with slow sales, and short at another after a demand spike and a missed
+  delivery, so the demo always has suggestions.
+
+Orders/imports and analytics are Milestone 4.
 
 ## Correctness checks
 
@@ -77,6 +102,8 @@ Transfer suggestions, orders/imports and analytics are Milestones 3–4.
 | Random command sequences keep every invariant | fast-check property test (found a real bug: deliveries into a recalled batch) |
 | Concurrent sales of the last unit never oversell | integration test, six concurrent sales |
 | Counts interleaved with trading, then approval, keep the ledger exact | fast-check stocktake property test |
+| Suggestions never exceed a donor's surplus or a recipient's need, and move min(Σsurplus, Σneed) | fast-check property test on the pure core |
+| Accepts amid trading and stocktakes keep the ledger exact; over-asks are refused | fast-check ledger property test; E2E checks `projectionDiff` after its accepts |
 | Sale vs quarantine in both completion orders | interleaving test |
 | Applied validators equal the ones generated from Zod | `test/schemas.test.ts` |
 

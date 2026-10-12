@@ -1,4 +1,6 @@
 import { createHmac, randomBytes, randomUUID, timingSafeEqual } from "node:crypto";
+import { cookies } from "next/headers";
+import { redirect } from "next/navigation";
 import { z } from "zod";
 import { Forbidden } from "@/domain/errors";
 
@@ -48,6 +50,15 @@ export function verifySession(token: string | undefined, now = Date.now()): Sess
 export function requireRole(session: Session | null, role: Role): Session {
   if (!session) throw new Forbidden("Sign in to continue");
   if (session.role !== role) throw new Forbidden();
+  return session;
+}
+
+// For manager pages and their layout. A client-side navigation renders only the changed segment, so
+// the layout's check does not run for it: every manager page must call this itself.
+export async function requireManagerPage(): Promise<Session> {
+  const session = verifySession((await cookies()).get(COOKIE)?.value);
+  if (session?.role === "clerk") redirect("/count");
+  if (!session || session.role !== "manager") redirect("/login");
   return session;
 }
 

@@ -2,8 +2,8 @@ import fc from "fast-check";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { DomainError } from "@/domain/errors";
 import { cols } from "@/domain/collections";
-import { checkLedgerInvariants, computeStocktakePlan, projectionDiff } from "@/domain/ledger/read";
-import { approveStocktake, openStocktake, quarantineBatch, receiveStock, recordSale, saveCountLine, submitStocktake, transferStock } from "@/domain/ledger/write";
+import { checkLedgerInvariants, computeStocktakePlan, listTransferSuggestions, projectionDiff } from "@/domain/ledger/read";
+import { acceptTransferSuggestion, approveStocktake, openStocktake, quarantineBatch, receiveStock, recordSale, saveCountLine, submitStocktake, transferStock } from "@/domain/ledger/write";
 import { migrate } from "@/seed/apply";
 import { freshDb } from "./helpers";
 import { COT, NEW, OLD, TOY, TOYB, buildWorld, runner } from "./world";
@@ -16,11 +16,16 @@ const branch = fc.constantFrom("BR-A", "BR-B");
 const qty = fc.integer({ min: 1, max: 4 });
 const sku = fc.constantFrom(COT, TOY);
 
+const policies = () =>
+  ["BR-A", "BR-B"].flatMap((branchId) => [COT, TOY].map((sku) => ({ _id: `${branchId}:${sku}`, branchId, sku, reorderPoint: 2, overstockWeeks: 2 })));
+
 const command = fc.oneof(
   fc.record({ kind: fc.constant("receive" as const), branchId: branch, pick: fc.constantFrom<[string, string]>([COT, OLD], [COT, NEW], [TOY, TOYB]), qty }),
   fc.record({ kind: fc.constant("sale" as const), branchId: branch, lines: fc.array(fc.record({ sku, qty }), { minLength: 1, maxLength: 2 }) }),
   fc.record({ kind: fc.constant("transfer" as const), from: branch, sku, qty }),
   fc.record({ kind: fc.constant("quarantine" as const), batchCode: fc.constantFrom("B-1", "B-2", "B-9") }),
+  // Accept one of the current suggestions, sometimes asking for one unit more than suggested.
+  fc.record({ kind: fc.constant("accept" as const), pick: fc.nat(), extra: fc.constantFrom(0, 0, 1) }),
 );
 
 describe("ledger properties", () => {
@@ -30,6 +35,7 @@ describe("ledger properties", () => {
         await t.db.dropDatabase();
         await migrate(t.db);
         await buildWorld(t.db);
+        await cols(t.db).stockPolicies.insertMany(policies());
         const run = runner(t.client, t.db);
         for (const x of cmds) {
           try {
@@ -41,8 +47,12 @@ describe("ledger properties", () => {
             } else if (x.kind === "transfer") {
               const to = x.from === "BR-A" ? "BR-B" : "BR-A";
               await run((c, ss, k) => transferStock(c, ss, k, { fromBranchId: x.from, toBranchId: to, sku: x.sku, qty: x.qty }));
-            } else {
+            } else if (x.kind === "quarantine") {
               await run((c, ss, k) => quarantineBatch(c, ss, k, { batchCode: x.batchCode }));
+            } else {
+              const { suggestions } = await listTransferSuggestions(t.db);
+              const s = suggestions[x.pick % Math.max(1, suggestions.length)];
+              if (s) await run((c, ss, k) => acceptTransferSuggestion(c, ss, k, { sku: s.sku, fromBranchId: s.fromBranchId, toBranchId: s.toBranchId, qty: s.qty + x.extra }));
             }
           } catch (err) {
             if (!(err instanceof DomainError)) throw err; // expected rejections only
@@ -54,6 +64,57 @@ describe("ledger properties", () => {
       }),
       { numRuns: 40 },
     );
+  });
+});
+
+const transferStep = fc.oneof(
+  { arbitrary: fc.record({ kind: fc.constant("accept" as const), pick: fc.nat(), extra: fc.constantFrom(0, 0, 0, 1) }), weight: 3 },
+  { arbitrary: fc.record({ kind: fc.constant("receive" as const), branchId: branch, pick: fc.constantFrom<[string, string]>([COT, OLD], [COT, NEW], [TOY, TOYB]), qty }), weight: 1 },
+  { arbitrary: fc.record({ kind: fc.constant("sale" as const), branchId: branch, sku, qty }), weight: 2 },
+  { arbitrary: fc.record({ kind: fc.constant("stocktake" as const), branchId: branch }), weight: 1 },
+);
+
+describe("transfer accept properties", () => {
+  it("accepting suggestions amid trading and stocktakes keeps every invariant and never overdraws a donor", async () => {
+    let accepted = 0;
+    await fc.assert(
+      fc.asyncProperty(fc.array(transferStep, { minLength: 1, maxLength: 15 }), async (steps) => {
+        await t.db.dropDatabase();
+        await migrate(t.db);
+        await buildWorld(t.db);
+        await cols(t.db).stockPolicies.insertMany(policies());
+        const run = runner(t.client, t.db);
+        await run((c, ss, k) => receiveStock(c, ss, k, { branchId: "BR-A", sku: COT, batchId: OLD, qty: 6 }));
+        await run((c, ss, k) => receiveStock(c, ss, k, { branchId: "BR-A", sku: TOY, batchId: TOYB, qty: 8 }));
+        for (const x of steps) {
+          try {
+            if (x.kind === "accept") {
+              const { suggestions } = await listTransferSuggestions(t.db);
+              const s = suggestions[x.pick % Math.max(1, suggestions.length)];
+              if (!s) continue;
+              await run((c, ss, k) => acceptTransferSuggestion(c, ss, k, { sku: s.sku, fromBranchId: s.fromBranchId, toBranchId: s.toBranchId, qty: s.qty + x.extra }));
+              expect(x.extra).toBe(0); // asking for more than suggested must be refused
+              accepted++;
+              const after = await cols(t.db).inventory.find({ branchId: s.fromBranchId, sku: s.sku }).toArray();
+              expect(after.reduce((n, r) => n + r.onHand, 0)).toBeGreaterThanOrEqual(s.from.keep);
+            } else if (x.kind === "receive") {
+              const [sk, batchId] = x.pick;
+              await run((c, ss, k) => receiveStock(c, ss, k, { branchId: x.branchId, sku: sk, batchId, qty: x.qty }));
+            } else if (x.kind === "sale") {
+              await run((c, ss, k) => recordSale(c, ss, k, { branchId: x.branchId, lines: [{ sku: x.sku, qty: x.qty }] }));
+            } else {
+              await run((c, ss, k) => openStocktake(c, ss, k, { branchId: x.branchId, sid: `p-${x.branchId}`, clerkLabel: "P" }));
+            }
+          } catch (err) {
+            if (!(err instanceof DomainError)) throw err;
+          }
+        }
+        expect((await checkLedgerInvariants(t.db)).violations).toEqual([]);
+        expect(await projectionDiff(t.db)).toEqual([]);
+      }),
+      { numRuns: 30 },
+    );
+    expect(accepted).toBeGreaterThan(5); // the property must actually exercise successful accepts
   });
 });
 

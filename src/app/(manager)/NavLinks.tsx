@@ -4,6 +4,8 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import styles from "./shell.module.css";
 
+const RELEASED = 3; // highest milestone shipped; later items show as "coming"
+
 const ITEMS = [
   { href: "/recall", label: "Recall", short: "Rec", milestone: 1 },
   { href: "/stock", label: "Stock", short: "Stk", milestone: 4 },
@@ -18,7 +20,7 @@ export function NavLinks({ awaiting = 0 }: { awaiting?: number }) {
   return (
     <ul className={styles.nav}>
       {ITEMS.map((item) =>
-        item.milestone === 1 ? (
+        item.milestone <= RELEASED ? (
           <li key={item.href}>
             <Link href={item.href} className={styles.link} aria-current={path.startsWith(item.href) ? "page" : undefined} title={item.label}>
               <span className={styles.full}>

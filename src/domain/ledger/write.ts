@@ -1,15 +1,16 @@
 import { createHash } from "node:crypto";
 import { MongoServerError, type ClientSession, type Db, type MongoClient } from "mongodb";
-import { cols, type Cols } from "../collections";
+import { cols, type Cols, type CommandLogEntry } from "../collections";
 import { DomainError, InsufficientStock, NotFound, type ShortLine } from "../errors";
 import type { Movement, Origin, Stocktake } from "../schemas";
 import { allocateFifo, type Lot } from "./allocate";
-import { computeStocktakePlan } from "./read";
-import { countKey, foldCounts, unbatchedBatchId } from "./stocktake";
+import { computeStocktakePlan, loadTransferInputs } from "./read";
+import { activeStocktakes, countKey, foldCounts, STALE_MS, unbatchedBatchId } from "./stocktake";
+import { suggestForSku } from "./transfers";
 
 // The only runtime write path for stock. Every command runs in one transaction:
 //
-//   command ─► commandLog insert (dup commandId → return first result)
+//   command ─► commandLog insert (dup commandId: same body → return first result, else 409 COMMAND_ID_REUSED)
 //           ─► allocate (pure FIFO) ─► postMovements:
 //                 negative qty: inventory.updateOne({.., onHand ≥ n}, {$inc: -n}); no match → abort
 //                 positive qty: inventory upsert {$inc: +n}
@@ -21,6 +22,7 @@ export interface CommandCtx {
   actor: string;
   origin: Origin;
   now?: Date;
+  fingerprint?: string; // see CommandLogEntry.fingerprint
 }
 
 export type NewMovement = Omit<Movement, "at" | "actor" | "origin"> & { at?: Date };
@@ -61,6 +63,14 @@ export async function postMovements(
   );
 }
 
+// A resent commandId replays its first result only when it is the same request; reusing it for a
+// different command, body or session is refused rather than silently answered with another result.
+export function assertSameCommand(prior: Pick<CommandLogEntry, "fingerprint">, fingerprint: string | undefined): void {
+  if (fingerprint && prior.fingerprint && prior.fingerprint !== fingerprint) {
+    throw new DomainError("COMMAND_ID_REUSED", "This request ID was already used for a different request", 409);
+  }
+}
+
 // Runs fn inside a transaction, recording its result under commandId so retries are idempotent.
 export async function runCommand<T>(
   client: MongoClient,
@@ -75,7 +85,7 @@ export async function runCommand<T>(
     let result!: T;
     await session.withTransaction(async () => {
       await c.commandLog.insertOne(
-        { _id: ctx.commandId, type, result: null, at: ctx.now ?? new Date(), origin: ctx.origin },
+        { _id: ctx.commandId, type, ...(ctx.fingerprint ? { fingerprint: ctx.fingerprint } : {}), result: null, at: ctx.now ?? new Date(), origin: ctx.origin },
         { session },
       );
       result = await fn(c, session);
@@ -85,12 +95,25 @@ export async function runCommand<T>(
   } catch (err) {
     if (err instanceof MongoServerError && err.code === 11000 && String(err.message).includes("commandLog")) {
       const prior = await c.commandLog.findOne({ _id: ctx.commandId });
-      if (prior) return { result: prior.result as T, replayed: true };
+      if (prior) {
+        assertSameCommand(prior, ctx.fingerprint);
+        return { result: prior.result as T, replayed: true };
+      }
     }
     throw err;
   } finally {
     await session.endSession();
   }
+}
+
+// Commands that read "is a stocktake open here?" and commands that open or close one touch no shared
+// document otherwise, so two such transactions could both commit (write skew). Writing a per-branch
+// lock doc makes them conflict; withTransaction retries the loser, which then sees the other's result.
+async function lockBranches(c: Cols, s: ClientSession, branchIds: string[]) {
+  await c.branchLocks.bulkWrite(
+    branchIds.map((_id) => ({ updateOne: { filter: { _id }, update: { $inc: { rev: 1 } }, upsert: true } })),
+    { session: s },
+  );
 }
 
 async function lotsFor(c: Cols, session: ClientSession, branchId: string, sku: string): Promise<Lot[]> {
@@ -186,7 +209,7 @@ export interface TransferInput {
 }
 
 export async function transferStock(c: Cols, s: ClientSession, ctx: CommandCtx, input: TransferInput) {
-  if (input.fromBranchId === input.toBranchId) throw new RangeError("Cannot transfer to the same branch");
+  if (input.fromBranchId === input.toBranchId) throw new DomainError("SAME_BRANCH", "Pick two different branches", 400);
   const { allocations, shortBy } = allocateFifo(await lotsFor(c, s, input.fromBranchId, input.sku), input.qty);
   if (shortBy > 0) {
     throw new InsufficientStock([
@@ -204,6 +227,30 @@ export async function transferStock(c: Cols, s: ClientSession, ctx: CommandCtx, 
     ]),
   );
   return { moved: input.qty, allocations };
+}
+
+// Accept re-derives the suggestion inside the transaction, so a stale screen can never move more
+// than the ledger supports right now.
+export async function acceptTransferSuggestion(c: Cols, s: ClientSession, ctx: CommandCtx, input: TransferInput) {
+  if (input.fromBranchId === input.toBranchId) throw new DomainError("SAME_BRANCH", "Pick two different branches", 400);
+  await lockBranches(c, s, [input.fromBranchId, input.toBranchId]);
+  const now = ctx.now ?? new Date();
+  const open = await c.stocktakes.distinct("branchId", { branchId: { $in: [input.fromBranchId, input.toBranchId] }, ...activeStocktakes(now) }, { session: s });
+  if (open.length) {
+    throw new DomainError("STOCKTAKE_OPEN", "A stocktake is in progress at one of these branches. Try again once it is submitted", 409, { branchIds: open });
+  }
+  const [stock] = await loadTransferInputs(c, now, { skus: [input.sku], session: s });
+  const fresh = stock ? suggestForSku(stock).find((x) => x.fromBranchId === input.fromBranchId && x.toBranchId === input.toBranchId) : undefined;
+  const suggestedQty = fresh?.qty ?? 0;
+  if (input.qty > suggestedQty) {
+    throw new DomainError(
+      "SUGGESTION_STALE",
+      suggestedQty ? `Stock has changed. The suggestion is now ${suggestedQty}` : "Stock has changed. This transfer is no longer suggested",
+      409,
+      { suggestedQty },
+    );
+  }
+  return transferStock(c, s, ctx, input);
 }
 
 export interface PullListRow {
@@ -276,8 +323,6 @@ export async function quarantineBatch(
 
 // ── Stocktakes ───────────────────────────────────────────────────────────────
 
-const STALE_MS = 2 * 3_600_000; // an idle OPEN stocktake can be taken over after 2 hours
-
 export interface OpenInput {
   branchId: string;
   sid: string;
@@ -287,6 +332,7 @@ export interface OpenInput {
 // Resumes the clerk's OPEN stocktake for the branch, takes over an idle one, or opens a new one.
 export async function openStocktake(c: Cols, s: ClientSession, ctx: CommandCtx, input: OpenInput): Promise<Stocktake> {
   const now = ctx.now ?? new Date();
+  await lockBranches(c, s, [input.branchId]);
   const open = await c.stocktakes.findOne({ branchId: input.branchId, status: "OPEN" }, { session: s });
   if (open) {
     if (open.openedBy !== input.sid && now.getTime() - open.lastActivityAt.getTime() < STALE_MS) {
@@ -335,7 +381,9 @@ export interface CountLineInput {
 
 export async function saveCountLine(c: Cols, s: ClientSession, ctx: CommandCtx, input: CountLineInput) {
   const now = ctx.now ?? new Date();
-  await ownedOpen(c, s, input.stocktakeId, input.sid);
+  const st = await ownedOpen(c, s, input.stocktakeId, input.sid);
+  // An idle stocktake doesn't block transfers; reviving it must conflict with an Accept in flight.
+  if (now.getTime() - st.lastActivityAt.getTime() >= STALE_MS) await lockBranches(c, s, [st.branchId]);
   const product = await c.products.findOne({ _id: input.sku }, { session: s });
   if (!product) throw new NotFound(`Product ${input.sku} not found`);
   if (product.batchTracked && !input.batchId) throw new DomainError("BATCH_REQUIRED", "Scan or pick the batch for this product", 400);
@@ -371,6 +419,7 @@ export interface SubmitInput {
 export async function submitStocktake(c: Cols, s: ClientSession, ctx: CommandCtx, input: SubmitInput) {
   const now = ctx.now ?? new Date();
   const st = await ownedOpen(c, s, input.stocktakeId, input.sid);
+  await lockBranches(c, s, [st.branchId]);
   let zeroed = 0;
   if (input.uncounted === "zero") {
     const counted = new Set(await c.stocktakeLines.distinct("sku", { stocktakeId: st._id }, { session: s }));

@@ -15,6 +15,7 @@ import type {
 export interface CommandLogEntry {
   _id: string; // client-generated commandId
   type: string;
+  fingerprint?: string; // hash of command type + body + session; a reused commandId must match it
   result: unknown;
   at: Date;
   origin: "seed" | "visitor";
@@ -51,6 +52,7 @@ export function cols(db: Db) {
     commandLog: db.collection<CommandLogEntry>("commandLog"),
     rateLimits: db.collection<RateLimitEntry>("rateLimits"),
     ops: db.collection<OpsDoc>("ops"),
+    branchLocks: db.collection<{ _id: string; rev: number }>("branchLocks"), // unvalidated, so no migrate can break the lock
   };
 }
 export type Cols = ReturnType<typeof cols>;
@@ -67,10 +69,13 @@ export async function ensureIndexes(db: Db): Promise<void> {
     c.movements.createIndex({ sku: 1, batchId: 1, at: 1 }),
     c.movements.createIndex({ branchId: 1, sku: 1, at: 1 }),
     c.movements.createIndex({ type: 1, at: 1 }),
+    c.movements.createIndex({ sku: 1, type: 1, at: 1 }), // transfer accept: one SKU's recent sales
     c.movements.createIndex({ refType: 1, refId: 1 }),
     c.movements.createIndex({ origin: 1 }),
     c.inventory.createIndex({ branchId: 1, sku: 1, batchId: 1 }, { unique: true }),
     c.inventory.createIndex({ batchId: 1 }),
+    c.inventory.createIndex({ sku: 1, branchId: 1 }), // transfer accept and suggestion preview read one SKU across branches
+    c.stockPolicies.createIndex({ sku: 1 }),
     c.salesDays.createIndex({ branchId: 1, day: 1 }, { unique: true }),
     c.rateLimits.createIndex({ expiresAt: 1 }, { expireAfterSeconds: 0 }),
     c.commandLog.createIndex({ origin: 1 }),

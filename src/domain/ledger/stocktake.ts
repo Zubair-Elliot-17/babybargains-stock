@@ -3,6 +3,11 @@ import { allocateFifo, type Lot } from "./allocate";
 // Pure stocktake maths shared by the manager review (read) and approval (write), so what is
 // reviewed is exactly what is posted.
 
+export const STALE_MS = 2 * 3_600_000; // an OPEN stocktake idle this long can be taken over, and stops blocking transfers
+
+// OPEN stocktakes someone is still working on (Mongo filter).
+export const activeStocktakes = (now: Date) => ({ status: "OPEN" as const, lastActivityAt: { $gt: new Date(now.getTime() - STALE_MS) } });
+
 export const FLAG_UNITS = 3;
 export const FLAG_PENCE = 5000; // £50
 
