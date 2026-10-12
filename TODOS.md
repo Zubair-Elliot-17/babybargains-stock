@@ -23,6 +23,14 @@ Deferred during plan review. Each has the context needed to pick it up later.
 - **Context:** `receiveStock` in `src/domain/ledger/write.ts`; a recall locks every branch. No API route
   calls it today (tests only), so fix it before adding a deliveries route.
 
+## Quarantined lines in the stocktake review totals (P3)
+- **What:** leave quarantined units out of the review's "Net units", and say why a quarantined line
+  shown at £0.00 is still flagged (e.g. "(£60.00 if sellable)" in its note), or flag it on units only.
+- **Why:** found units on a recalled batch never reach on-hand stock, but they still count towards Net
+  units and can flag the line by retail value.
+- **Context:** `net` in `src/components/stocktakes/ReviewScreen.tsx`; flagging in `planLine`
+  (`src/domain/ledger/stocktake.ts`). Found in the review of the found-units fix.
+
 ## Rate limits per IP, not only per session (P3)
 - **What:** add an IP-based limit on demo session creation or on the `quarantine` action class.
 - **Why:** budgets are per session, so minting new demo sessions resets the one-recall-per-hour limit.
