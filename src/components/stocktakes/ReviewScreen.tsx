@@ -110,11 +110,7 @@ export function ReviewScreen(props: {
         <div><dt>Net units</dt><dd>{net > 0 ? `+${net}` : net}</dd></div>
       </dl>
 
-      {result && (
-        <p className="banner" role="status">
-          Approved: {count(result.adjustedLines, "line")} adjusted, {result.unitsRemoved} units removed, {result.unitsAdded} added{result.unitsQuarantined ? `, ${result.unitsQuarantined} quarantined` : ""} ({money(result.valuePence)} at retail).
-        </p>
-      )}
+      {result && <ApprovedBanner result={result} />}
 
       {flagged.length > 0 && (
         <section aria-label="Flagged lines">
@@ -145,6 +141,14 @@ export function ReviewScreen(props: {
         </div>
       )}
     </div>
+  );
+}
+
+export function ApprovedBanner({ result }: { result: Approved }) {
+  return (
+    <p className="banner" role="status">
+      Approved: {count(result.adjustedLines, "line")} adjusted, {count(result.unitsRemoved, "unit")} removed, {result.unitsAdded} added{result.unitsQuarantined ? `, ${result.unitsQuarantined} quarantined` : ""} ({money(result.valuePence)} at retail).
+    </p>
   );
 }
 

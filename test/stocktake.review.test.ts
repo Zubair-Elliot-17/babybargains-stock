@@ -3,7 +3,7 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it, vi } from "vitest";
 
 vi.mock("next/navigation", () => ({ useRouter: () => ({ refresh: () => {} }) }));
-const { ReviewScreen } = await import("@/components/stocktakes/ReviewScreen");
+const { ApprovedBanner, ReviewScreen } = await import("@/components/stocktakes/ReviewScreen");
 
 const line = (quarantined: number) => ({
   key: `S|B${quarantined}`, sku: "S", productName: `Cot ${quarantined}`, batchCode: "B-1", counted: quarantined, expected: 0, variance: quarantined,
@@ -33,5 +33,13 @@ describe("stocktake review", () => {
     const found = row(html([{ ...line(0), variance: 2, counted: 2, valuePence: 900 }]));
     expect(found).toContain("£9.00");
     expect(found).toMatch(/_pos_/);
+  });
+
+  it("approval banner pluralises units", () => {
+    const banner = (unitsRemoved: number, unitsAdded: number, unitsQuarantined?: number) =>
+      renderToStaticMarkup(createElement(ApprovedBanner, { result: { adjustedLines: 1, unitsRemoved, unitsAdded, unitsQuarantined, valuePence: 699 } }));
+    expect(banner(1, 0)).toContain("Approved: 1 line adjusted, 1 unit removed, 0 added (£6.99 at retail).");
+    expect(banner(2, 1)).toContain("2 units removed, 1 added (");
+    expect(banner(0, 2, 2)).toContain("0 units removed, 2 added, 2 quarantined (");
   });
 });
