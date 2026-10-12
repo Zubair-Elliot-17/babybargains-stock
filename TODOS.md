@@ -16,6 +16,19 @@ Deferred during plan review. Each has the context needed to pick it up later.
   sale at the donor can be refused for units still on its shelf.
 - **Context:** Milestone 3 chose instant transfers on purpose (plan-m3); Accept assumes the stock moves now.
 
+## Receive racing a recall (P3)
+- **What:** take the branch lock in `receiveStock` (`await lockBranches(c, s, [input.branchId])`).
+- **Why:** it checks `batch.status` without writing anything the recall writes, so a receive racing a
+  recall could post RECEIVED onto a just-recalled batch.
+- **Context:** `receiveStock` in `src/domain/ledger/write.ts`; a recall locks every branch. No API route
+  calls it today (tests only), so fix it before adding a deliveries route.
+
+## Rate limits per IP, not only per session (P3)
+- **What:** add an IP-based limit on demo session creation or on the `quarantine` action class.
+- **Why:** budgets are per session, so minting new demo sessions resets the one-recall-per-hour limit.
+- **Context:** `src/app/api/session/route.ts` creates sessions; budgets and `consume` live in
+  `src/auth/rateLimit.ts`.
+
 ## Transfers at scale (P3)
 - **What:** covering index `{type, at, branchId, sku, qty}` (or a 56-day sales rollup) for the SOLD read;
   cap the suggestion list with a "showing N of M" note; fetch recalled batch ids once and start the
