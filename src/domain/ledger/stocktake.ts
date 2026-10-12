@@ -50,6 +50,7 @@ export interface PlanInput {
   pricePence: number;
   lots: Lot[]; // current lots: the counted batch only for batch-tracked lines, all batches otherwise
   newestActiveBatchId: string | null; // target for positive variance on non-batch lines
+  batchRecalled: boolean; // the counted batch is RECALLED (its lots are empty, so planLine can't tell)
 }
 
 export interface PlannedLine {
@@ -64,6 +65,7 @@ export interface PlannedLine {
   adjustments: { batchId: string; qty: number; attributed: boolean }[];
   needsUnbatched: boolean; // positive variance with no ACTIVE batch → post to the SKU's UNBATCHED batch
   clampedBy: number; // negative variance larger than current stock (sold since the count)
+  quarantined: number; // units found on a RECALLED batch: added, then pulled again with RECALLED -n
 }
 
 export function planLine(input: PlanInput, unbatchedId: string): PlannedLine {
@@ -80,11 +82,14 @@ export function planLine(input: PlanInput, unbatchedId: string): PlannedLine {
     flagged: Math.abs(variance) >= FLAG_UNITS || valuePence >= FLAG_PENCE,
     needsUnbatched: false,
     clampedBy: 0,
+    quarantined: 0,
   };
   if (variance === 0) return { ...base, adjustments: [] };
 
   if (input.batchId) {
-    if (variance > 0) return { ...base, adjustments: [{ batchId: input.batchId, qty: variance, attributed: false }] };
+    if (variance > 0) {
+      return { ...base, quarantined: input.batchRecalled ? variance : 0, adjustments: [{ batchId: input.batchId, qty: variance, attributed: false }] };
+    }
     const onHand = input.lots.reduce((n, l) => n + l.onHand, 0);
     const take = Math.min(-variance, onHand);
     return { ...base, clampedBy: -variance - take, adjustments: take ? [{ batchId: input.batchId, qty: -take, attributed: false }] : [] };
