@@ -21,7 +21,7 @@ export async function migrate(db: Db, level: "strict" | "moderate" = "strict"): 
     if (!existing.has(name)) await db.createCollection(name, { validator, validationLevel: level });
     else await db.command({ collMod: name, validator, validationLevel: level });
   }
-  for (const name of ["inventory", "commandLog", "rateLimits", "ops"]) {
+  for (const name of ["inventory", "commandLog", "rateLimits", "ops", "branchLocks"]) {
     if (!existing.has(name)) await db.createCollection(name);
   }
   await ensureIndexes(db);

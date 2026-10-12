@@ -14,7 +14,8 @@ export default async function TransfersPage({ searchParams }: { searchParams: Pr
   let view: TransfersView;
   try {
     view = await listTransferSuggestions(await getDb(), { to: requested || undefined });
-  } catch {
+  } catch (err) {
+    console.error("transfers page: failed to load suggestions", err);
     return (
       <>
         <h1>Transfers</h1>

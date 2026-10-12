@@ -21,9 +21,10 @@ afterAll(async () => {
 
 let calls = 0;
 const Input = z.object({ commandId: z.string(), n: z.number() });
-const post = (name: string, body: unknown) =>
+const post = (name: string, body: unknown, target?: string) =>
   handleCommand(new Request("http://x/api", { method: "POST", body: JSON.stringify(body) }), {
     name,
+    target,
     role: "manager",
     actionClass: "general",
     input: Input,
@@ -44,13 +45,14 @@ describe("commandId reuse", () => {
     ["a different body", "demo", { n: 2 }, false],
     ["a different command", "other", { n: 1 }, false],
     ["a different session", "demo", { n: 1 }, true],
-  ] as const)("refuses %s with 409 COMMAND_ID_REUSED and runs nothing", async (_what, name, body, newSession) => {
+    ["a different route target", "demo", { n: 1 }, false, "ST-2"],
+  ] as const)("refuses %s with 409 COMMAND_ID_REUSED and runs nothing", async (_what, name, body, newSession, target: string = "ST-1") => {
     token = createSession("manager").token;
     const commandId = randomUUID();
-    await post("demo", { commandId, n: 1 });
+    await post("demo", { commandId, n: 1 }, "ST-1");
     const before = calls;
     if (newSession) token = createSession("manager").token;
-    const res = await post(name, { commandId, ...body });
+    const res = await post(name, { commandId, ...body }, target);
     expect(res.status).toBe(409);
     expect((await res.json()).error.code).toBe("COMMAND_ID_REUSED");
     expect(calls).toBe(before);

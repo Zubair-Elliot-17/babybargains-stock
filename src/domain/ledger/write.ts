@@ -5,12 +5,12 @@ import { DomainError, InsufficientStock, NotFound, type ShortLine } from "../err
 import type { Movement, Origin, Stocktake } from "../schemas";
 import { allocateFifo, type Lot } from "./allocate";
 import { computeStocktakePlan, loadTransferInputs } from "./read";
-import { countKey, foldCounts, unbatchedBatchId } from "./stocktake";
+import { activeStocktakes, countKey, foldCounts, STALE_MS, unbatchedBatchId } from "./stocktake";
 import { suggestForSku } from "./transfers";
 
 // The only runtime write path for stock. Every command runs in one transaction:
 //
-//   command ─► commandLog insert (dup commandId → return first result)
+//   command ─► commandLog insert (dup commandId: same body → return first result, else 409 COMMAND_ID_REUSED)
 //           ─► allocate (pure FIFO) ─► postMovements:
 //                 negative qty: inventory.updateOne({.., onHand ≥ n}, {$inc: -n}); no match → abort
 //                 positive qty: inventory upsert {$inc: +n}
@@ -107,10 +107,13 @@ export async function runCommand<T>(
 }
 
 // Commands that read "is a stocktake open here?" and commands that open or close one touch no shared
-// document otherwise, so two such transactions could both commit (write skew). Writing the branch
-// docs makes them conflict; withTransaction retries the loser, which then sees the other's result.
+// document otherwise, so two such transactions could both commit (write skew). Writing a per-branch
+// lock doc makes them conflict; withTransaction retries the loser, which then sees the other's result.
 async function lockBranches(c: Cols, s: ClientSession, branchIds: string[]) {
-  await c.branches.updateMany({ _id: { $in: branchIds } }, { $inc: { lockRev: 1 } }, { session: s });
+  await c.branchLocks.bulkWrite(
+    branchIds.map((_id) => ({ updateOne: { filter: { _id }, update: { $inc: { rev: 1 } }, upsert: true } })),
+    { session: s },
+  );
 }
 
 async function lotsFor(c: Cols, session: ClientSession, branchId: string, sku: string): Promise<Lot[]> {
@@ -231,11 +234,12 @@ export async function transferStock(c: Cols, s: ClientSession, ctx: CommandCtx, 
 export async function acceptTransferSuggestion(c: Cols, s: ClientSession, ctx: CommandCtx, input: TransferInput) {
   if (input.fromBranchId === input.toBranchId) throw new DomainError("SAME_BRANCH", "Pick two different branches", 400);
   await lockBranches(c, s, [input.fromBranchId, input.toBranchId]);
-  const open = await c.stocktakes.distinct("branchId", { branchId: { $in: [input.fromBranchId, input.toBranchId] }, status: "OPEN" }, { session: s });
+  const now = ctx.now ?? new Date();
+  const open = await c.stocktakes.distinct("branchId", { branchId: { $in: [input.fromBranchId, input.toBranchId] }, ...activeStocktakes(now) }, { session: s });
   if (open.length) {
     throw new DomainError("STOCKTAKE_OPEN", "A stocktake is in progress at one of these branches. Try again once it is submitted", 409, { branchIds: open });
   }
-  const [stock] = await loadTransferInputs(c, ctx.now ?? new Date(), { sku: input.sku, session: s });
+  const [stock] = await loadTransferInputs(c, now, { sku: input.sku, session: s });
   const fresh = stock ? suggestForSku(stock).find((x) => x.fromBranchId === input.fromBranchId && x.toBranchId === input.toBranchId) : undefined;
   const suggestedQty = fresh?.qty ?? 0;
   if (input.qty > suggestedQty) {
@@ -318,8 +322,6 @@ export async function quarantineBatch(
 }
 
 // ── Stocktakes ───────────────────────────────────────────────────────────────
-
-const STALE_MS = 2 * 3_600_000; // an idle OPEN stocktake can be taken over after 2 hours
 
 export interface OpenInput {
   branchId: string;

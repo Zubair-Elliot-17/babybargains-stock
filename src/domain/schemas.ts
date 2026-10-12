@@ -23,7 +23,6 @@ export const Branch = z.object({
   code: z.string().min(2).max(8),
   name: z.string().min(1).max(80),
   region: z.string().min(1).max(40),
-  lockRev: z.number().int().min(0).optional(), // bumped by commands that must not interleave per branch
 });
 export type Branch = z.infer<typeof Branch>;
 

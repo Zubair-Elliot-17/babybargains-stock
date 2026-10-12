@@ -28,12 +28,30 @@ export function TransfersScreen({ rows, emptyText }: { rows: TransferRow[]; empt
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [toast, setToast] = useState<string | null>(null);
+  const sheet = useRef<HTMLDialogElement>(null);
   const heading = useRef<HTMLHeadingElement>(null);
   const opener = useRef<HTMLButtonElement | null>(null);
   const table = useRef<HTMLTableElement>(null);
   const empty = useRef<HTMLParagraphElement>(null);
   const refocus = useRef(false); // after an Accept, once the refreshed rows arrive
   const toastTimer = useRef<ReturnType<typeof setTimeout>>(undefined);
+
+  // Below 1280px the panel covers the table, so it opens modal: the page behind goes inert under a backdrop.
+  const isOpen = selected !== null;
+  useEffect(() => {
+    const d = sheet.current;
+    if (!isOpen || !d) return;
+    const narrow = matchMedia("(max-width: 1279px)");
+    const sync = () => {
+      if (d.open) d.close();
+      if (narrow.matches) d.showModal();
+      else d.show();
+      heading.current?.focus({ preventScroll: true });
+    };
+    sync();
+    narrow.addEventListener("change", sync);
+    return () => narrow.removeEventListener("change", sync);
+  }, [isOpen]);
 
   // Opening the panel narrows the table, which can push the selected row off screen.
   useEffect(() => {
@@ -67,6 +85,7 @@ export function TransfersScreen({ rows, emptyText }: { rows: TransferRow[]; empt
   }
 
   function close() {
+    sheet.current?.close(); // a modal dialog keeps the opener inert until it closes
     setSelected(null);
     setError(null);
     opener.current?.focus();
@@ -83,8 +102,13 @@ export function TransfersScreen({ rows, emptyText }: { rows: TransferRow[]; empt
       });
       const body = await res.json().catch(() => null);
       const message = body?.error?.message ?? "Couldn't move the stock. Retry";
-      if (!res.ok && res.status !== 409) return setError(message);
-      // Moved, or stock changed since this list loaded (409): either way, reload the suggestions.
+      const code = body?.error?.code;
+      if (code === "COMMAND_ID_REUSED") {
+        setCommandId(crypto.randomUUID()); // nothing ran; a fresh id lets the next Accept go through
+        return setError("Nothing moved. Accept again to retry.");
+      }
+      if (!res.ok && code !== "SUGGESTION_STALE" && code !== "STOCKTAKE_OPEN") return setError(message);
+      // Moved, or the list is out of date (stock changed or a stocktake started): reload the suggestions.
       setSelected(null);
       notify(res.ok ? `Moved ${count(row.qty, "unit")} of ${row.productName} from ${row.fromName} to ${row.toName}.` : message);
       refocus.current = true;
@@ -144,43 +168,45 @@ export function TransfersScreen({ rows, emptyText }: { rows: TransferRow[]; empt
       )}
 
       {selected && (
-        <aside className={styles.panel} aria-labelledby="transfer-heading" onKeyDown={(e) => e.key === "Escape" && !busy && close()}>
-          <h2 id="transfer-heading" ref={heading} tabIndex={-1}>
-            Move {count(selected.qty, "unit")} · {selected.productName}
-          </h2>
-          <p className={`${styles.sub} mono`}>{selected.sku}</p>
-          <dl className={styles.facts}>
-            <div>
-              <dt>From {selected.fromName}</dt>
-              <dd>{selected.from.onHand} → {selected.from.onHand - selected.qty} on hand</dd>
-              <dd className={styles.sub}><Cover weeks={selected.from.coverWeeks} /> · keeps at least {selected.from.keep}</dd>
+        <dialog ref={sheet} className={styles.sheet} aria-labelledby="transfer-heading" onCancel={(e) => e.preventDefault()}>
+          <aside className={styles.panel} aria-labelledby="transfer-heading" onKeyDown={(e) => e.key === "Escape" && !busy && close()}>
+            <h2 id="transfer-heading" ref={heading} tabIndex={-1}>
+              Move {count(selected.qty, "unit")} · {selected.productName}
+            </h2>
+            <p className={`${styles.sub} mono`}>{selected.sku}</p>
+            <dl className={styles.facts}>
+              <div>
+                <dt>From {selected.fromName}</dt>
+                <dd>{selected.from.onHand} → {selected.from.onHand - selected.qty} on hand</dd>
+                <dd className={styles.sub}><Cover weeks={selected.from.coverWeeks} /> · keeps at least {selected.from.keep}</dd>
+              </div>
+              <div>
+                <dt>To {selected.toName}</dt>
+                <dd>{selected.to.onHand} → {selected.to.onHand + selected.qty} on hand</dd>
+                <dd className={styles.sub}>Reorder point {selected.to.reorderPoint} · <Cover weeks={selected.to.coverWeeks} /></dd>
+              </div>
+              <div>
+                <dt>Saves reordering</dt>
+                <dd>{count(selected.unitsSaved, "unit")} · {money(selected.valuePence)} at retail</dd>
+              </div>
+            </dl>
+            <h3 className={styles.small}>Batches that move (oldest first)</h3>
+            <ul className={styles.batches}>
+              {selected.preview.map((p) => (
+                <li key={p.batchCode}>
+                  <span className="mono">{p.batchCode}</span> × {p.qty}
+                </li>
+              ))}
+            </ul>
+            {error && <p className="banner banner-error" role="alert">{error}</p>}
+            <div className={styles.actions}>
+              <button className="btn" type="button" disabled={busy} onClick={close}>Close</button>
+              <button className="btn btn-primary" type="button" disabled={busy} onClick={() => accept(selected)}>
+                {busy ? "Moving…" : "Accept transfer"}
+              </button>
             </div>
-            <div>
-              <dt>To {selected.toName}</dt>
-              <dd>{selected.to.onHand} → {selected.to.onHand + selected.qty} on hand</dd>
-              <dd className={styles.sub}>Reorder point {selected.to.reorderPoint} · <Cover weeks={selected.to.coverWeeks} /></dd>
-            </div>
-            <div>
-              <dt>Saves reordering</dt>
-              <dd>{count(selected.unitsSaved, "unit")} · {money(selected.valuePence)} at retail</dd>
-            </div>
-          </dl>
-          <h3 className={styles.small}>Batches that move (oldest first)</h3>
-          <ul className={styles.batches}>
-            {selected.preview.map((p) => (
-              <li key={p.batchCode}>
-                <span className="mono">{p.batchCode}</span> × {p.qty}
-              </li>
-            ))}
-          </ul>
-          {error && <p className="banner banner-error" role="alert">{error}</p>}
-          <div className={styles.actions}>
-            <button className="btn" type="button" disabled={busy} onClick={close}>Close</button>
-            <button className="btn btn-primary" type="button" disabled={busy} onClick={() => accept(selected)}>
-              {busy ? "Moving…" : "Accept transfer"}
-            </button>
-          </div>
-        </aside>
+          </aside>
+        </dialog>
       )}
 
       <p className={styles.toast} role="status">{toast}</p>

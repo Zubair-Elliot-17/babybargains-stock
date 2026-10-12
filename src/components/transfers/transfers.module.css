@@ -34,7 +34,7 @@
 .sub {
   display: block;
   font-weight: 400;
-  font-size: 12px;
+  font-size: var(--text-meta);
   color: var(--color-ink-muted);
 }
 
@@ -45,9 +45,25 @@
   }
 }
 
-.panel {
+/* A <dialog>: shown in place beside the table, or modal over it below 1280px. */
+.sheet {
   position: sticky;
-  top: var(--space-6);
+  inset: var(--space-6) auto auto;
+  width: auto;
+  max-width: none;
+  max-height: none;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  color: inherit;
+  background: transparent;
+}
+
+.sheet::backdrop {
+  background: rgb(0 0 0 / 0.35);
+}
+
+.panel {
   display: grid;
   gap: var(--space-3);
   padding: var(--space-4) 0 var(--space-4) var(--space-6);
@@ -58,7 +74,7 @@
   margin: 0;
 }
 
-.panel h2:focus {
+.panel h2:focus:not(:focus-visible) {
   outline: none;
 }
 
@@ -127,17 +143,17 @@
   .withPanel {
     grid-template-columns: 1fr;
   }
-  .panel {
+  .sheet {
     position: fixed;
-    top: 0;
-    right: 0;
-    bottom: 0;
-    z-index: 10;
+    inset: 0 0 0 auto;
     width: min(360px, 100%);
+    height: auto;
     overflow-y: auto;
+    background: var(--color-surface);
+  }
+  .panel {
     align-content: start;
     padding: var(--space-6);
-    background: var(--color-surface);
   }
 }
 
@@ -148,7 +164,7 @@
     color: var(--color-ink-muted);
   }
   .table,
-  .panel {
+  .sheet {
     display: none;
   }
 }

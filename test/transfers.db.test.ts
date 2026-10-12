@@ -65,6 +65,13 @@ describe("transfer suggestions from the ledger", () => {
     expect(view.suggestions).toEqual([]);
     expect(view.blocked).toEqual([{ _id: "BR-B", name: "Bravo" }]);
   });
+
+  it("ignores a stocktake left idle for over 2 hours, the same rule that lets another clerk take it over", async () => {
+    await run((c, s, k) => openStocktake(c, s, k, { branchId: "BR-B", sid: "clerk", clerkLabel: "Clerk" }), { now: new Date(Date.now() - 2 * 3_600_000 - 60_000) });
+    const view = await listTransferSuggestions(t.db);
+    expect(view.suggestions).toHaveLength(2);
+    expect(view.blocked).toEqual([]);
+  });
 });
 
 describe("accepting a suggestion", () => {
@@ -113,6 +120,11 @@ describe("accepting a suggestion", () => {
     expect(await cols(t.db).movements.countDocuments({ refType: "transfer" })).toBe(0);
   });
 
+  it("goes through when the open stocktake has been idle for over 2 hours", async () => {
+    await run((c, s, k) => openStocktake(c, s, k, { branchId: "BR-A", sid: "clerk", clerkLabel: "Clerk" }), { now: new Date(Date.now() - 2 * 3_600_000 - 60_000) });
+    await expect(accept(3)).resolves.toMatchObject({ result: { moved: 3 } });
+  });
+
   it("reads only through indexes", async () => {
     await t.db.command({ profile: 2 });
     try {
@@ -125,6 +137,9 @@ describe("accepting a suggestion", () => {
       .project({ ns: 1, op: 1, command: 1 })
       .toArray();
     expect(scans).toEqual([]);
+    // The 8-week SOLD read is led by the SKU: it touches none of TOY's sales when accepting COT.
+    const sold = await t.db.collection("system.profile").findOne({ "command.aggregate": "stockMovements", "command.pipeline.0.$match.type": "SOLD" });
+    expect(sold?.keysExamined).toBe(0);
   });
 
   it("refuses a transfer to the same branch as a domain error", async () => {
@@ -136,7 +151,7 @@ describe("accepting a suggestion", () => {
 });
 
 describe("accept vs stocktake race", () => {
-  const lockRev = async (branchId: string) => (await cols(t.db).branches.findOne({ _id: branchId }))?.lockRev ?? 0;
+  const lockRev = async (branchId: string) => (await cols(t.db).branchLocks.findOne({ _id: branchId }))?.rev ?? 0;
 
   it("accept, stocktake open and stocktake submit each bump the branch lock they depend on", async () => {
     await run((c, s, k) => acceptTransferSuggestion(c, s, k, { sku: COT, fromBranchId: "BR-A", toBranchId: "BR-B", qty: 1 }));

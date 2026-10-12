@@ -136,6 +136,28 @@ test("after a network failure, Retry resends the same request ID; reopening a su
   expect(ids[2]).not.toBe(ids[0]);
 });
 
+test("a reused request ID keeps the panel open, and the next Accept sends a new one", async ({ page }) => {
+  await signInManager(page);
+  await page.goto("/transfers");
+  const ids: string[] = [];
+  await page.route("/api/transfers", async (route) => {
+    ids.push(route.request().postDataJSON().commandId);
+    const error = ids.length === 1
+      ? { code: "COMMAND_ID_REUSED", message: "This request ID was already used for a different request" }
+      : { code: "INTERNAL", message: "Couldn't save. Retry" };
+    await route.fulfill({ status: ids.length === 1 ? 409 : 500, json: { error } });
+  });
+  const [first] = await suggestions(page);
+  const panel = page.getByRole("complementary");
+  await page.getByRole("button", { name: first.label }).click();
+  await panel.getByRole("button", { name: "Accept transfer" }).click();
+  await expect(panel.getByRole("alert")).toHaveText("Nothing moved. Accept again to retry.");
+  await panel.getByRole("button", { name: "Accept transfer" }).click();
+  await expect(panel.getByRole("alert")).toHaveText("Couldn't save. Retry");
+  expect(ids).toHaveLength(2);
+  expect(ids[1]).not.toBe(ids[0]);
+});
+
 test("the selected row stays on screen beside the panel, without the table running under it", async ({ page }) => {
   await page.setViewportSize({ width: 1280, height: 720 });
   await signInManager(page);
@@ -148,6 +170,27 @@ test("the selected row stays on screen beside the panel, without the table runni
   const tableRight = await page.locator("table").evaluate((t) => t.getBoundingClientRect().right);
   const panelLeft = await page.getByRole("complementary").evaluate((a) => a.getBoundingClientRect().left);
   expect(tableRight).toBeLessThanOrEqual(panelLeft);
+});
+
+test("below 1280px the panel opens modal over the table and Escape returns focus", async ({ page }) => {
+  await page.setViewportSize({ width: 1024, height: 768 });
+  await signInManager(page);
+  await page.goto("/transfers");
+  const [first] = await suggestions(page);
+  const opener = page.getByRole("button", { name: first.label });
+  await opener.click();
+  const dialog = page.getByRole("dialog");
+  await expect(dialog).toBeVisible();
+  await expect(page.getByRole("heading", { level: 2 })).toBeFocused();
+  // Modal, so the page behind is inert: Tab stays in the panel and the table can't be clicked.
+  expect(await dialog.evaluate((d: HTMLDialogElement) => d.matches(":modal"))).toBe(true);
+  await page.keyboard.press("Tab");
+  await expect(dialog.getByRole("button", { name: "Close" })).toBeFocused();
+  const box = (await page.locator("tbody button").first().boundingBox())!;
+  expect(await page.evaluate(([x, y]) => !!document.elementFromPoint(x, y)?.closest("table"), [box.x + 5, box.y + 5])).toBe(false);
+  await page.keyboard.press("Escape");
+  await expect(dialog).toHaveCount(0);
+  await expect(opener).toBeFocused();
 });
 
 test("an unknown receiving branch says so instead of showing an empty list", async ({ page }) => {

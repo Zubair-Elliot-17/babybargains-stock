@@ -5,6 +5,7 @@ import { CommandId, handleCommand } from "@/lib/command";
 export async function POST(req: Request, { params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
   return handleCommand(req, {
+    target: id,
     name: "approveStocktake",
     role: "manager",
     actionClass: "general",

@@ -4,7 +4,7 @@ import { NotFound } from "../errors";
 import type { Batch, Branch, Product, Stocktake } from "../schemas";
 import { allocateFifo, type Lot } from "./allocate";
 import { DAY, type CompactMovement } from "./fold";
-import { foldCounts, planLine, unbatchedBatchId, type EffectiveCount, type PlannedLine } from "./stocktake";
+import { activeStocktakes, foldCounts, planLine, unbatchedBatchId, type EffectiveCount, type PlannedLine } from "./stocktake";
 import { VELOCITY_DAYS, suggestTransfers, type BranchStock, type SkuStock, type TransferSuggestion } from "./transfers";
 
 export interface RecallView {
@@ -383,7 +383,7 @@ export async function loadTransferInputs(
         { session },
       )
       .toArray(),
-    opts.openBranchIds ?? c.stocktakes.distinct("branchId", { status: "OPEN" }, { session }),
+    opts.openBranchIds ?? c.stocktakes.distinct("branchId", activeStocktakes(now), { session }),
   ]);
   const key = (x: { branchId: string; sku: string }) => `${x.branchId}|${x.sku}`;
   const onHand = new Map(stock.map((r) => [key(r._id), r.onHand]));
@@ -420,7 +420,7 @@ export async function listTransferSuggestions(db: Db, opts: { now?: Date; to?: s
   const c = cols(db);
   const now = opts.now ?? new Date();
   const [open, branches] = await Promise.all([
-    c.stocktakes.distinct("branchId", { status: "OPEN" }),
+    c.stocktakes.distinct("branchId", activeStocktakes(now)),
     c.branches.find({}, { projection: { name: 1 } }).sort({ name: 1 }).toArray(),
   ]);
   const inputs = await loadTransferInputs(c, now, { openBranchIds: open });
@@ -434,9 +434,10 @@ export async function listTransferSuggestions(db: Db, opts: { now?: Date; to?: s
   const batchById = new Map(batches.map((b) => [b._id, b]));
   const names = new Map(branches.map((b) => [b._id, b.name]));
   const productName = new Map(products.map((p) => [p._id, p.name]));
+  const rowsByLot = Map.groupBy(rows, (r) => `${r.branchId}|${r.sku}`);
   const suggestions = ranked.map((s) => {
-    const lots: Lot[] = rows
-      .filter((r) => r.branchId === s.fromBranchId && r.sku === s.sku && batchById.has(r.batchId))
+    const lots: Lot[] = (rowsByLot.get(`${s.fromBranchId}|${s.sku}`) ?? [])
+      .filter((r) => batchById.has(r.batchId))
       .map((r) => {
         const b = batchById.get(r.batchId)!;
         return { batchId: r.batchId, onHand: r.onHand, receivedAt: b.receivedAt, status: b.status, unbatched: b.batchCode === "UNBATCHED" };

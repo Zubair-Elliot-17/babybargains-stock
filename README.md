@@ -20,7 +20,7 @@ Here every change is a movement in `stockMovements` (`RECEIVED`, `SOLD`, `TRANSF
 that ledger, updated in the same transaction.
 
 ```
-command ─► commandLog insert (duplicate commandId → return the first result)
+command ─► commandLog insert (duplicate commandId: same body → return the first result, different → 409 COMMAND_ID_REUSED)
         ─► FIFO allocation (pure function, shared by seed, server and browser)
         ─► postMovements, one transaction:
               negative qty: inventory.updateOne({.., onHand ≥ n}, {$inc: -n}); no match → abort
@@ -78,7 +78,8 @@ recorded or counted figures are solid.
     `max(⌈W·v⌉, rp+1)` and offers the rest.
   - *recipient:* `onHand < rp`; it is refilled to `max(rp+1, ⌈W/2·v⌉)`.
   - Lowest-cover recipients are served first, each from the donor with the most surplus left. A
-    branch with an open stocktake is left out on both sides.
+    branch with an open stocktake is left out on both sides, unless it has been idle for 2 hours (the
+    same rule that lets another clerk take it over).
 - **Accept re-checks.** The suggestion is recomputed from the ledger inside the transaction: asking
   for more than it now allows returns 409 `SUGGESTION_STALE` with the current quantity, an open
   stocktake at either branch returns 409 `STOCKTAKE_OPEN`, and a resent `commandId` replays the first

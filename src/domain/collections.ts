@@ -52,6 +52,7 @@ export function cols(db: Db) {
     commandLog: db.collection<CommandLogEntry>("commandLog"),
     rateLimits: db.collection<RateLimitEntry>("rateLimits"),
     ops: db.collection<OpsDoc>("ops"),
+    branchLocks: db.collection<{ _id: string; rev: number }>("branchLocks"), // unvalidated, so no migrate can break the lock
   };
 }
 export type Cols = ReturnType<typeof cols>;
@@ -68,6 +69,7 @@ export async function ensureIndexes(db: Db): Promise<void> {
     c.movements.createIndex({ sku: 1, batchId: 1, at: 1 }),
     c.movements.createIndex({ branchId: 1, sku: 1, at: 1 }),
     c.movements.createIndex({ type: 1, at: 1 }),
+    c.movements.createIndex({ sku: 1, type: 1, at: 1 }), // transfer accept: one SKU's recent sales
     c.movements.createIndex({ refType: 1, refId: 1 }),
     c.movements.createIndex({ origin: 1 }),
     c.inventory.createIndex({ branchId: 1, sku: 1, batchId: 1 }, { unique: true }),

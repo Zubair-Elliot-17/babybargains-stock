@@ -34,6 +34,7 @@ export async function handleCommand<I extends { commandId: string }, T>(
   req: Request,
   opts: {
     name: string;
+    target?: string; // route param (e.g. stocktake id), part of the fingerprint
     role: Role;
     actionClass: ActionClass;
     input: z.ZodType<I>;
@@ -49,7 +50,7 @@ export async function handleCommand<I extends { commandId: string }, T>(
     session = requireRole(await currentSession(), opts.role);
     const input = opts.input.parse(await req.json());
     commandId = input.commandId;
-    const fingerprint = createHash("sha256").update(JSON.stringify([opts.name, session.sid, input])).digest("hex");
+    const fingerprint = createHash("sha256").update(JSON.stringify([opts.name, session.sid, input, ...(opts.target ? [opts.target] : [])])).digest("hex");
     const [client, db] = await Promise.all([getClient(), getDb()]);
     const prior = await cols(db).commandLog.findOne({ _id: commandId, result: { $ne: null } });
     if (prior) {
