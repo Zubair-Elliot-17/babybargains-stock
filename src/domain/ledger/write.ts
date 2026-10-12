@@ -453,6 +453,7 @@ export async function approveStocktake(c: Cols, s: ClientSession, ctx: CommandCt
   if (plan.stocktake.status !== "SUBMITTED") {
     throw new DomainError("NOT_SUBMITTED", `Stocktake is ${plan.stocktake.status.toLowerCase()}`, 409);
   }
+  await lockBranches(c, s, [plan.stocktake.branchId]); // conflicts with a recall committing mid-approval (it locks all branches)
   const accepted = new Set(input.acceptedKeys);
   const missing = plan.lines.filter((l) => l.flagged && !accepted.has(l.key)).map((l) => l.key);
   if (missing.length) throw new DomainError("REVIEW_REQUIRED", `Review ${missing.length} flagged line(s) before approving`, 400, { missing });
@@ -467,23 +468,28 @@ export async function approveStocktake(c: Cols, s: ClientSession, ctx: CommandCt
     );
   }
   const movements: NewMovement[] = plan.lines.flatMap((l) =>
-    l.adjustments.map((a) => ({
-      type: "ADJUSTMENT" as const,
-      at: now,
-      effectiveAt: l.countedAt,
-      branchId: plan.stocktake.branchId,
-      sku: l.sku,
-      batchId: a.batchId,
-      qty: a.qty,
-      refType: "stocktake" as const,
-      refId: plan.stocktake._id,
-      attributed: a.attributed,
-    })),
+    l.adjustments.flatMap((a) => {
+      const adj = {
+        type: "ADJUSTMENT" as const,
+        at: now,
+        effectiveAt: l.countedAt,
+        branchId: plan.stocktake.branchId,
+        sku: l.sku,
+        batchId: a.batchId,
+        qty: a.qty,
+        refType: "stocktake" as const,
+        refId: plan.stocktake._id,
+        attributed: a.attributed,
+      };
+      // Units found on a recalled batch are pulled straight back off it.
+      return l.quarantined ? [adj, { ...adj, type: "RECALLED" as const, qty: -l.quarantined }] : [adj];
+    }),
   );
   await postMovements(c, s, ctx, movements);
   await c.stocktakes.updateOne({ _id: plan.stocktake._id }, { $set: { status: "APPROVED", approvedAt: now, approvedOrigin: ctx.origin } }, { session: s });
-  const up = movements.filter((m) => m.qty > 0).reduce((n, m) => n + m.qty, 0);
-  const down = -movements.filter((m) => m.qty < 0).reduce((n, m) => n + m.qty, 0);
+  const adjusted = movements.filter((m) => m.type === "ADJUSTMENT");
+  const up = adjusted.filter((m) => m.qty > 0).reduce((n, m) => n + m.qty, 0);
+  const down = adjusted.filter((m) => m.qty < 0).reduce((n, m) => n - m.qty, 0);
   return {
     stocktakeId: plan.stocktake._id,
     approvedAt: now,
@@ -491,6 +497,7 @@ export async function approveStocktake(c: Cols, s: ClientSession, ctx: CommandCt
     adjustedLines: plan.lines.filter((l) => l.adjustments.length).length,
     unitsAdded: up,
     unitsRemoved: down,
+    unitsQuarantined: plan.lines.reduce((n, l) => n + l.quarantined, 0),
     valuePence: plan.lines.reduce((n, l) => n + l.valuePence, 0),
   };
 }

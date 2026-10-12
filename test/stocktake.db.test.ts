@@ -2,7 +2,7 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { cols } from "@/domain/collections";
 import { DomainError } from "@/domain/errors";
 import { checkLedgerInvariants, computeStocktakePlan, findRecall, projectionDiff } from "@/domain/ledger/read";
-import { approveStocktake, openStocktake, receiveStock, recordSale, saveCountLine, submitStocktake } from "@/domain/ledger/write";
+import { approveStocktake, openStocktake, quarantineBatch, receiveStock, recordSale, saveCountLine, submitStocktake } from "@/domain/ledger/write";
 import { migrate } from "@/seed/apply";
 import { freshDb } from "./helpers";
 import { COT, NEW, OLD, TOY, TOYB, buildWorld, runner } from "./world";
@@ -131,5 +131,41 @@ describe("stocktake lifecycle", () => {
     expect(await cols(t.db).stocktakeLines.countDocuments({ stocktakeId: st._id })).toBe(1);
     await run((c, s, k) => submitStocktake(c, s, k, { stocktakeId: st._id, sid: "clerk-1", uncounted: "leave" }));
     await expect(count(st._id, TOY, 1)).rejects.toMatchObject({ code: "STOCKTAKE_CLOSED" });
+  });
+});
+
+describe("found units on a recalled batch", () => {
+  const recallB1 = () => run((c, s, k) => quarantineBatch(c, s, k, { batchCode: "B-1" }));
+  const countFound = async (n: number) => {
+    const st = (await open()).result;
+    await count(st._id, COT, n, OLD);
+    await run((c, s, k) => submitStocktake(c, s, k, { stocktakeId: st._id, sid: "clerk-1", uncounted: "leave" }));
+    return st._id;
+  };
+  const approve = (stocktakeId: string, commandId?: string) =>
+    run((c, s, k) => approveStocktake(c, s, k, { stocktakeId, acceptedKeys: [`${COT}|${OLD}`] }), commandId ? { commandId } : {});
+
+  it("approval adds the found units and quarantines them again in the same breath", async () => {
+    await recallB1(); // OLD: 2 → 0
+    const id = await countFound(3);
+    const { result } = await approve(id);
+    expect(result).toMatchObject({ unitsAdded: 3, unitsRemoved: 0, unitsQuarantined: 3 });
+    const pair = await cols(t.db).movements.find({ refType: "stocktake" }, { projection: { _id: 0, actor: 0, origin: 0 } }).toArray();
+    expect(pair).toEqual([
+      { type: "ADJUSTMENT", at: result.approvedAt, effectiveAt: expect.any(Date), branchId: "BR-A", sku: COT, batchId: OLD, qty: 3, refType: "stocktake", refId: id, attributed: false },
+      { type: "RECALLED", at: result.approvedAt, effectiveAt: pair[0].effectiveAt, branchId: "BR-A", sku: COT, batchId: OLD, qty: -3, refType: "stocktake", refId: id, attributed: false },
+    ]);
+    expect(await onHand(OLD)).toBe(0);
+    expect(await projectionDiff(t.db)).toEqual([]);
+  });
+
+  it("posts the pair once: a replayed approval returns the first result, a second one is refused", async () => {
+    await recallB1();
+    const id = await countFound(2);
+    const first = await approve(id, "approve-once");
+    const again = await approve(id, "approve-once");
+    expect(again).toEqual({ result: first.result, replayed: true });
+    await expect(approve(id)).rejects.toMatchObject({ code: "NOT_SUBMITTED", status: 409 });
+    expect(await cols(t.db).movements.countDocuments({ refType: "stocktake", refId: id })).toBe(2);
   });
 });
