@@ -508,6 +508,61 @@ Test plan artifact: ~/.gstack/projects/Zubair-Elliot-17-babybargains-stock/zubai
 - Parallelization: 3 lanes, 0 parallel / 3 sequential (Pipeline, one writer)
 - Lake Score: 4/4
 
+## Design Review (plan-design-review, 2026-10-13)
+Text-only (designer needs an OpenAI key). Calibrated against DESIGN.md.
+
+### Approved design decisions
+- 1A (user): sync status is a line in the sticky count footer, above "N of M products counted", hidden until the first queued save; Submit's disabled reason is shown in that same line.
+- 2A (user): the "Stockroom dead spot" switch sits at the right end of the existing demo strip ("Demo data resets nightly 03:00 UTC"), on the count screen only; it wraps to its own line under 360px.
+- 3A (user): failed lines get a pinned "Not saved · N" list above Recent, shown only when N > 0; each row shows the product, count and the server's message with Retry and Discard (44px); Discard confirms in the BottomSheet; the footer status reads "N not saved, see above".
+
+Count screen (phone) after Pass 1:
+```
+header ............ BabyBargains Stock · Leeds Kirkgate · Sign out
+demo strip ........ Demo data resets nightly 03:00 UTC   [Stockroom dead spot ○]
+tabs .............. Count | Not counted yet 57
+search ............ [Scan or search product] [Scan]
+item panel ........ (when a product is chosen) stepper, batch, Save count
+notice ............ Saved · … | Kept on this phone · …
+Not saved · 2 ..... (only when failed) row: name × n · message · [Retry] [Discard]
+Recent ............ rows; queued rows carry a "Waiting" tag
+footer (sticky) ... status line: 3 counts waiting for signal  (hidden until first queued save)
+                    4 of 60 products counted            [Submit stocktake]
+bottom nav ........ Count | Record sale
+```
+- 4A (user): "Save count" shows "Saving…" for at most 1.5 s; if the server has not answered, the notice reads "Kept on this phone · name × N", the button frees and the queue keeps trying (consistent with D4/R3: "Saved" when sent during the save).
+
+State table (what the clerk sees; restates approved behaviour):
+```
+FEATURE          | IN FLIGHT              | EMPTY/IDLE              | ERROR                                   | SUCCESS                         | PARTIAL
+Save count       | "Saving…" ≤1.5 s       | hint "Scan a label…"    | n/a (never blocks; queue owns errors)   | "Saved · name × N"              | "Kept on this phone · name × N"
+Footer status    | "Sending 3 counts…"    | hidden until 1st queue  | 403 server msg · CLOSED · BUSY · 5xx×5  | "All counts saved"              | "3 counts waiting for signal"
+Recent row       | "Waiting" tag          | no Recent section       | moves to Not saved list                 | tag removed as each line sends  | some rows tagged
+Not saved list   | —                      | hidden                  | message + Retry/Discard per row         | row leaves list                 | count in heading
+Submit           | disabled + reason      | enabled                 | disabled + "Fix N not saved above"      | enabled                         | disabled + "Submit after counts are sent"
+Dead-spot switch | —                      | off                     | —                                       | —                               | on: status prefixed "Dead-spot demo on ·"
+```
+
+Journey storyboard:
+```
+STEP | USER DOES                      | USER FEELS        | PLAN SPECIFIES
+1    | flips "Stockroom dead spot" on | curious           | demo strip switch (2A)
+2    | counts 3 items                 | "is this saved?"  | "Kept on this phone", Waiting tags, footer "3 counts waiting" (4A, 1A)
+3    | reloads                        | doubt → relief    | queued lines merged back with tags (dedupe by lineId)
+4    | flips switch off               | anticipation      | tags clear one by one, "Sending 3 counts…" → "All counts saved"
+5    | taps Submit                    | confidence        | Submit enables once the queue is empty
+5-yr | clerk in a real dead spot      | trusts the app    | no silent loss; every stuck state has text and an action
+```
+- 5A (user): "Waiting" is a StatusPill variant `waiting` (--color-warning text + 1px --color-warning border, no fill, 13px meta, 6px radius); the footer status uses --color-warning while queued or stuck and --color-ink for "All counts saved"; Not saved rows use --color-recall for the message; the notice keeps accent green for "Saved" and uses --color-warning for "Kept on this phone". Add `waiting` to DESIGN.md Components (StatusPill).
+- 6A (user): the dead-spot switch is a native `<input type="checkbox" role="switch">` inside its visible label "Stockroom dead spot"; track --color-control-border when off, --color-accent when on, accent focus ring, the whole label is a 44px tap target. Add "Switch" to DESIGN.md Components.
+
+### Paused (user stopped the review at question 7)
+Scores so far: Pass 1 4→9, Pass 2 6→9, Pass 3 7→9 (storyboard), Pass 4 9 (no issues), Pass 5 6→9, Pass 6 6 (unresolved), Pass 7 not started.
+- PENDING Q7 (Pass 6): screen-reader announcements during a drain. Recommended 7A: a visually hidden role=status that announces only state changes (waiting / sending / all saved / paused / stopped); a new failed line uses role=alert once; disabled Submit gets aria-describedby to its visible reason. Alternative 7B: the visible footer status line is the live region.
+- NOT YET ASKED (Pass 7): how the manager review shows the "counted offline, arrived 1h 5m later" flag (proposal: reuse the existing review-line note in --color-warning, as for quarantined lines).
+- Resume: `/plan-design-review` on this file, starting at Q7.
+
+
 ## GSTACK REVIEW REPORT
 
 | Review | Trigger | Why | Runs | Status | Findings |
@@ -515,10 +570,12 @@ Test plan artifact: ~/.gstack/projects/Zubair-Elliot-17-babybargains-stock/zubai
 | CEO Review | `/plan-ceo-review` | Scope & strategy | 0 | — | — |
 | Outside Review | codex via /plan-eng-review | Independent 2nd opinion | 1 | unavailable | none (not installed) |
 | Eng Review | `/plan-eng-review` | Architecture & tests (required) | 1 | issues_open | 13 issues, 0 critical gaps |
-| Design Review | `/plan-design-review` | UI/UX gaps | 0 | — | — |
+| Design Review | `/plan-design-review` | UI/UX gaps | 1 | issues_open (paused) | score: 4/10 → 6/10, 6 decisions |
 | DX Review | `/plan-devex-review` | Developer experience gaps | 0 | — | — |
 
-- **OUTSIDE COVERAGE:** codex, plan-review phase, unavailable (CLI not installed; native fallback unavailable), no findings. Not a clean pass.
-- **VERDICT:** no review CLEAR yet; eng review issues are all mapped to approved tasks T1–T8 — eng review required (status issues_open means mapped work, not blockers).
+- **OUTSIDE COVERAGE:** codex, plan-review phase, unavailable (CLI not installed). Design review: outside voices declined by user; mockups unavailable (no OpenAI key).
+- **VERDICT:** no review CLEAR yet; eng issues are mapped to tasks T1–T8; design review paused with 2 open decisions — eng review required.
 
-NO UNRESOLVED DECISIONS
+**UNRESOLVED DECISIONS:**
+- Design Q7: screen-reader announcements during a drain (7A recommended)
+- Design Pass 7: manager "arrived late" flag presentation (not yet asked)
