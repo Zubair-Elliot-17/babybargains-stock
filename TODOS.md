@@ -63,6 +63,15 @@ Deferred during plan review. Each has the context needed to pick it up later.
 - **Context:** per-line saves are idempotent by `lineId`, so the queue is additive.
 - **Depends on:** Milestone 2.
 
+## Open the count page offline (P3)
+- **What:** cache the count page shell and catalogue with a service worker so a reload in a stockroom dead spot
+  still opens the count screen; the offline queue itself is unchanged.
+- **Why:** after the offline count queue, counts survive a reload, but a reload with no signal shows the browser's
+  offline page until signal returns.
+- **Cons:** service-worker caching and update complexity; harder E2E tests.
+- **Context:** premise 4 of docs/designs/offline-count-queue.md kept this out of that sprint.
+- **Depends on:** the offline count queue.
+
 ## Phone layouts for secondary manager screens (P3)
 - **What:** <768px layouts for Stock, Stocktakes, Transfers, Orders, Imports, Analytics.
 - **Context:** Recall and the clerk screens already have phone layouts; follow the Recall pattern.

@@ -270,3 +270,255 @@ issues verified: 5 of 5
 
 Verification is deterministic: a fix counts when its `applied_text` is in the current design and absent from the round-2 snapshot. It confirms applied edits, never a review verdict; no reviewer was launched past the cap.
 <!-- gstack:office-hours:concerns:end -->
+
+## Eng Review (plan-eng-review, 2026-10-13)
+Target: docs/designs/offline-count-queue.md (this file; the plan above is the unchanged original).
+
+Scope record: feature answers: none proposed (no cuts); structure: A Smaller arrangement (D1); accepted scope: all features above, new files countQueue.ts + SyncBadge.tsx, CountScreen calls useSyncExternalStore inline, /api/stocktakes/[id]/batches route deleted; pending remedies: none (R1 approved, D2).
+Scope Challenge result: scope accepted as-is.
+
+Scope Challenge findings:
+- S1 [P1] (confidence 9/10) src/app/api/stocktakes/route.ts:20-21 `return \`Clerk ${sid.slice(0, 4).toUpperCase()}\`` — the clerk label is derived from the session id, so the "label differs → confirm before sending" rule fires on every re-login. See ledger R1.
+- S2 [P1] (confidence 9/10) src/app/(clerk)/count/[id]/page.tsx:31 `if (st.openedBy !== session.sid) redirect("/count")` + StartStocktake.tsx:17 (open without key) — the approved resume key (D5) must be wired through StartStocktake: STOCKTAKE_BUSY details gain `stocktakeId`, the client retries open with `bb-resume:<id>`. Necessary implementation of D5; no new choice.
+- S3 factual (closes minor R2-8): src/lib/command.ts:53-59 — replay lookup runs before `run`, and the fingerprint includes `session.sid`, so a resend after re-login returns 409 COMMAND_ID_REUSED, which the queue treats as saved.
+- S4 numbers: count budget 600/h/session (src/auth/rateLimit.ts:6) [measured: code]; FULL seed 300 SKUs (src/seed/generate.ts:17) [measured: code]; branch batch-choice payload ~10–20 KB [estimated].
+- S5: StocktakeLine.receivedAt and Stocktake.resumeKeyHash are optional Zod fields (validators regenerate via scripts/migrate.mts; generate.ts untouched, so no bb_demo re-seed). Necessary implementation.
+
+## Decision ledger
+
+### R1: clerk-label check before sending queued items
+Finding: S1, P1, confidence 9/10, src/app/api/stocktakes/route.ts:20-21, reviewer: plan-eng-review (Claude)
+Plan baseline: design (approved D6) — "Each queued item also stores the clerkLabel that recorded it… If the label now signed in differs from an item's label, those items are held with '3 counts by Clerk Sam: send them as Clerk Priya?' and only sent after confirmation."
+Runtime evidence: clerkLabel = `Clerk ${sid.slice(0,4)}` (route.ts:21); every sign-in mints a new sid (src/auth/session.ts:33 `sid: randomUUID()`), so labels always differ after a re-login. No persistent clerk identity exists.
+Comparison grid:
+| Choice | Current | A | B |
+|---|---|---|---|
+| R1 label check | confirm whenever label differs (fires on every re-login) | removed: identity is the phone holding the resume key; queued items send under the resuming session, label kept for display only | kept as designed |
+| D5 resume key | approved | unchanged | unchanged |
+| D4 countedAt | approved | unchanged | unchanged |
+Question D2:
+D2 — Drop the "send as another clerk?" prompt? Project/branch/task: offline-count-queue eng review. ELI10: the design asks before sending queued counts if a different clerk is signed in. But clerk names here are made from the session, so after any re-login the name is always "different", and the prompt would appear every time, even for the same person. Stakes if we pick wrong: keep it and every re-login nags the clerk with a meaningless question; drop it and a second clerk on the same phone sends the first clerk's counts under their own session (same as handing over the phone today). Recommendation: A because the resume key already ties counts to the phone, and there is no real clerk identity to compare. Completeness: A=10/10, B=6/10. Pros / cons: A) Drop the prompt (recommended) ✅ no false prompt after every re-login, simpler queue ✅ counts still only send from the phone that holds the resume key ❌ counts carry the resuming session's clerkId, not the original one. B) Keep the prompt ✅ an explicit hand-over moment on shared phones ❌ fires on every re-login because labels are per session, so clerks learn to tap through it. Net: an honest model of identity vs a prompt that can't tell people apart.
+Header: Label check
+Options:
+A) Drop the prompt (recommended)
+Remove the label comparison; queued items keep their label for display and send under the session that resumed with the key. (human: ~0 / CC: removes work)
+B) Keep the prompt
+Keep "N counts by Clerk X: send them as Clerk Y?" before sending after any re-login. (human: ~2h / CC: ~10 min)
+
+State: approved
+Actual answer: A) Drop the prompt (user, D2, 2026-10-13)
+Accepted scope: remove the clerk-label comparison and hold/confirm prompt; queued items keep clerkLabel for display; they send under the session that resumed with the key.
+History: none
+
+### R2: minor spec-review fixes (set)
+Finding: spec review minors R2-6, R2-7, R2-10, R2-11, R2-12, R2-13, R2-14 (R2-8 closed by S3; R2-9 already stated in plan), P3, confidence 7/10, reviewer: office-hours spec reviewer
+Plan baseline: not addressed in approved design
+Runtime evidence: n/a (proposed behavior)
+Comparison grid:
+| Choice | Current | A | B |
+|---|---|---|---|
+| m1 missing-key text + BUSY/CLOSED badge text | "being counted on another device" for all | separate "Can't resume on this phone yet" text; badge texts for BUSY/CLOSED | unchanged |
+| m2 repeated 5xx / 403 text | "waiting for signal" forever; 403 = sign in | after 5 straight 5xx: "Server problem, N counts kept, retrying"; 403 shows server message | unchanged |
+| m3 cleanup | none | /count load removes keys >14 days old; closed-stocktake page lists its queued lines with Clear | unchanged |
+| m4 switch in badge | not shown | badge prefixed "Dead-spot demo on" | unchanged |
+| m5 typo | "switching back on" | "switching the dead-spot switch off" | unchanged |
+| m6 batch staleness + beforeunload | unspecified | batches fixed at page load (reload to see new deliveries); beforeunload best-effort, iOS uses pagehide note | unchanged |
+| m7 clock resync | unspecified | store performance.now() at capture; same page life sends Date.now() − elapsed as capturedAt | unchanged |
+Question D3:
+D3 — Accept the set of 7 small fixes from the spec review? (pick "Other" to drop any by number)
+Header: Minor fixes
+Options:
+A) Accept all 7 (recommended)
+m1–m7 as in the grid. (human: ~4h / CC: ~20 min)
+B) Leave as designed
+No change; the notes stay recorded as known gaps.
+
+State: approved
+Actual answer: A) Accept all 7 (user, D3, 2026-10-13)
+Accepted scope: m1–m7 exactly as in the R2 grid.
+History: none
+
+### R3: regression contract for the count save path
+Finding: T1 CRITICAL regression risk, confidence 9/10, e2e/stocktake.spec.ts:33,43 `await expect(page.getByText(/^Saved · Dreamtime Cot 120/)).toBeVisible();` and e2e/command-reuse.spec.ts:74, reviewer: plan-eng-review
+Plan baseline: design says the save notice reads "Kept on this phone" instead of "Saved" (Recommended Approach, SyncBadge bullet)
+Runtime evidence: CountScreen.tsx:146 `setNotice(\`Saved · ${name} × ${result.counted}\`)` after a 2xx or COMMAND_ID_REUSED; offline shows "Not saved: no connection. Retry" (:152)
+Comparison grid:
+| Choice | Current | A | B |
+|---|---|---|---|
+| online save notice | "Saved · name × effective" | unchanged (shown when the line is sent during the save) | always "Kept on this phone", then badge |
+| offline/timeout notice | "Not saved: no connection. Retry" | "Kept on this phone · name × N" | "Kept on this phone · name × N" |
+| repeat sheet, progress, submit, blind count, COMMAND_ID_REUSED=saved | as tested | preserved; existing specs pass unchanged | preserved; specs' "Saved" assertions rewritten |
+Question D4:
+D4 — What does the clerk see after Save when the signal is fine?
+Header: Save notice
+Options:
+A) Keep "Saved" online (recommended)
+Online saves keep today's "Saved · name × total"; only a save not sent within the request shows "Kept on this phone". Existing e2e specs pass unchanged and become the regression guard. (human: ~1h / CC: ~5 min)
+B) Always "Kept on this phone"
+Every save shows "Kept on this phone" first; the badge confirms sending. Rewrite the "Saved" assertions in both specs. (human: ~1h / CC: ~5 min)
+
+State: approved
+Actual answer: A) Keep "Saved" online (user, D4, 2026-10-13)
+Accepted scope: online save notice unchanged ("Saved · name × total"); "Kept on this phone · name × N" only when the line was not sent during the save; e2e/stocktake.spec.ts and e2e/command-reuse.spec.ts must pass unchanged as the regression guard.
+History: none
+
+### R4: TODO — open the count page while offline (service worker)
+Finding: premise 4 out-of-scope item, P3, confidence 8/10, design Premises #4, reviewer: plan-eng-review
+Plan baseline: out of scope (premise 4, user D2 in office-hours)
+Runtime evidence: no service worker in the repo; a reload with no signal shows the browser's offline page, queued counts wait in localStorage until the next online load
+Comparison grid:
+| Choice | Current | A | B | C |
+|---|---|---|---|---|
+| TODOS entry | none | add P3 entry | no entry | build now (reverses premise 4) |
+Question D5:
+D5 — Log "open the count page offline" as a P3 TODO?
+Header: Offline TODO
+Options:
+A) Add to TODOS.md (recommended)
+P3: cache the count page shell + catalogue with a service worker so a reload in a dead spot still opens; queue unchanged.
+B) Skip
+Not worth tracking.
+C) Build it now
+Reverses premise 4; adds a service worker to this PR. (human: ~3 days / CC: ~2h)
+
+State: approved
+Actual answer: A) Add to TODOS.md (user, D5, 2026-10-13)
+Accepted scope: add a P3 "Open the count page offline" entry to TODOS.md.
+History: none
+
+Approval readiness: PASS — R1 (D2 A), R2 (D3 A), R3 (D4 A), R4 (D5 A); scope D1 A. S2/S5 and the Section 1–2 implementation notes are necessary implementation of approved D4/D5/D1, cited not re-asked.
+
+### Reality rows
+- premise-table: 6 factual claims checked with receipts (route.ts:21 label, session.ts:33 sid, command.ts:53-59 replay order, rateLimit.ts:6 budget, collections.ts:86 index, count/[id]/page.tsx:31 redirect); unverified=1 (batch payload size, estimated).
+REALITY: premise-table pass 6 receipts, unverified=1 src/lib/command.ts:53
+REALITY: already-done pass origin/main since 2026-10-09 touches count/write only for the P1 recall fix, no offline work src/domain/ledger/write.ts:375
+REALITY: surface-check pass routes POST /api/stocktakes and /api/stocktakes/[id]/lines exist; /batches route is deleted by plan src/app/api/stocktakes/[id]/lines/route.ts:14
+REALITY: binding-decisions pass D4 capturedAt, D5 resume key, per-item keys honored; D2 removed only the label prompt the user dropped src/app/api/stocktakes/route.ts:20
+REALITY: numbers finding 300 SKUs [measured: generate.ts:17], 600/h [measured: rateLimit.ts:6], batch payload ~10–20 KB [estimated], drain ~10 s per 50 lines [estimated] src/seed/generate.ts:17
+REALITY: deferred-asks pass TODO P2 asks (queue, badge, disabled Submit) all in scope; service-worker open deferred to P3 (D5) TODOS.md
+REALITY: pr-count pass one PR (no .gstack/ship-policy.json, default) docs/designs/offline-count-queue.md
+
+### NOT in scope
+- Opening the count page offline (service worker): deferred as P3 TODO (D5).
+- Coordinating queues across several phones on one stocktake: existing "Team stocktakes" P3.
+- A persistent clerk identity: sessions are anonymous by design; the resume key ties counts to the phone (D2).
+
+### What already exists
+- Idempotent line saves by `commandId = lineId` and replay-before-run in `handleCommand` (src/lib/command.ts:53-59): reused as is; resend after re-login lands on COMMAND_ID_REUSED.
+- `foldCounts` ordering by countedAt (src/domain/ledger/stocktake.ts:32) and the item index (collections.ts:86): reused for the per-item guard.
+- `batchChoices` rules (read.ts:352): reused for the branch-wide batch list; the per-product route goes away.
+- `safeGet`/`safeSet` (CountScreen.tsx:371-387): moved into countQueue.ts and reused.
+- Playwright `setOffline` + `page.route` (e2e/command-reuse.spec.ts:70): pattern reused for offline specs.
+
+### Failure modes
+| Path | Realistic failure | Handling | Test | User sees |
+|---|---|---|---|---|
+| drain | dead spot / timeout | backoff + online/visibility kicks | unit + e2e | "waiting for signal" |
+| drain | server bug (5xx loop) | after 5: "Server problem" (m2) | unit | clear text |
+| drain | re-login → BUSY | resume with key, rotate | db + e2e | sends after resume |
+| drain | stale takeover elsewhere | key refused → stopped | db | "kept on this phone" |
+| drain | stocktake submitted elsewhere | CLOSED → stopped, Clear | unit | manager text |
+| storage | private mode / quota | in-memory + warning | unit | warning |
+| tabs | two tabs drain | navigator.locks, per-item keys | unit | nothing (correct) |
+| server time | sale while queued | capturedAt corrected + clamp + guard | db | correct variance |
+| server time | back-dated line | receivedAt + >15 min flag | db + review render | flag on review |
+No critical gaps: every path has handling and a planned test, none silent.
+
+### Worktree parallelization strategy
+| Step | Modules touched | Depends on |
+|---|---|---|
+| Server time + resume key | src/domain, src/app/api, src/lib | — |
+| Queue module | src/components/count (new file) | — |
+| Count page wiring, badge, switch | src/components/count, src/app/(clerk) | Queue module, Server |
+| Manager late flag | src/components/stocktakes, src/domain/ledger/read.ts | Server |
+| E2E specs | e2e/ | all |
+Lane A: Server → Manager flag. Lane B: Queue module. Then C: wiring + badge + switch, then E2E. Pipeline mode has one writer, so run sequentially in this order: A, B, C, E2E.
+
+## Implementation Tasks
+Synthesized from this review's findings. Run with Claude Code; checkbox as you ship.
+
+- [ ] **T1 (P1, human: ~1 day / CC: ~30min)** — server — corrected, clamped, per-item monotonic `countedAt` + `receivedAt`
+  - Surfaced by: design D4 + Arch diagram; S5 optional schema fields
+  - Files: src/app/api/stocktakes/[id]/lines/route.ts, src/domain/ledger/write.ts, src/domain/schemas.ts, test/stocktake.db.test.ts
+  - Verify: `npm test` (sale-between-capture-and-arrival, clamp, skew header, uneven latency order, receivedAt)
+- [ ] **T2 (P1, human: ~1 day / CC: ~30min)** — server — rotating resume key on open/takeover/resume; BUSY details carry `stocktakeId`
+  - Surfaced by: D5, S2, R2-3/R2-5
+  - Files: src/domain/ledger/write.ts, src/app/api/stocktakes/route.ts, src/domain/schemas.ts, test/stocktake.db.test.ts
+  - Verify: `npm test` (immediate takeover, old key BUSY after stale takeover, other-branch refused, timingSafeEqual)
+- [ ] **T3 (P1, human: ~2 days / CC: ~40min)** — client — `countQueue.ts`: per-item keys, ordered drain under navigator.locks, error classes, backoff, retry/discard, storage fallback, cached snapshot, performance.now capture (m7), 5xx text (m2)
+  - Surfaced by: design B, Arch P2 snapshot, R2 m2/m7
+  - Files: src/components/count/countQueue.ts, test/countQueue.test.ts
+  - Verify: `npm test`
+- [ ] **T4 (P1, human: ~1 day / CC: ~30min)** — client — wire CountScreen to the queue (useSyncExternalStore inline), dedupe merge by lineId, "Saved" online / "Kept on this phone" otherwise (R3), Submit guard, beforeunload/pagehide (m6); branch batch list as page props; delete /batches route
+  - Surfaced by: D1, R3, S2, Code quality
+  - Files: src/components/count/CountScreen.tsx, src/app/(clerk)/count/[id]/page.tsx, src/domain/ledger/read.ts, src/app/api/stocktakes/[id]/batches/route.ts (delete)
+  - Verify: `npm run build && E2E_PROD=1 npm run test:e2e` (stocktake.spec + command-reuse.spec unchanged)
+- [ ] **T5 (P2, human: ~4h / CC: ~20min)** — client — SyncBadge (role=status, all state texts incl. m1/m4), dead-spot switch, StartStocktake resume with stored key, closed-page unsent list + Clear, 14-day cleanup (m3)
+  - Surfaced by: design, R2 m1/m3/m4, S2
+  - Files: src/components/count/SyncBadge.tsx, src/components/count/StartStocktake.tsx, src/app/(clerk)/count/page.tsx, src/app/(clerk)/count/[id]/page.tsx, src/components/count/count.module.css
+  - Verify: e2e + render tests
+- [ ] **T6 (P2, human: ~2h / CC: ~10min)** — manager — "counted offline, arrived Xh later" flag when receivedAt − countedAt > 15 min
+  - Surfaced by: R2-2 trust decision
+  - Files: src/domain/ledger/read.ts, src/components/stocktakes/ReviewScreen.tsx, src/app/(manager)/stocktakes/[id]/page.tsx, test/stocktake.review.test.ts
+  - Verify: `npm test`
+- [ ] **T7 (P1, human: ~1 day / CC: ~30min)** — e2e — offline count + reload + drain + totals; timeout-then-success stored once; re-login resume
+  - Surfaced by: Test review
+  - Files: e2e/count.offline.spec.ts
+  - Verify: `npm run build && E2E_PROD=1 npm run test:e2e`
+- [ ] **T8 (P3, human: ~10min / CC: ~2min)** — docs — TODOS.md: remove the "Offline count queue (P2)" entry; fix the design's m5 typo
+  - Surfaced by: R2 m5, Next Steps 6
+  - Files: TODOS.md, docs/designs/offline-count-queue.md
+  - Verify: read
+
+### Test review (coverage diagram)
+```
+CODE PATHS                                         USER FLOWS
+[+] lines route / saveCountLine (T1)               [+] Dead-spot count (T7)
+  ├── [GAP] capturedAt+skew → countedAt              ├── [GAP] [→E2E] switch on, count, reload, switch off
+  ├── [GAP] clamp [openedAt, now]                    ├── [GAP] [→E2E] timeout then success, stored once
+  ├── [GAP] per-item guard (uneven latency)          └── [GAP] [→E2E] re-login → resume → send
+  ├── [GAP] no capturedAt → now (old clients)      [+] Online count (regression)
+  └── [GAP] receivedAt stored                        └── [★★★ TESTED] stocktake.spec.ts:17, command-reuse.spec.ts:61
+[+] openStocktake resume key (T2)                  [+] Error states
+  ├── [GAP] issue + rotate on every open             ├── [GAP] 5xx loop text, 403 text, CLOSED Clear, missing key
+  ├── [GAP] old key after stale takeover → BUSY      └── [GAP] Submit disabled reason; Retry/Discard
+  └── [GAP] other branch refused
+[+] countQueue.ts (T3)
+  ├── [GAP] order, remove on 2xx/REUSED, classes, backoff
+  ├── [GAP] concurrent enqueue during drain, lock
+  └── [GAP] storage fallback, cached snapshot
+[+] review late flag (T6)  └── [GAP] >15 min flagged, ≤15 not
+COVERAGE: 1/21 paths tested today (all new paths are planned tests)  |  QUALITY: ★★★:1  |  GAPS: 20 (3 E2E)
+```
+Test plan artifact: ~/.gstack/projects/Zubair-Elliot-17-babybargains-stock/zubair-offline-count-queue-eng-review-test-plan-20261013-084811.md
+
+### Completion summary
+- Step 0: Scope Challenge — scope accepted as-is (smaller arrangement, D1)
+- Reality rows: 7/7 applicable rows emitted, 1 unverified premise
+- Architecture Review: 1 issue found
+- Code Quality Review: 2 issues found
+- Test Review: diagram produced, 10 gaps identified (grouped)
+- Performance Review: 0 issues found
+- NOT in scope: written
+- What already exists: written
+- TODOS.md updates: 1 item proposed to user (added)
+- Failure modes: 0 critical gaps flagged
+- Unresolved decisions: 0 in this review
+- Outside voice: codex, unavailable (not installed; native fallback needs TaskOutput, absent)
+- Parallelization: 3 lanes, 0 parallel / 3 sequential (Pipeline, one writer)
+- Lake Score: 4/4
+
+## GSTACK REVIEW REPORT
+
+| Review | Trigger | Why | Runs | Status | Findings |
+|--------|---------|-----|------|--------|----------|
+| CEO Review | `/plan-ceo-review` | Scope & strategy | 0 | — | — |
+| Outside Review | codex via /plan-eng-review | Independent 2nd opinion | 1 | unavailable | none (not installed) |
+| Eng Review | `/plan-eng-review` | Architecture & tests (required) | 1 | issues_open | 13 issues, 0 critical gaps |
+| Design Review | `/plan-design-review` | UI/UX gaps | 0 | — | — |
+| DX Review | `/plan-devex-review` | Developer experience gaps | 0 | — | — |
+
+- **OUTSIDE COVERAGE:** codex, plan-review phase, unavailable (CLI not installed; native fallback unavailable), no findings. Not a clean pass.
+- **VERDICT:** no review CLEAR yet; eng review issues are all mapped to approved tasks T1–T8 — eng review required (status issues_open means mapped work, not blockers).
+
+NO UNRESOLVED DECISIONS
