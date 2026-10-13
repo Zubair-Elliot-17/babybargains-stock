@@ -1,6 +1,6 @@
 name: Post-deploy smoke check
-# Vercel reports each finished deployment to GitHub. Previews are behind Vercel Authentication,
-# so only production is checked; the body must say ok:true (a login redirect is not a pass).
+# Vercel reports each finished deployment to GitHub. Deployment URLs (previews and production alike) are
+# behind Vercel Authentication, so check the public production domain once it serves this commit.
 on: deployment_status
 
 jobs:
@@ -8,12 +8,15 @@ jobs:
     if: github.event.deployment_status.state == 'success' && github.event.deployment_status.environment == 'Production'
     runs-on: ubuntu-latest
     steps:
-      - run: |
-          url="${{ github.event.deployment_status.environment_url }}/api/health"
-          for i in 1 2 3 4 5; do
+      - env:
+          SHA: ${{ github.event.deployment.sha }}
+        run: |
+          url="https://babybargains-stock.vercel.app/api/health"
+          for i in $(seq 1 12); do
             body=$(curl --silent --show-error --max-redirs 0 "$url" || true)
             echo "$body"
-            echo "$body" | grep -q '"ok":true' && exit 0
+            # A login redirect or the previous deploy is not a pass.
+            echo "$body" | grep -q '"ok":true' && echo "$body" | grep -q "\"commit\":\"$SHA\"" && exit 0
             sleep 10
           done
           exit 1

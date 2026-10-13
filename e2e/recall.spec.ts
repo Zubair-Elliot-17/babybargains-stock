@@ -17,7 +17,7 @@ test("signed-out visitors are sent to the demo login", async ({ page }) => {
 test("health check reports the seeded database", async ({ request }) => {
   const res = await request.get("/api/health");
   expect(res.ok()).toBeTruthy();
-  expect(await res.json()).toMatchObject({ ok: true, db: "bb_e2e", invariantsOk: true });
+  expect(await res.json()).toMatchObject({ ok: true, db: "bb_e2e", invariantsOk: true, commit: null }); // no Vercel env locally
 });
 
 test("recall shows the batch with honest estimated figures", async ({ page }) => {
