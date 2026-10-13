@@ -19,6 +19,7 @@ export async function GET() {
         lastResetAt: ops?.lastResetAt ?? null,
         lastResetOk: ops?.lastResetOk ?? null,
         invariantsOk: ops?.invariantsOk ?? null,
+        commit: process.env.VERCEL_GIT_COMMIT_SHA ?? null, // lets the smoke check confirm the live domain serves the new deploy
       },
       { status: healthy ? 200 : 503 },
     );
