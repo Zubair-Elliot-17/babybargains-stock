@@ -287,9 +287,10 @@ function simulate(cfg: SeedConfig, baseline?: StocktakeTape, tapeOnly = false): 
           stocktakeLines.push({ _id: `${id}-L${lineNo++}`, stocktakeId: id, sku: p._id, ...(batchId ? { batchId } : {}), counted, mode: "replace", countedAt, clerkId: "seed", origin: "seed" });
           if (!approved) continue;
           const plan = planLine(
-            { key: countKey(p._id, batchId), sku: p._id, batchId, counted, expected, pricePence: p.price, lots: batchId ? list.filter((l) => l.batchId === batchId) : list, newestActiveBatchId: newest?._id ?? null },
+            { key: countKey(p._id, batchId), sku: p._id, batchId, counted, expected, pricePence: p.price, lots: batchId ? list.filter((l) => l.batchId === batchId) : list, newestActiveBatchId: newest?._id ?? null, batchRecalled: !!batchId && batches.get(batchId)?.status === "RECALLED" },
             `${p.supplierId}:UNBATCHED:${p._id}`,
           );
+          if (plan.quarantined) throw new Error("seed: counted a recalled batch"); // the seed posts no quarantine pairs
           for (const a of plan.adjustments) {
             const lot = list.find((l) => l.batchId === a.batchId);
             if (lot) lot.onHand += a.qty;

@@ -19,6 +19,7 @@ export interface ReviewLine {
   valuePence: number;
   flagged: boolean;
   clampedBy: number;
+  quarantined: number;
   countedAt: string;
 }
 
@@ -26,6 +27,7 @@ interface Approved {
   adjustedLines: number;
   unitsAdded: number;
   unitsRemoved: number;
+  unitsQuarantined?: number;
   valuePence: number;
 }
 
@@ -108,11 +110,7 @@ export function ReviewScreen(props: {
         <div><dt>Net units</dt><dd>{net > 0 ? `+${net}` : net}</dd></div>
       </dl>
 
-      {result && (
-        <p className="banner" role="status">
-          Approved: {count(result.adjustedLines, "line")} adjusted, {result.unitsRemoved} units removed, {result.unitsAdded} added ({money(result.valuePence)} at retail).
-        </p>
-      )}
+      {result && <ApprovedBanner result={result} />}
 
       {flagged.length > 0 && (
         <section aria-label="Flagged lines">
@@ -146,6 +144,14 @@ export function ReviewScreen(props: {
   );
 }
 
+export function ApprovedBanner({ result }: { result: Approved }) {
+  return (
+    <p className="banner" role="status">
+      Approved: {count(result.adjustedLines, "line")} adjusted, {count(result.unitsRemoved, "unit")} removed, {result.unitsAdded} added{result.unitsQuarantined ? `, ${result.unitsQuarantined} quarantined` : ""} ({money(result.valuePence)} at retail).
+    </p>
+  );
+}
+
 function LineTable({ lines, accept }: { lines: ReviewLine[]; accept?: { accepted: Set<string>; toggle: (k: string) => void } }) {
   return (
     <table>
@@ -165,13 +171,15 @@ function LineTable({ lines, accept }: { lines: ReviewLine[]; accept?: { accepted
           <tr key={l.key}>
             <th scope="row">
               {l.productName}
-              <span className={styles.sub}>counted {when(l.countedAt)} UTC{l.clampedBy ? ` · ${l.clampedBy} sold since; adjustment capped` : ""}</span>
+              <span className={styles.sub}>counted {when(l.countedAt)} UTC{l.clampedBy ? ` · ${l.clampedBy} sold since; adjustment capped` : ""}
+                {l.quarantined ? <> · <span className={styles.warn}>{`Recalled batch: ${count(l.quarantined, "found unit")} quarantined`}</span></> : null}</span>
             </th>
-            <td className="mono">{l.batchCode ?? "–"}</td>
+            <td className={`mono ${styles.code}`}>{l.batchCode ?? "–"}</td>
             <td className="num"><span className="estimated" title="System stock at the moment this line was counted">{l.expected}</span></td>
             <td className="num">{l.counted}</td>
-            <td className={`num ${l.variance < 0 ? styles.neg : styles.pos}`}>{l.variance > 0 ? `+${l.variance}` : l.variance}</td>
-            <td className="num">{money(l.valuePence)}</td>
+            {/* Quarantined units never become sellable: neutral variance, no retail value (matches the approval total). */}
+            <td className={`num ${l.quarantined ? "" : l.variance < 0 ? styles.neg : styles.pos}`}>{l.variance > 0 ? `+${l.variance}` : l.variance}</td>
+            <td className="num">{money(l.quarantined ? 0 : l.valuePence)}</td>
             {accept && (
               <td>
                 <label className={styles.accept}>

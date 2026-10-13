@@ -2,10 +2,10 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { cols } from "@/domain/collections";
 import { DomainError } from "@/domain/errors";
 import { checkLedgerInvariants, computeStocktakePlan, findRecall, projectionDiff } from "@/domain/ledger/read";
-import { approveStocktake, openStocktake, receiveStock, recordSale, saveCountLine, submitStocktake } from "@/domain/ledger/write";
+import { approveStocktake, openStocktake, quarantineBatch, receiveStock, recordSale, saveCountLine, submitStocktake } from "@/domain/ledger/write";
 import { migrate } from "@/seed/apply";
 import { freshDb } from "./helpers";
-import { COT, NEW, OLD, TOY, TOYB, buildWorld, runner } from "./world";
+import { COT, NEW, OLD, TOY, TOYB, buildWorld, ctx, runner } from "./world";
 
 let t: Awaited<ReturnType<typeof freshDb>>;
 let run: ReturnType<typeof runner>;
@@ -131,5 +131,123 @@ describe("stocktake lifecycle", () => {
     expect(await cols(t.db).stocktakeLines.countDocuments({ stocktakeId: st._id })).toBe(1);
     await run((c, s, k) => submitStocktake(c, s, k, { stocktakeId: st._id, sid: "clerk-1", uncounted: "leave" }));
     await expect(count(st._id, TOY, 1)).rejects.toMatchObject({ code: "STOCKTAKE_CLOSED" });
+  });
+});
+
+describe("found units on a recalled batch", () => {
+  const recallB1 = () => run((c, s, k) => quarantineBatch(c, s, k, { batchCode: "B-1" }));
+  const countFound = async (n: number) => {
+    const st = (await open()).result;
+    await count(st._id, COT, n, OLD);
+    await run((c, s, k) => submitStocktake(c, s, k, { stocktakeId: st._id, sid: "clerk-1", uncounted: "leave" }));
+    return st._id;
+  };
+  const approve = (stocktakeId: string, commandId?: string) =>
+    run((c, s, k) => approveStocktake(c, s, k, { stocktakeId, acceptedKeys: [`${COT}|${OLD}`] }), commandId ? { commandId } : {});
+
+  it("approval adds the found units and quarantines them again in the same breath", async () => {
+    await recallB1(); // OLD: 2 → 0
+    const id = await countFound(3);
+    const { result } = await approve(id);
+    expect(result).toMatchObject({ unitsAdded: 3, unitsRemoved: 0, unitsQuarantined: 3 });
+    const { countedAt } = (await cols(t.db).stocktakeLines.findOne({ stocktakeId: id }))!;
+    const pair = await cols(t.db).movements.find({ refType: "stocktake" }, { projection: { _id: 0, actor: 0, origin: 0 } }).toArray();
+    expect(pair).toEqual([
+      { type: "ADJUSTMENT", at: result.approvedAt, effectiveAt: countedAt, branchId: "BR-A", sku: COT, batchId: OLD, qty: 3, refType: "stocktake", refId: id, attributed: false },
+      { type: "RECALLED", at: result.approvedAt, effectiveAt: pair[0].effectiveAt, branchId: "BR-A", sku: COT, batchId: OLD, qty: -3, refType: "stocktake", refId: id, attributed: false },
+    ]);
+    expect(await onHand(OLD)).toBe(0);
+    expect(await projectionDiff(t.db)).toEqual([]);
+    expect((await checkLedgerInvariants(t.db)).violations).toEqual([]);
+  });
+
+  it("the approval's retail value leaves out quarantined units", async () => {
+    await recallB1();
+    const st = (await open()).result;
+    await count(st._id, COT, 3, OLD); // +3 quarantined, £300 at retail
+    await count(st._id, TOY, 6); // +2 at £5
+    await run((c, s, k) => submitStocktake(c, s, k, { stocktakeId: st._id, sid: "clerk-1", uncounted: "leave" }));
+    const { result } = await run((c, s, k) => approveStocktake(c, s, k, { stocktakeId: st._id, acceptedKeys: [`${COT}|${OLD}`] }));
+    expect(result).toMatchObject({ unitsAdded: 5, unitsQuarantined: 3, valuePence: 1000 });
+  });
+
+  it("posts the pair once: a replayed approval returns the first result, a second one is refused", async () => {
+    await recallB1();
+    const id = await countFound(2);
+    const first = await approve(id, "approve-once");
+    const again = await approve(id, "approve-once");
+    expect(again).toEqual({ result: first.result, replayed: true });
+    await expect(approve(id)).rejects.toMatchObject({ code: "NOT_SUBMITTED", status: 409 });
+    expect(await cols(t.db).movements.countDocuments({ refType: "stocktake", refId: id })).toBe(2);
+  });
+
+  it("a recall committing mid-approval conflicts, and the retry quarantines the found units", async () => {
+    await run((c, s, k) => recordSale(c, s, k, { branchId: "BR-A", lines: [{ sku: COT, qty: 2 }] })); // OLD sold out: the recall pulls nothing here
+    const id = await countFound(1);
+    const a = t.client.startSession();
+    try {
+      a.startTransaction();
+      await cols(t.db).stocktakes.findOne({ _id: id }, { session: a }); // snapshot: B-1 still ACTIVE
+      await recallB1();
+      const err = await approveStocktake(cols(t.db), a, ctx(), { stocktakeId: id, acceptedKeys: [`${COT}|${OLD}`] }).catch((e) => e);
+      expect(err?.hasErrorLabel?.("TransientTransactionError")).toBe(true); // withTransaction retries with the recall visible
+      await a.abortTransaction().catch(() => {});
+    } finally {
+      await a.endSession();
+    }
+    const { result } = await approve(id);
+    expect(result).toMatchObject({ unitsAdded: 1, unitsQuarantined: 1 });
+    expect(await onHand(OLD)).toBe(0);
+    expect(await projectionDiff(t.db)).toEqual([]);
+    expect((await checkLedgerInvariants(t.db)).violations).toEqual([]);
+  });
+
+  it("a recall that snapshotted before an approval committed conflicts, and its retry pulls the found units", async () => {
+    await run((c, s, k) => recordSale(c, s, k, { branchId: "BR-A", lines: [{ sku: COT, qty: 2 }] })); // OLD row at 0
+    const id = await countFound(2);
+    const a = t.client.startSession();
+    const r = t.client.startSession();
+    try {
+      a.startTransaction();
+      const approved = await approveStocktake(cols(t.db), a, ctx(), { stocktakeId: id, acceptedKeys: [`${COT}|${OLD}`] });
+      expect(approved).toMatchObject({ unitsAdded: 2, unitsQuarantined: 0 }); // B-1 still ACTIVE: a bare +2
+      r.startTransaction();
+      await cols(t.db).batches.findOne({ _id: OLD }, { session: r }); // snapshot: OLD at 0 here
+      await a.commitTransaction();
+      const err = await quarantineBatch(cols(t.db), r, ctx(), { batchCode: "B-1" }).catch((e) => e);
+      expect(err?.hasErrorLabel?.("TransientTransactionError")).toBe(true); // its branch-lock write conflicts
+      await r.abortTransaction().catch(() => {});
+    } finally {
+      await a.endSession();
+      await r.endSession();
+    }
+    const { result } = await recallB1();
+    expect(result).toMatchObject({ units: 2, branches: 1 });
+    expect(await onHand(OLD)).toBe(0);
+    expect(await projectionDiff(t.db)).toEqual([]);
+    expect((await checkLedgerInvariants(t.db)).violations).toEqual([]);
+  });
+
+  it.each([
+    { name: "a bare stocktake ADJUSTMENT", moves: [{ type: "ADJUSTMENT", qty: 2 }], want: /stocktake st-x nets 2 on recalled .*B-1/ },
+    { name: "an unpaired stocktake RECALLED", moves: [{ type: "ADJUSTMENT", qty: 2 }, { type: "RECALLED", qty: -1 }], want: /nets 1/ },
+    { name: "a stocktake ADJUSTMENT taking units off", moves: [{ type: "ADJUSTMENT", qty: -1 }, { type: "RECALLED", qty: 1 }], want: /2 movement\(s\) after recall/ },
+    { name: "a SOLD", moves: [{ type: "SOLD", qty: -1, refType: "sale" }], want: /1 movement\(s\) after recall/ },
+    { name: "a TRANSFER", moves: [{ type: "TRANSFER_IN", qty: 1, refType: "transfer" }], want: /1 movement\(s\) after recall/ },
+    { name: "a pair from a non-stocktake ref", moves: [{ type: "ADJUSTMENT", qty: 1, refType: "quarantine" }, { type: "RECALLED", qty: -1, refType: "quarantine" }], want: /2 movement\(s\) after recall/ },
+  ])("invariant 3 reports $name after the recall", async ({ moves, want }) => {
+    const { result } = await recallB1();
+    const at = new Date(result.recalledAt.getTime() + 1000);
+    await cols(t.db).movements.insertMany(moves.map((m) => ({
+      branchId: "BR-A", sku: COT, batchId: OLD, refType: "stocktake", refId: "st-x", attributed: false, actor: "t", origin: "visitor", at, ...m,
+    })) as never);
+    const { violations } = await checkLedgerInvariants(t.db);
+    expect(violations.some((v) => want.test(v))).toBe(true);
+  });
+
+  it("invariant 3 still reports stock left on a recalled batch", async () => {
+    await recallB1();
+    await cols(t.db).inventory.updateOne({ branchId: "BR-A", batchId: OLD }, { $set: { onHand: 1 } });
+    expect((await checkLedgerInvariants(t.db)).violations).toContain(`recalled batch ${OLD} still has stock in 1 row(s)`);
   });
 });

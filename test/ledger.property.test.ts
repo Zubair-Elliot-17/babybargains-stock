@@ -122,10 +122,12 @@ const stocktakeStep = fc.oneof(
   fc.record({ kind: fc.constant("count" as const), pick: fc.constantFrom<[string, string | undefined]>([COT, OLD], [COT, NEW], [TOY, undefined]), counted: fc.integer({ min: 0, max: 8 }), mode: fc.constantFrom("add" as const, "replace" as const) }),
   fc.record({ kind: fc.constant("sale" as const), sku: fc.constantFrom(COT, TOY), qty: fc.integer({ min: 1, max: 3 }) }),
   fc.record({ kind: fc.constant("receive" as const), pick: fc.constantFrom<[string, string]>([COT, OLD], [COT, NEW], [TOY, TOYB]), qty: fc.integer({ min: 1, max: 4 }) }),
+  fc.record({ kind: fc.constant("quarantine" as const), batchCode: fc.constantFrom("B-1", "B-2") }),
 );
 
 describe("stocktake properties", () => {
-  it("counts interleaved with trading, then approval, keep every invariant", async () => {
+  it("counts interleaved with trading and recalls, then approval, keep every invariant", async () => {
+    let quarantined = 0;
     await fc.assert(
       fc.asyncProperty(fc.array(stocktakeStep, { minLength: 1, maxLength: 20 }), fc.constantFrom("zero" as const, "leave" as const), async (steps, uncounted) => {
         await t.db.dropDatabase();
@@ -142,6 +144,8 @@ describe("stocktake properties", () => {
               await run((c, ss, k) => saveCountLine(c, ss, k, { stocktakeId: st._id, lineId: `l${n++}`, sid: "p", sku, batchId, counted: x.counted, mode: x.mode }));
             } else if (x.kind === "sale") {
               await run((c, ss, k) => recordSale(c, ss, k, { branchId: "BR-A", lines: [{ sku: x.sku, qty: x.qty }] }));
+            } else if (x.kind === "quarantine") {
+              await run((c, ss, k) => quarantineBatch(c, ss, k, { batchCode: x.batchCode }));
             } else {
               const [sku, batchId] = x.pick;
               await run((c, ss, k) => receiveStock(c, ss, k, { branchId: "BR-A", sku, batchId, qty: x.qty }));
@@ -152,11 +156,13 @@ describe("stocktake properties", () => {
         }
         await run((c, ss, k) => submitStocktake(c, ss, k, { stocktakeId: st._id, sid: "p", uncounted }));
         const plan = await computeStocktakePlan(cols(t.db), st._id);
-        await run((c, ss, k) => approveStocktake(c, ss, k, { stocktakeId: st._id, acceptedKeys: plan.lines.map((l) => l.key) }));
+        const { result } = await run((c, ss, k) => approveStocktake(c, ss, k, { stocktakeId: st._id, acceptedKeys: plan.lines.map((l) => l.key) }));
+        quarantined += result.unitsQuarantined;
         expect((await checkLedgerInvariants(t.db)).violations).toEqual([]);
         expect(await projectionDiff(t.db)).toEqual([]);
       }),
       { numRuns: 30 },
     );
+    expect(quarantined).toBeGreaterThan(0); // the property must actually post quarantine pairs
   });
 });

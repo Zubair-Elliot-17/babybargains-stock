@@ -269,6 +269,11 @@ export interface QuarantineResult {
   branches: number;
 }
 
+// UNBATCHED is a per-SKU catch-all for found stock, not a supplier batch; recalling it would pull unrelated units.
+export function assertRecallable(batchCode: string): void {
+  if (batchCode === "UNBATCHED") throw new DomainError("UNBATCHED_RECALL", "Stock without a batch code can't be recalled; recall the supplier's batch code", 400);
+}
+
 // Marks every ACTIVE batch with this code RECALLED and pulls its current stock everywhere.
 export async function quarantineBatch(
   c: Cols,
@@ -276,6 +281,7 @@ export async function quarantineBatch(
   ctx: CommandCtx,
   input: { batchCode: string },
 ): Promise<QuarantineResult> {
+  assertRecallable(input.batchCode); // backstop: the route refuses it before spending rate-limit budget
   const now = ctx.now ?? new Date();
   const all = await c.batches.find({ batchCode: input.batchCode }, { session: s }).toArray();
   if (!all.length) throw new NotFound(`No batch ${input.batchCode} found`);
@@ -284,6 +290,8 @@ export async function quarantineBatch(
     const recalledAt = all.map((b) => b.recalledAt).filter(Boolean).sort().at(-1) ?? now;
     return { batchCode: input.batchCode, alreadyRecalled: true, recalledAt, pullList: [], units: 0, branches: 0 };
   }
+  // An approval reads batch status without writing the batch; locking every branch makes it retry after this.
+  await lockBranches(c, s, await c.branches.distinct("_id", {}, { session: s }));
   const rows = await c.inventory
     .find({ batchId: { $in: active.map((b) => b._id) }, onHand: { $gt: 0 } }, { session: s })
     .toArray();
@@ -453,6 +461,7 @@ export async function approveStocktake(c: Cols, s: ClientSession, ctx: CommandCt
   if (plan.stocktake.status !== "SUBMITTED") {
     throw new DomainError("NOT_SUBMITTED", `Stocktake is ${plan.stocktake.status.toLowerCase()}`, 409);
   }
+  await lockBranches(c, s, [plan.stocktake.branchId]); // conflicts with a recall committing mid-approval (it locks all branches)
   const accepted = new Set(input.acceptedKeys);
   const missing = plan.lines.filter((l) => l.flagged && !accepted.has(l.key)).map((l) => l.key);
   if (missing.length) throw new DomainError("REVIEW_REQUIRED", `Review ${missing.length} flagged line(s) before approving`, 400, { missing });
@@ -467,23 +476,28 @@ export async function approveStocktake(c: Cols, s: ClientSession, ctx: CommandCt
     );
   }
   const movements: NewMovement[] = plan.lines.flatMap((l) =>
-    l.adjustments.map((a) => ({
-      type: "ADJUSTMENT" as const,
-      at: now,
-      effectiveAt: l.countedAt,
-      branchId: plan.stocktake.branchId,
-      sku: l.sku,
-      batchId: a.batchId,
-      qty: a.qty,
-      refType: "stocktake" as const,
-      refId: plan.stocktake._id,
-      attributed: a.attributed,
-    })),
+    l.adjustments.flatMap((a) => {
+      const adj = {
+        type: "ADJUSTMENT" as const,
+        at: now,
+        effectiveAt: l.countedAt,
+        branchId: plan.stocktake.branchId,
+        sku: l.sku,
+        batchId: a.batchId,
+        qty: a.qty,
+        refType: "stocktake" as const,
+        refId: plan.stocktake._id,
+        attributed: a.attributed,
+      };
+      // Units found on a recalled batch are pulled straight back off it.
+      return l.quarantined ? [adj, { ...adj, type: "RECALLED" as const, qty: -l.quarantined }] : [adj];
+    }),
   );
   await postMovements(c, s, ctx, movements);
   await c.stocktakes.updateOne({ _id: plan.stocktake._id }, { $set: { status: "APPROVED", approvedAt: now, approvedOrigin: ctx.origin } }, { session: s });
-  const up = movements.filter((m) => m.qty > 0).reduce((n, m) => n + m.qty, 0);
-  const down = -movements.filter((m) => m.qty < 0).reduce((n, m) => n + m.qty, 0);
+  const adjusted = movements.filter((m) => m.type === "ADJUSTMENT");
+  const up = adjusted.filter((m) => m.qty > 0).reduce((n, m) => n + m.qty, 0);
+  const down = adjusted.filter((m) => m.qty < 0).reduce((n, m) => n - m.qty, 0);
   return {
     stocktakeId: plan.stocktake._id,
     approvedAt: now,
@@ -491,6 +505,7 @@ export async function approveStocktake(c: Cols, s: ClientSession, ctx: CommandCt
     adjustedLines: plan.lines.filter((l) => l.adjustments.length).length,
     unitsAdded: up,
     unitsRemoved: down,
-    valuePence: plan.lines.reduce((n, l) => n + l.valuePence, 0),
+    unitsQuarantined: plan.lines.reduce((n, l) => n + l.quarantined, 0),
+    valuePence: plan.lines.reduce((n, l) => n + (l.quarantined ? 0 : l.valuePence), 0), // a quarantined line's whole variance is quarantined
   };
 }

@@ -2,15 +2,6 @@
 
 Deferred during plan review. Each has the context needed to pick it up later.
 
-## Found units on a recalled batch (P1)
-- **What:** stocktake approval posts a positive count variance straight onto the counted batch, even
-  when that batch is RECALLED (`planLine` in `src/domain/ledger/stocktake.ts`). That puts sellable-looking
-  stock back on a recalled batch and breaks the "nothing touches a batch after its recall" invariant.
-- **Why:** recalled units found on a shelf must stay quarantined, not return to stock.
-- **Context:** found in the Milestone 3 /ship review. Transfers already ignore stock on RECALLED batches
-  (`loadTransferInputs`); recall pull lists and stock screens don't. Decide whether approval records
-  found recalled units as a quarantine movement or refuses the line, then add a ledger property case.
-
 ## Velocity window: 56 whole days (P3)
 - **What:** end the transfers velocity window at today 00:00 UTC so it covers 56 whole days.
 - **Why:** today it is 55 whole days plus today's partial day over 8 weeks, so early in the UTC day
@@ -24,6 +15,27 @@ Deferred during plan review. Each has the context needed to pick it up later.
 - **Why:** between Accept and the goods arriving, a stocktake at either branch sees a mismatch and a
   sale at the donor can be refused for units still on its shelf.
 - **Context:** Milestone 3 chose instant transfers on purpose (plan-m3); Accept assumes the stock moves now.
+
+## Receive racing a recall (P3)
+- **What:** take the branch lock in `receiveStock` (`await lockBranches(c, s, [input.branchId])`).
+- **Why:** it checks `batch.status` without writing anything the recall writes, so a receive racing a
+  recall could post RECEIVED onto a just-recalled batch.
+- **Context:** `receiveStock` in `src/domain/ledger/write.ts`; a recall locks every branch. No API route
+  calls it today (tests only), so fix it before adding a deliveries route.
+
+## Quarantined lines in the stocktake review totals (P3)
+- **What:** leave quarantined units out of the review's "Net units", and say why a quarantined line
+  shown at £0.00 is still flagged (e.g. "(£60.00 if sellable)" in its note), or flag it on units only.
+- **Why:** found units on a recalled batch never reach on-hand stock, but they still count towards Net
+  units and can flag the line by retail value.
+- **Context:** `net` in `src/components/stocktakes/ReviewScreen.tsx`; flagging in `planLine`
+  (`src/domain/ledger/stocktake.ts`). Found in the review of the found-units fix.
+
+## Rate limits per IP, not only per session (P3)
+- **What:** add an IP-based limit on demo session creation or on the `quarantine` action class.
+- **Why:** budgets are per session, so minting new demo sessions resets the one-recall-per-hour limit.
+- **Context:** `src/app/api/session/route.ts` creates sessions; budgets and `consume` live in
+  `src/auth/rateLimit.ts`.
 
 ## Transfers at scale (P3)
 - **What:** covering index `{type, at, branchId, sku, qty}` (or a 56-day sales rollup) for the SOLD read;

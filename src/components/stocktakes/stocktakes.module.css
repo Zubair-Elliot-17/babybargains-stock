@@ -86,6 +86,10 @@
   color: var(--color-ink-muted);
 }
 
+.code {
+  white-space: nowrap;
+}
+
 .neg {
   color: var(--color-recall);
   font-weight: 600;

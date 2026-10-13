@@ -27,7 +27,7 @@ describe("foldCounts", () => {
 });
 
 const input = (over: Partial<PlanInput>): PlanInput => ({
-  key: "S|", sku: "S", counted: 5, expected: 5, pricePence: 1000, lots: [], newestActiveBatchId: "NEW", ...over,
+  key: "S|", sku: "S", counted: 5, expected: 5, pricePence: 1000, lots: [], newestActiveBatchId: "NEW", batchRecalled: false, ...over,
 });
 
 describe("planLine", () => {
@@ -62,6 +62,19 @@ describe("planLine", () => {
     const p = planLine(input({ counted: 0, expected: 4, lots: [lot("A", 1, 1)] }), "U");
     expect(p.adjustments).toEqual([{ batchId: "A", qty: -1, attributed: true }]);
     expect(p.clampedBy).toBe(3);
+  });
+
+  it("a surplus found on a recalled batch is added and quarantined", () => {
+    const p = planLine(input({ key: "S|R", batchId: "R", counted: 3, expected: 0, batchRecalled: true }), "U");
+    expect(p).toMatchObject({ variance: 3, quarantined: 3, adjustments: [{ batchId: "R", qty: 3, attributed: false }] });
+  });
+
+  it("only a batch-line surplus on a recalled batch quarantines", () => {
+    expect(planLine(input({ key: "S|R", batchId: "R", counted: 3, expected: 0 }), "U").quarantined).toBe(0);
+    const short = planLine(input({ key: "S|R", batchId: "R", counted: 0, expected: 2, batchRecalled: true }), "U");
+    expect(short).toMatchObject({ quarantined: 0, adjustments: [], clampedBy: 2 });
+    expect(planLine(input({ key: "S|R", batchId: "R", counted: 2, expected: 2, batchRecalled: true }), "U").quarantined).toBe(0);
+    expect(planLine(input({ counted: 7, expected: 5, batchRecalled: true }), "U").quarantined).toBe(0);
   });
 
   it("never takes from recalled lots", () => {

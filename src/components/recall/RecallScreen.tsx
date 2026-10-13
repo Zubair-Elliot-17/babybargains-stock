@@ -38,7 +38,8 @@ export function RecallScreen({ data }: { data: RecallData }) {
   const isToday = day >= maxDay;
   const asOf = isToday ? Number.POSITIVE_INFINITY : first + day * DAY + DAY - 1;
 
-  const state = useMemo(() => foldMovements(data.movements, asOf), [data.movements, asOf]);
+  const recalledAt = data.recalledAt ? Date.parse(data.recalledAt) : undefined;
+  const state = useMemo(() => foldMovements(data.movements, asOf, recalledAt), [data.movements, asOf, recalledAt]);
   const events = useMemo(() => timelineEvents(data.movements), [data.movements]);
   const eventDays = useMemo(() => [...new Set(events.map((e) => Math.round((e.day - first) / DAY)))].sort((a, b) => a - b), [events, first]);
 
@@ -124,7 +125,12 @@ export function RecallScreen({ data }: { data: RecallData }) {
         <Stat label="Received" value={state.totals.received} />
         <Stat label="Sold" sub="FIFO-attributed" value={state.totals.sold} estimated tip="Estimated: tills don't record batches, so sales are assigned oldest batch first." />
         <Stat label="On shelf" sub="expected" value={state.totals.onHand} estimated tip="Estimated from the ledger. Shown solid with a date once a batch-level stocktake confirms it." />
-        <Stat label="Quarantined" value={state.totals.quarantined} tone={state.totals.quarantined ? "recall" : undefined} />
+        <Stat
+          label="Quarantined"
+          sub={state.totals.found ? `includes ${state.totals.found} found in a stocktake` : undefined}
+          value={state.totals.quarantined}
+          tone={state.totals.quarantined ? "recall" : undefined}
+        />
       </dl>
       <p id="strip-legend" className={styles.legend}>
         <span className="estimated">Dotted</span> = estimated from the ledger · solid = recorded or counted
@@ -211,7 +217,10 @@ export function RecallScreen({ data }: { data: RecallData }) {
                   <td className="num" data-label="On shelf">
                     {solid ? b.onHand : <><span className="estimated" title="Expected from the ledger">{b.onHand}</span><span className="sr-only"> estimated</span></>}
                   </td>
-                  <td className="num" data-label="Quarantined">{b.quarantined || "–"}</td>
+                  <td className="num" data-label="Quarantined">
+                    {b.quarantined || "–"}
+                    {b.found > 0 && <span className={styles.found}> incl. {b.found} found</span>}
+                  </td>
                   <td data-label="Status">{counted ? `counted ${fmtShort(Date.parse(counted))}${solid ? "" : " · trading since"}` : "expected"}</td>
                 </tr>
               );
