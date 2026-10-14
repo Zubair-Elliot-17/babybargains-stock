@@ -87,6 +87,18 @@ describe("purchase orders", () => {
     expect(await onHand(`SUP-OAK:B-NEW:${COT}`)).toBe(2);
   });
 
+  it("records a delivery note's ref and refuses the same note twice, even for units still to arrive", async () => {
+    const po = (await create([{ sku: COT, qty: 5 }])).result;
+    const viaNote = (noteId: string, qty: number) =>
+      run((c, s, k) => receivePurchaseOrder(c, s, k, { orderId: po._id, lines: [{ sku: COT, qty, batchCode: "LO-1" }], noteId }));
+    await viaNote("LO-1", 2);
+    await expect(viaNote("LO-1", 2)).rejects.toMatchObject({ code: "NOTE_ALREADY_RECEIVED", status: 409 });
+    expect(await onHand(`SUP-OAK:LO-1:${COT}`)).toBe(2);
+    await viaNote("LO-2", 3);
+    expect(await cols(t.db).purchaseOrders.findOne({ _id: po._id })).toMatchObject({ status: "RECEIVED", importedNotes: ["LO-1", "LO-2"] });
+    expect((await checkLedgerInvariants(t.db)).ok).toBe(true);
+  });
+
   it("cancels only while nothing has arrived", async () => {
     const a = (await create([{ sku: COT, qty: 2 }])).result;
     expect((await run((c, s, k) => cancelPurchaseOrder(c, s, k, { orderId: a._id }))).result.status).toBe("CANCELLED");

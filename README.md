@@ -102,6 +102,12 @@ Orders/imports and analytics are Milestone 4.
   below reorder point, topped up to twice it. Receive deliveries in parts: each line lands in the batch
   named on its label (new batches are created, recalled ones refused) as `RECEIVED` movements tied to
   the order. An order can be cancelled until something arrives.
+- **Supplier delivery notes:** each supplier sends its own JSON format (five here, from nested shipments
+  to CSV-as-JSON). A small adapter per format (`src/domain/suppliers/deliveryNotes.ts`) reads the file in
+  the browser, checks it against the order (right order, products on it, no more than still due) and
+  fills the receive form, which the manager checks and records as usual. The order keeps each note's
+  reference, so the same note can't be received twice. **Try a sample note** makes one in the
+  supplier's format.
 - **Stock (manager):** sellable on-hand per product for a branch or all branches, low stock first.
 - **Analytics (manager):** exceptions first (low stock, dead stock with no sale in 90 days, orders over
   a week late), then 12 months of sales by branch and category, top movers, supplier lead time and fill

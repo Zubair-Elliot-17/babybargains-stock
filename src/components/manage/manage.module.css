@@ -79,3 +79,10 @@
     width: 60%;
   }
 }
+
+.note {
+  max-height: 240px;
+  overflow: auto;
+  font-size: var(--text-meta);
+  white-space: pre;
+}

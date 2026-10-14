@@ -205,6 +205,7 @@ export const PurchaseOrder = z.object({
   sentAt: z.date(),
   receivedAt: z.date().optional(), // when the last outstanding unit arrived
   cancelledAt: z.date().optional(),
+  importedNotes: z.array(z.string().min(1).max(60)).max(200).optional(), // supplier delivery-note refs already received
   origin: Origin,
 });
 export type PurchaseOrder = z.infer<typeof PurchaseOrder>;
