@@ -1,5 +1,6 @@
 import type { ClientSession, Db } from "mongodb";
 import { cols, type Cols } from "../collections";
+import { BATCH_CODE, normaliseBatchCode } from "../batchCode";
 import { NotFound } from "../errors";
 import type { Batch, Branch, Product, Stocktake } from "../schemas";
 import { allocateFifo, type Lot } from "./allocate";
@@ -42,12 +43,7 @@ function escapeRegex(s: string) {
   return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
-export function normaliseBatchCode(raw: string): string {
-  return raw.normalize("NFKC").trim().toUpperCase();
-}
-
-// Printable label codes only: an invisible or control character would make a lookalike batch a recall misses.
-export const BATCH_CODE = /^[A-Z0-9][A-Z0-9 ._/-]{0,39}$/;
+export { BATCH_CODE, normaliseBatchCode };
 
 export async function findRecall(db: Db, rawCode: string): Promise<RecallView | null> {
   const c = cols(db);

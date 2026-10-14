@@ -45,9 +45,12 @@ export async function createPurchaseOrder(c: Cols, s: ClientSession, ctx: Comman
   return order;
 }
 
+const MAX_NOTES = 200; // schemas.ts PurchaseOrder.importedNotes
+
 export interface ReceiveOrderInput {
   orderId: string;
   lines: { sku: string; qty: number; batchCode: string }[];
+  noteId?: string; // set when the lines came from a supplier delivery note
 }
 
 export async function receivePurchaseOrder(c: Cols, s: ClientSession, ctx: CommandCtx, input: ReceiveOrderInput) {
@@ -55,6 +58,12 @@ export async function receivePurchaseOrder(c: Cols, s: ClientSession, ctx: Comma
   const order = await c.purchaseOrders.findOne({ _id: input.orderId }, { session: s });
   if (!order) throw new NotFound(`Order ${input.orderId} not found`);
   if (order.status !== "SENT" && order.status !== "PARTIAL") throw new DomainError("ORDER_CLOSED", `Order is ${order.status.toLowerCase()}`, 409);
+  if (input.noteId && order.importedNotes?.includes(input.noteId)) {
+    throw new DomainError("NOTE_ALREADY_RECEIVED", `Delivery note ${input.noteId} is already recorded on this order`, 409);
+  }
+  if (input.noteId && (order.importedNotes?.length ?? 0) >= MAX_NOTES) {
+    throw new DomainError("TOO_MANY_NOTES", `This order already has ${MAX_NOTES} delivery notes; enter this delivery by hand`, 409);
+  }
   await lockBranches(c, s, [order.branchId]); // conflicts with a recall committing at the same time (it locks all branches)
   const arriving = input.lines.filter((l) => l.qty > 0);
   if (!arriving.length) throw new DomainError("NOTHING_RECEIVED", "Enter a quantity for at least one line", 400);
@@ -88,7 +97,12 @@ export async function receivePurchaseOrder(c: Cols, s: ClientSession, ctx: Comma
   }
   await postMovements(c, s, ctx, movements);
   const done = lines.every((l) => l.received >= l.ordered);
-  const update = { lines, status: done ? ("RECEIVED" as const) : ("PARTIAL" as const), ...(done ? { receivedAt: now } : {}) };
+  const update = {
+    lines,
+    status: done ? ("RECEIVED" as const) : ("PARTIAL" as const),
+    ...(done ? { receivedAt: now } : {}),
+    ...(input.noteId ? { importedNotes: [...(order.importedNotes ?? []), input.noteId] } : {}),
+  };
   await c.purchaseOrders.updateOne({ _id: order._id }, { $set: update }, { session: s });
   return { orderId: order._id, status: update.status, units: arriving.reduce((n, l) => n + l.qty, 0) };
 }
@@ -139,6 +153,7 @@ export async function suggestOrderLines(db: Db, branchId: string, supplierId: st
 export interface OrderRow extends PurchaseOrder {
   branchName: string;
   supplierName: string;
+  supplierAdapter: string; // delivery-note format (src/domain/suppliers/deliveryNotes.ts)
   names: Record<string, string>;
   batchTracked: string[];
 }
@@ -149,15 +164,17 @@ export async function listPurchaseOrders(db: Db, limit = 50): Promise<OrderRow[]
   const skus = [...new Set(orders.flatMap((o) => o.lines.map((l) => l.sku)))];
   const [branches, suppliers, products] = await Promise.all([
     c.branches.find({}, { projection: { name: 1 } }).toArray(),
-    c.suppliers.find({}, { projection: { name: 1 } }).toArray(),
+    c.suppliers.find({}, { projection: { name: 1, adapter: 1 } }).toArray(),
     c.products.find({ _id: { $in: skus } }, { projection: { name: 1, batchTracked: 1 } }).toArray(),
   ]);
   const branchName = new Map(branches.map((b) => [b._id, b.name]));
   const supplierName = new Map(suppliers.map((x) => [x._id, x.name]));
+  const supplierAdapter = new Map(suppliers.map((x) => [x._id, x.adapter]));
   return orders.map((o) => ({
     ...o,
     branchName: branchName.get(o.branchId) ?? o.branchId,
     supplierName: supplierName.get(o.supplierId) ?? o.supplierId,
+    supplierAdapter: supplierAdapter.get(o.supplierId) ?? "",
     names: Object.fromEntries(products.filter((p) => o.lines.some((l) => l.sku === p._id)).map((p) => [p._id, p.name])),
     batchTracked: products.filter((p) => p.batchTracked && o.lines.some((l) => l.sku === p._id)).map((p) => p._id),
   }));
