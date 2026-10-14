@@ -156,7 +156,7 @@ export function ApprovedBanner({ result }: { result: Approved }) {
 
 function LineTable({ lines, accept }: { lines: ReviewLine[]; accept?: { accepted: Set<string>; toggle: (k: string) => void } }) {
   return (
-    <table>
+    <table className="cards">
       <thead>
         <tr>
           <th scope="col">Product</th>
@@ -177,14 +177,14 @@ function LineTable({ lines, accept }: { lines: ReviewLine[]; accept?: { accepted
                 {l.quarantined ? <> · <span className={styles.warn}>{`Recalled batch: ${count(l.quarantined, "found unit")} quarantined (${money(l.valuePence)} if sellable)`}</span></> : null}
                 {(l.lateMs ?? 0) > LATE_MS ? <> · <span className={styles.warn}>{`Counted offline, arrived ${duration(l.lateMs!)} later`}</span></> : null}</span>
             </th>
-            <td className={`mono ${styles.code}`}>{l.batchCode ?? "–"}</td>
-            <td className="num"><span className="estimated" title="System stock at the moment this line was counted">{l.expected}</span></td>
-            <td className="num">{l.counted}</td>
+            <td className={`mono ${styles.code}`} data-label="Batch">{l.batchCode ?? "–"}</td>
+            <td className="num" data-label="Expected"><span className="estimated" title="System stock at the moment this line was counted">{l.expected}</span></td>
+            <td className="num" data-label="Counted">{l.counted}</td>
             {/* Quarantined units never become sellable: neutral variance, no retail value (matches the approval total). */}
-            <td className={`num ${l.quarantined ? "" : l.variance < 0 ? styles.neg : styles.pos}`}>{l.variance > 0 ? `+${l.variance}` : l.variance}</td>
-            <td className="num">{money(l.quarantined ? 0 : l.valuePence)}</td>
+            <td className={`num ${l.quarantined ? "" : l.variance < 0 ? styles.neg : styles.pos}`} data-label="Variance">{l.variance > 0 ? `+${l.variance}` : l.variance}</td>
+            <td className="num" data-label="Value">{money(l.quarantined ? 0 : l.valuePence)}</td>
             {accept && (
-              <td>
+              <td data-label="Accept">
                 <label className={styles.accept}>
                   <input type="checkbox" checked={accept.accepted.has(l.key)} onChange={() => accept.toggle(l.key)} />
                   <span className="sr-only">Accept {l.productName}</span>

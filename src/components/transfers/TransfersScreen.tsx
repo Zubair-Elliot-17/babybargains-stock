@@ -130,8 +130,7 @@ export function TransfersScreen({ rows, emptyText }: { rows: TransferRow[]; empt
         <p className={styles.empty} ref={empty} tabIndex={-1}>{emptyText}</p>
       ) : (
         <>
-          <p className={styles.narrow}>Transfers needs a wider screen. Open it on a tablet or desktop.</p>
-          <table className={styles.table} ref={table}>
+          <table className={`${styles.table} cards`} ref={table}>
             <thead>
               <tr>
                 <th scope="col">Product</th>
@@ -149,16 +148,20 @@ export function TransfersScreen({ rows, emptyText }: { rows: TransferRow[]; empt
                     {r.productName}
                     <span className={`${styles.sub} mono`}>{r.sku}</span>
                   </th>
-                  <td>
-                    {r.fromName}
-                    <span className={styles.sub}>{r.from.onHand} on hand · <Cover weeks={r.from.coverWeeks} /></span>
+                  <td data-label="From">
+                    <div>
+                      {r.fromName}
+                      <span className={styles.sub}>{r.from.onHand} on hand · <Cover weeks={r.from.coverWeeks} /></span>
+                    </div>
                   </td>
-                  <td>
-                    {r.toName}
-                    <span className={styles.sub}>{r.to.onHand} on hand · reorder at {r.to.reorderPoint}</span>
+                  <td data-label="To">
+                    <div>
+                      {r.toName}
+                      <span className={styles.sub}>{r.to.onHand} on hand · reorder at {r.to.reorderPoint}</span>
+                    </div>
                   </td>
-                  <td className="num">{r.qty}</td>
-                  <td className="num">{money(r.valuePence)}</td>
+                  <td className="num" data-label="Units">{r.qty}</td>
+                  <td className="num" data-label="Value">{money(r.valuePence)}</td>
                   <td>
                     <button className="btn" type="button" disabled={busy} onClick={(e) => open(r, e.currentTarget)} aria-label={`Review transfer of ${r.productName} from ${r.fromName} to ${r.toName}`}>
                       Review

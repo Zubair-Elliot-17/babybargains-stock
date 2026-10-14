@@ -241,3 +241,48 @@ th.num {
     background-position: -200% 0;
   }
 }
+
+/* Phone: a table with class "cards" stacks each row as a card; cells label themselves from data-label. */
+@media (max-width: 767px) {
+  table.cards thead {
+    display: none;
+  }
+  table.cards,
+  .cards tbody,
+  .cards tr,
+  .cards th,
+  .cards td {
+    display: block;
+  }
+  .cards tr {
+    padding: var(--space-3) 0;
+    border-bottom: 1px solid var(--color-hairline);
+  }
+  .cards th,
+  .cards td {
+    border: 0;
+    padding: 2px 0;
+    text-align: left;
+  }
+  .cards th[scope="row"] {
+    font-weight: 500;
+    padding-bottom: var(--space-1);
+  }
+  .cards td[data-label] {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: var(--space-3);
+    text-align: right;
+  }
+  .cards td[data-label]::before {
+    content: attr(data-label);
+    color: var(--color-ink-muted);
+    font-family: var(--font-ui);
+    font-size: var(--text-meta);
+    text-align: left;
+  }
+  .cards td:empty {
+    display: none;
+  }
+}

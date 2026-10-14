@@ -29,7 +29,7 @@ describe("stocktake review", () => {
   const row = (markup: string) => markup.match(/<tbody>.*<\/tbody>/)![0];
   it("shows a quarantined line as worth nothing, in neutral variance and a warning note with its would-be value", () => {
     const q = row(html([{ ...line(3), valuePence: 900, flagged: true }]));
-    expect(q).toContain('<td class="num">£0.00</td>');
+    expect(q).toContain('<td class="num" data-label="Value">£0.00</td>');
     expect(q).not.toMatch(/_pos_/);
     expect(q).toMatch(/<span class="[^"]*_warn_[^"]*">Recalled batch: 3 found units quarantined \(£9.00 if sellable\)<\/span>/);
   });

@@ -41,14 +41,14 @@ export default async function OrdersPage({ searchParams }: { searchParams: Promi
         <form className={styles.filters} method="get">
           <label>
             Branch
-            <select name="branch" defaultValue={branch?._id ?? ""} required>
+            <select className="input" name="branch" defaultValue={branch?._id ?? ""} required>
               <option value="" disabled>Choose…</option>
               {branches.map((b) => <option key={b._id} value={b._id}>{b.name}</option>)}
             </select>
           </label>
           <label>
             Supplier
-            <select name="supplier" defaultValue={supplier?._id ?? ""} required>
+            <select className="input" name="supplier" defaultValue={supplier?._id ?? ""} required>
               <option value="" disabled>Choose…</option>
               {suppliers.map((s) => <option key={s._id} value={s._id}>{s.name}</option>)}
             </select>
@@ -72,7 +72,7 @@ export default async function OrdersPage({ searchParams }: { searchParams: Promi
           <p className={styles.meta}>No orders yet. Orders placed in the demo are cleared at the nightly reset.</p>
         ) : (
           <div className={styles.scroll}>
-            <table>
+            <table className="cards">
               <thead>
                 <tr>
                   <th scope="col">Order</th>
@@ -91,11 +91,11 @@ export default async function OrdersPage({ searchParams }: { searchParams: Promi
                   return (
                     <tr key={o._id}>
                       <th scope="row" className="mono">{o._id}</th>
-                      <td>{o.branchName}</td>
-                      <td>{o.supplierName}</td>
-                      <td>{when(o.sentAt)} UTC</td>
-                      <td className="num">{received} of {ordered}</td>
-                      <td>{STATUS[o.status]}</td>
+                      <td data-label="Branch">{o.branchName}</td>
+                      <td data-label="Supplier">{o.supplierName}</td>
+                      <td data-label="Sent">{when(o.sentAt)} UTC</td>
+                      <td className="num" data-label="Received">{received} of {ordered}</td>
+                      <td data-label="Status">{STATUS[o.status]}</td>
                       <td><OrderActions key={`${o._id}:${received}:${o.status}`} order={o} /></td>
                     </tr>
                   );

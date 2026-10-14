@@ -22,7 +22,7 @@ export function NavLinks({ awaiting = 0 }: { awaiting?: number }) {
       {ITEMS.map((item) =>
         item.milestone <= RELEASED ? (
           <li key={item.href}>
-            <Link href={item.href} className={styles.link} aria-current={path.startsWith(item.href) ? "page" : undefined} title={item.label}>
+            <Link href={item.href} className={styles.link} aria-current={path === item.href || path.startsWith(`${item.href}/`) ? "page" : undefined} title={item.label}>
               <span className={styles.full}>
                 {item.label}
                 {item.href === "/stocktakes" && awaiting > 0 && <span className={styles.badge} aria-label={`${awaiting} awaiting review`}>{awaiting}</span>}

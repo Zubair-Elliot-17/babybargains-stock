@@ -73,3 +73,9 @@
 .lineInput {
   width: 96px;
 }
+
+@media (max-width: 767px) {
+  .batchInput {
+    width: 60%;
+  }
+}

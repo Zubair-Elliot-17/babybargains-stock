@@ -22,7 +22,7 @@ export default async function StockPage({ searchParams }: { searchParams: Promis
       <form className={styles.filters} method="get">
         <label>
           Branch
-          <select name="branch" defaultValue={branchId ?? ""}>
+          <select className="input" name="branch" defaultValue={branchId ?? ""}>
             <option value="">All branches</option>
             {branches.map((b) => <option key={b._id} value={b._id}>{b.name}</option>)}
           </select>
@@ -41,7 +41,7 @@ export default async function StockPage({ searchParams }: { searchParams: Promis
         {rows.length > SHOWN ? ` Showing the first ${SHOWN}; search to narrow.` : ""}
       </p>
       <div className={styles.scroll}>
-        <table>
+        <table className="cards">
           <thead>
             <tr>
               <th scope="col">Product</th>
@@ -56,11 +56,11 @@ export default async function StockPage({ searchParams }: { searchParams: Promis
             {rows.slice(0, SHOWN).map((r) => (
               <tr key={r.sku}>
                 <th scope="row">{r.name}</th>
-                <td className="mono">{r.sku}</td>
-                <td>{r.category}</td>
-                <td className="num">{r.onHand}</td>
-                <td className="num">{r.reorderPoint || "–"}</td>
-                <td>{r.low ? <span className={styles.low}>{branchId ? "Low" : "Low at a branch"}</span> : "OK"}</td>
+                <td className="mono" data-label="SKU">{r.sku}</td>
+                <td data-label="Category">{r.category}</td>
+                <td className="num" data-label="On hand">{r.onHand}</td>
+                <td className="num" data-label="Reorder point">{r.reorderPoint || "–"}</td>
+                <td data-label="Status">{r.low ? <span className={styles.low}>{branchId ? "Low" : "Low at a branch"}</span> : "OK"}</td>
               </tr>
             ))}
           </tbody>

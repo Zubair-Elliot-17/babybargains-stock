@@ -65,7 +65,7 @@ export function NewOrder(props: { branchId: string; supplierId: string; suggesti
         {extra.length > 0 && !locked && (
           <label>
             Add a product
-            <select value="" onChange={(e) => {
+            <select className="input" value="" onChange={(e) => {
               const p = extra.find((x) => x.sku === e.target.value);
               if (p) setLines((ls) => [...ls, { sku: p.sku, name: p.name, qty: 1, include: true }]);
             }}>
@@ -120,7 +120,7 @@ export function OrderActions({ order }: { order: OrderRow }) {
         </div>
       ) : (
         <form onSubmit={(e) => { e.preventDefault(); void send("receive", { lines }); }} aria-label={`Receive ${order._id}`}>
-          <table>
+          <table className="cards">
             <thead>
               <tr><th scope="col">Product</th><th scope="col" className="num">Arrived</th><th scope="col">Batch code on label</th></tr>
             </thead>
@@ -131,11 +131,11 @@ export function OrderActions({ order }: { order: OrderRow }) {
                 return (
                   <tr key={l.sku}>
                     <th scope="row">{name}</th>
-                    <td className="num">
+                    <td className="num" data-label="Arrived">
                       <input className={`input ${styles.lineInput}`} inputMode="numeric" disabled={locked} aria-label={`Units of ${name} arrived`} value={l.qty}
                         onChange={(e) => patch({ qty: Number(e.target.value.replace(/\D/g, "")) || 0 })} />
                     </td>
-                    <td><input className="input mono" disabled={locked} aria-label={`Batch code for ${name}`} value={l.batchCode} maxLength={40} onChange={(e) => patch({ batchCode: e.target.value })} /></td>
+                    <td data-label="Batch code on label"><input className={`input mono ${styles.batchInput}`} disabled={locked} aria-label={`Batch code for ${name}`} value={l.batchCode} maxLength={40} onChange={(e) => patch({ batchCode: e.target.value })} /></td>
                   </tr>
                 );
               })}
