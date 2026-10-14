@@ -16,6 +16,9 @@ import { getClient, getDb } from "./db";
 
 export const CommandId = z.string().uuid();
 
+// shortcut: trusts the proxy headers Vercel sets (and overwrites); behind another host, read the IP its proxy guarantees.
+const clientIp = (req: Request) => req.headers.get("x-real-ip") ?? req.headers.get("x-forwarded-for")?.split(",")[0].trim() ?? null;
+
 const sortKeys = (_k: string, v: unknown) =>
   v && typeof v === "object" && !Array.isArray(v) ? Object.fromEntries(Object.entries(v).sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))) : v;
 
@@ -66,6 +69,8 @@ export async function handleCommand<I extends { commandId: string }, T>(
     }
     opts.precheck?.(input);
     await consume(db, session.sid, opts.actionClass);
+    const ip = clientIp(req);
+    if (opts.actionClass === "quarantine" && ip) await consume(db, `ip:${createHash("sha256").update(ip).digest("hex").slice(0, 32)}`, "quarantineIp");
     const ctx: CommandCtx = { commandId, actor: `${session.role}:${session.sid.slice(0, 8)}`, origin: "visitor", fingerprint };
     const { result, replayed } = await runCommand(client, db, opts.name, ctx, (c, s) => opts.run(c, s, ctx, input, session!));
     logCommand({ requestId, role: session.role, branchId: session.branchId, command: opts.name, commandId, outcome: replayed ? "replayed" : "ok", ms: Date.now() - started });

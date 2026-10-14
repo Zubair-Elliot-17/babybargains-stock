@@ -3,7 +3,8 @@ import { cols } from "@/domain/collections";
 import { RateLimited } from "@/domain/errors";
 
 // Per-session hourly budgets by action class (count lines need far more than other writes).
-export const BUDGETS = { general: 60, count: 600, quarantine: 1 } as const;
+// quarantineIp is per client IP, so minting new demo sessions can't reset the recall limit.
+export const BUDGETS = { general: 60, count: 600, quarantine: 1, quarantineIp: 3 } as const;
 export type ActionClass = keyof typeof BUDGETS;
 
 const HOUR = 3_600_000;

@@ -1,6 +1,7 @@
 import { afterAll, beforeAll, expect, inject, it, vi } from "vitest";
 import { randomUUID } from "node:crypto";
 import { createSession } from "@/auth/session";
+import { cols } from "@/domain/collections";
 import { getClient, getDb } from "@/lib/db";
 import { migrate } from "@/seed/apply";
 import { buildWorld } from "./world";
@@ -22,8 +23,8 @@ afterAll(async () => {
 });
 
 const { POST } = await import("@/app/api/quarantine/route");
-const recall = (code: string) =>
-  POST(new Request("http://x/api/quarantine", { method: "POST", body: JSON.stringify({ commandId: randomUUID(), batchCode: code, confirmCode: code }) }));
+const recall = (code: string, ip?: string) =>
+  POST(new Request("http://x/api/quarantine", { method: "POST", headers: ip ? { "x-real-ip": ip } : {}, body: JSON.stringify({ commandId: randomUUID(), batchCode: code, confirmCode: code }) }));
 
 it("refuses UNBATCHED with 400 without spending the session's recall budget", async () => {
   token = createSession("manager").token;
@@ -33,4 +34,17 @@ it("refuses UNBATCHED with 400 without spending the session's recall budget", as
   const real = await recall("B-1");
   expect(real.status).toBe(200);
   expect((await real.json()).result).toMatchObject({ batchCode: "B-1", alreadyRecalled: false });
+});
+
+it("caps recalls per client IP, so fresh demo sessions can't reset the limit", async () => {
+  const fromIp = async (ip: string) => {
+    token = createSession("manager").token; // a new session each time
+    return (await recall("B-404", ip)).status; // unknown batch still spends budget, recalls nothing
+  };
+  expect([await fromIp("203.0.113.7"), await fromIp("203.0.113.7"), await fromIp("203.0.113.7")]).toEqual([404, 404, 404]);
+  expect(await fromIp("203.0.113.7")).toBe(429);
+  expect(await fromIp("203.0.113.8")).toBe(404);
+  const stored = await cols(await getDb()).rateLimits.find({ _id: { $regex: /^ip:/ } }).toArray();
+  expect(stored).toHaveLength(2);
+  expect(JSON.stringify(stored)).not.toContain("203.0.113"); // hashed, never the raw IP
 });
