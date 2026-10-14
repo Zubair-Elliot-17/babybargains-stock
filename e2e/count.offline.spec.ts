@@ -104,6 +104,22 @@ test("@phone the count page reopens with no signal, and sign-out forgets the sav
     // Reached by client-side navigation (Start stocktake), as clerks do: the page asks to be saved.
     await expect.poll(savedPages, { timeout: 15_000 }).toBeGreaterThan(0);
     await expect(page.getByText(/^Offline copy/)).toHaveCount(0); // a live page says nothing
+    // Every script and stylesheet the saved copy needs is on the phone too, even ones this tab never loaded
+    // through the worker (after a deploy, the saved copy is from a newer build): drop them, save again.
+    await page.evaluate(async () => {
+      await caches.delete("bb-static-v1");
+      window.dispatchEvent(new Event("bb:save-copy"));
+    });
+    const missingAssets = () => page.evaluate(async () => {
+      const html = await (await (await caches.open("bb-pages-v2")).match(location.origin + location.pathname))!.text();
+      const statics = await caches.open("bb-static-v1");
+      const tags = [...document.querySelectorAll<HTMLScriptElement | HTMLLinkElement>("script[src], link[rel=stylesheet]")];
+      const urls = tags.map((t) => new URL("src" in t ? t.src : t.href).pathname).filter((u) => u.startsWith("/_next/static/"));
+      const out = [];
+      for (const u of urls) if (html.includes(u) && !(await statics.match(u))) out.push(u);
+      return urls.length ? out : ["no static assets found"];
+    });
+    await expect.poll(missingAssets, { timeout: 15_000 }).toEqual([]);
 
     await context.setOffline(true);
     await page.reload();

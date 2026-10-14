@@ -4,6 +4,7 @@ const PAGES = "bb-pages-v2"; // /count pages, saved on the page's request; clear
 const STATIC = "bb-static-v1"; // /_next/static files: content-hashed, so a cached copy never goes stale
 const STATIC_MAX = 200;
 const NETWORK_WAIT_MS = 4000; // dead spots often hang rather than fail
+const SESSION_MS = 8 * 3_600_000; // src/auth/session.ts TTL_MS
 const served = new Map(); // page key -> { fromCache, cachedAt, at }, so the page can say it is an offline copy
 let epoch = 0; // bumped by sign-in/out, so a save still in flight can't bring back the last clerk's page
 
@@ -77,15 +78,23 @@ async function page(event, req) {
 
 async function savePage(url, expiresAt) {
   const target = new URL(url);
-  if (target.origin !== self.location.origin || !isCountPage(target) || !(expiresAt > Date.now())) return;
+  // Device clock: winding it back keeps a copy longer; unavoidable on the client. Capped at a session's length.
+  const expires = Math.min(expiresAt, Date.now() + SESSION_MS);
+  if (target.origin !== self.location.origin || !isCountPage(target) || !(expires > Date.now())) return;
   const started = epoch;
+  const pages = await caches.open(PAGES); // opened before the epoch check: a later sign-out orphans this handle
   const res = await fetch(target.href, { redirect: "manual" });
   // Only this session's real page: not a redirect to /login or /count, not an error.
   if (!res.ok || res.type !== "basic") return;
-  const body = await res.arrayBuffer();
+  const html = await res.text();
+  // After a deploy the fresh page needs chunks this phone never loaded: fetch them now, or don't keep it.
+  const statics = await caches.open(STATIC);
+  const assets = [...new Set(html.match(/\/_next\/static\/[^"'\s\\)]+/g) ?? [])];
+  const missing = (await Promise.all(assets.map(async (a) => ((await statics.match(a)) ? null : a)))).filter(Boolean);
+  if (missing.length && !(await statics.addAll(missing).then(() => true, () => false))) return;
   if (epoch !== started) return; // signed in or out meanwhile
-  const headers = { "content-type": res.headers.get("content-type") ?? "text/html", "x-cached-at": String(Date.now()), "x-expires-at": String(expiresAt) };
-  await (await caches.open(PAGES)).put(pageKey(target.href), new Response(body, { headers }));
+  const headers = { "content-type": res.headers.get("content-type") ?? "text/html", "x-cached-at": String(Date.now()), "x-expires-at": String(expires) };
+  await pages.put(pageKey(target.href), new Response(html, { headers }));
 }
 
 self.addEventListener("message", (event) => {

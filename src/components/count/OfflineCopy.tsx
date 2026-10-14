@@ -38,7 +38,10 @@ export function OfflineCopy({ sessionExpiresAt }: { sessionExpiresAt: number }) 
     if (sw) {
       const channel = new MessageChannel();
       channel.port1.onmessage = (e) => {
-        if (!e.data?.fromCache) return void window.dispatchEvent(new Event(SAVE_COPY_EVENT)); // live page: save it
+        if (!e.data?.fromCache) {
+          setCopy(null); // e.g. back on a page first opened from the copy, now live
+          return void window.dispatchEvent(new Event(SAVE_COPY_EVENT)); // live page: save it
+        }
         setCopy({ path, cachedAt: e.data.cachedAt });
       };
       sw.postMessage({ type: "served?", url: location.href }, [channel.port2]);
