@@ -136,10 +136,6 @@
   background: none;
 }
 
-.narrow {
-  display: none;
-}
-
 /* Below 1280px the table and a side panel don't both fit: the panel slides over the table instead.
    Keep in step with the matchMedia query in TransfersScreen.tsx. */
 @media (max-width: 1279px) {
@@ -158,17 +154,5 @@
   .panel {
     align-content: start;
     padding: var(--space-6);
-  }
-}
-
-/* Phone layouts are deferred (TODOS.md). */
-@media (max-width: 767px) {
-  .narrow {
-    display: block;
-    color: var(--color-ink-muted);
-  }
-  .table,
-  .sheet {
-    display: none;
   }
 }

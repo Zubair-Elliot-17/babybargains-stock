@@ -32,14 +32,14 @@ export default async function AnalyticsPage({ searchParams }: { searchParams: Pr
       <form className={styles.filters} method="get">
         <label>
           Branch
-          <select name="branch" defaultValue={branchId ?? ""}>
+          <select className="input" name="branch" defaultValue={branchId ?? ""}>
             <option value="">All branches</option>
             {branches.map((b) => <option key={b._id} value={b._id}>{b.name}</option>)}
           </select>
         </label>
         <label>
           Category
-          <select name="category" defaultValue={category ?? ""}>
+          <select className="input" name="category" defaultValue={category ?? ""}>
             <option value="">All categories</option>
             {Object.entries(CATEGORIES).map(([id, label]) => <option key={id} value={id}>{label}</option>)}
           </select>

@@ -118,6 +118,7 @@
 @media (max-width: 767px) {
   .shell {
     grid-template-columns: 1fr;
+    align-content: start; /* a short page must not stretch the top bar */
   }
   .rail {
     position: static;

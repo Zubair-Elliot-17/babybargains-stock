@@ -33,7 +33,7 @@ export default async function StocktakesPage({ searchParams }: { searchParams: P
       {rows.length === 0 ? (
         <p className={styles.empty}>{tab === "SUBMITTED" ? "Nothing waiting for review." : tab === "OPEN" ? "No branch is counting right now." : "No approved stocktakes yet."}</p>
       ) : (
-        <table>
+        <table className="cards">
           <thead>
             <tr>
               <th scope="col">Branch</th>
@@ -47,9 +47,9 @@ export default async function StocktakesPage({ searchParams }: { searchParams: P
             {rows.map((s: StocktakeSummary) => (
               <tr key={s._id}>
                 <th scope="row">{s.branchName}</th>
-                <td>{s.clerkLabel}</td>
-                <td className="num">{s.productsCounted}</td>
-                <td>{when(tab === "OPEN" ? s.openedAt : tab === "SUBMITTED" ? s.submittedAt! : s.approvedAt!)} UTC</td>
+                <td data-label="Clerk">{s.clerkLabel}</td>
+                <td className="num" data-label="Products counted">{s.productsCounted}</td>
+                <td data-label={tab === "OPEN" ? "Started" : tab === "SUBMITTED" ? "Submitted" : "Approved"}>{when(tab === "OPEN" ? s.openedAt : tab === "SUBMITTED" ? s.submittedAt! : s.approvedAt!)} UTC</td>
                 <td>{tab !== "OPEN" && <Link href={`/stocktakes/${s._id}`}>{tab === "SUBMITTED" ? "Review" : "View"}</Link>}</td>
               </tr>
             ))}

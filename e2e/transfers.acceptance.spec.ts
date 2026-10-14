@@ -90,22 +90,3 @@ test("an out-of-range or malformed body is refused with 400", async ({ page }) =
     expect((await res.json()).error.code).toBe("INVALID_INPUT");
   }
 });
-
-test.describe("below 768px", () => {
-  test.use({ viewport: { width: 390, height: 844 } });
-
-  test("shows a needs-a-wider-screen note instead of the table", async ({ page }) => {
-    await signInManager(page);
-    await page.goto("/transfers");
-    await expect(page.getByText("Transfers needs a wider screen. Open it on a tablet or desktop.")).toBeVisible();
-    await expect(page.locator("table")).toBeHidden();
-  });
-});
-
-test("at 768px the table is shown and the note is not", async ({ page }) => {
-  await page.setViewportSize({ width: 768, height: 1024 });
-  await signInManager(page);
-  await page.goto("/transfers");
-  await expect(page.locator("table")).toBeVisible();
-  await expect(page.getByText("Transfers needs a wider screen.")).toBeHidden();
-});
