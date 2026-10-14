@@ -1,8 +1,8 @@
-import Link from "next/link";
 import { redirect } from "next/navigation";
 import { cols } from "@/domain/collections";
 import { currentSession } from "@/lib/command";
 import { getDb } from "@/lib/db";
+import { ClerkNav } from "@/components/count/ClerkNav";
 import styles from "@/components/count/count.module.css";
 
 export default async function ClerkLayout({ children }: { children: React.ReactNode }) {
@@ -26,12 +26,7 @@ export default async function ClerkLayout({ children }: { children: React.ReactN
           <span id="demo-slot" />
         </div>
         <div className={styles.body}>{children}</div>
-        <nav className={styles.bottomBar} aria-label="Clerk">
-          <Link className={styles.tab} aria-current="page" href="/count">Count</Link>
-          <span className={`${styles.tab} ${styles.tabSoon}`} title="Record sale arrives in Milestone 4">
-            Record sale <small>M4</small>
-          </span>
-        </nav>
+        <ClerkNav />
       </div>
     </div>
   );
