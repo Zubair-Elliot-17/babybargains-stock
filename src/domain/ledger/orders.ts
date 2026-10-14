@@ -45,6 +45,8 @@ export async function createPurchaseOrder(c: Cols, s: ClientSession, ctx: Comman
   return order;
 }
 
+const MAX_NOTES = 200; // schemas.ts PurchaseOrder.importedNotes
+
 export interface ReceiveOrderInput {
   orderId: string;
   lines: { sku: string; qty: number; batchCode: string }[];
@@ -58,6 +60,9 @@ export async function receivePurchaseOrder(c: Cols, s: ClientSession, ctx: Comma
   if (order.status !== "SENT" && order.status !== "PARTIAL") throw new DomainError("ORDER_CLOSED", `Order is ${order.status.toLowerCase()}`, 409);
   if (input.noteId && order.importedNotes?.includes(input.noteId)) {
     throw new DomainError("NOTE_ALREADY_RECEIVED", `Delivery note ${input.noteId} is already recorded on this order`, 409);
+  }
+  if (input.noteId && (order.importedNotes?.length ?? 0) >= MAX_NOTES) {
+    throw new DomainError("TOO_MANY_NOTES", `This order already has ${MAX_NOTES} delivery notes; enter this delivery by hand`, 409);
   }
   await lockBranches(c, s, [order.branchId]); // conflicts with a recall committing at the same time (it locks all branches)
   const arriving = input.lines.filter((l) => l.qty > 0);

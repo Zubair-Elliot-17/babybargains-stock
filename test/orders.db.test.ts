@@ -99,6 +99,22 @@ describe("purchase orders", () => {
     expect((await checkLedgerInvariants(t.db)).ok).toBe(true);
   });
 
+  it("two receives of the same note at once: one lands, the other is refused", async () => {
+    const po = (await create([{ sku: COT, qty: 5 }])).result;
+    const viaNote = () => run((c, s, k) => receivePurchaseOrder(c, s, k, { orderId: po._id, lines: [{ sku: COT, qty: 1, batchCode: "LO-1" }], noteId: "LO-1" }));
+    const results = await Promise.allSettled([viaNote(), viaNote()]);
+    expect(results.filter((r) => r.status === "fulfilled")).toHaveLength(1);
+    expect(results.find((r) => r.status === "rejected")).toMatchObject({ reason: { code: "NOTE_ALREADY_RECEIVED" } });
+    expect(await onHand(`SUP-OAK:LO-1:${COT}`)).toBe(1);
+  });
+
+  it("refuses a note-based receive past the note cap with a clear message", async () => {
+    const po = (await create([{ sku: COT, qty: 5 }])).result;
+    await cols(t.db).purchaseOrders.updateOne({ _id: po._id }, { $set: { importedNotes: Array.from({ length: 200 }, (_, i) => `N-${i}`) } });
+    await expect(run((c, s, k) => receivePurchaseOrder(c, s, k, { orderId: po._id, lines: [{ sku: COT, qty: 1, batchCode: "B-1" }], noteId: "N-X" }))).rejects.toMatchObject({ code: "TOO_MANY_NOTES", status: 409 });
+    await run((c, s, k) => receivePurchaseOrder(c, s, k, { orderId: po._id, lines: [{ sku: COT, qty: 1, batchCode: "B-1" }] })); // by hand still works
+  });
+
   it("cancels only while nothing has arrived", async () => {
     const a = (await create([{ sku: COT, qty: 2 }])).result;
     expect((await run((c, s, k) => cancelPurchaseOrder(c, s, k, { orderId: a._id }))).result.status).toBe("CANCELLED");

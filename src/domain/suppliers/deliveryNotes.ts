@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { BATCH_CODE, normaliseBatchCode } from "../batchCode";
 
 // One small adapter per supplier delivery-note format (suppliers.adapter). Pure and client-safe: the
 // Orders screen parses a note in the browser to fill the receive form, which the manager checks and
@@ -16,10 +17,14 @@ interface Adapter {
   example(order: { _id: string; lines: { sku: string; qty: number }[] }, ref: string): unknown;
 }
 
-const Ref = z.string().trim().min(1).max(60);
+// A note reference: printable label characters only (a lookalike with a hidden character would dodge
+// the "already received" check), compared upper-cased. The receive route accepts the same.
+export const NoteRef = z.string().trim().max(60).regex(/^[A-Za-z0-9][A-Za-z0-9 ._/-]*$/, "use letters, digits, spaces and . _ / -").transform((s) => s.toUpperCase());
+const Ref = NoteRef;
 const Sku = z.string().trim().min(1).max(80);
-const Qty = z.coerce.number().int().min(0).max(9999);
-const Code = z.string().trim().max(60);
+const Qty = z.number().int().min(0).max(9999); // JSON numbers only: true, null or "0x3" are not quantities
+const CsvQty = z.string().trim().regex(/^\d{1,4}$/, "a whole number").transform(Number);
+const Code = z.string().max(60); // checked against the house batch-code rule in readDeliveryNote
 
 const littleOak = z.object({ deliveryNote: Ref, purchaseOrder: Ref, items: z.array(z.object({ code: Sku, quantity: Qty, batch: Code })).min(1).max(200) });
 const roam = z.object({ shipment: z.object({ id: Ref, poReference: Ref, packages: z.array(z.object({ sku: Sku, units: Qty, lot: Code })).min(1).max(200) }) });
@@ -60,12 +65,18 @@ export const DELIVERY_NOTE_ADAPTERS: Record<string, Adapter> = {
       const n = snuggle.parse(j);
       const [header, ...rows] = n.rows;
       if (header.map((h) => h.trim().toLowerCase()).join() !== SNUGGLE_HEADER.join()) throw new Error(`Header row must be ${SNUGGLE_HEADER.join(", ")}`);
+      const cell = <T>(schema: z.ZodType<T>, value: string | undefined, row: number, column: string): T => {
+        const r = schema.safeParse(value);
+        if (!r.success) throw new Error(`Row ${row}, ${column}: ${r.error.issues[0].message}`);
+        return r.data;
+      };
       return {
         noteId: n.ref,
         orderRef: n.po,
-        lines: rows.map((r, i) => {
+        lines: rows.flatMap((r, i) => {
+          if (r.every((v) => !v.trim())) return []; // a blank trailing row from a CSV export
           if (r.length !== 3) throw new Error(`Row ${i + 2} needs 3 values`);
-          return { sku: Sku.parse(r[0]), qty: Qty.parse(r[1]), batchCode: Code.parse(r[2]) };
+          return [{ sku: cell(Sku, r[0], i + 2, "sku"), qty: cell(CsvQty, r[1], i + 2, "qty"), batchCode: cell(Code, r[2], i + 2, "batch") }];
         }),
       };
     },
@@ -93,10 +104,12 @@ export function readDeliveryNote(
   try {
     note = adapter.parse(JSON.parse(text));
   } catch (e) {
-    const detail = e instanceof z.ZodError ? e.issues.map((i) => `${i.path.join(".") || "note"}: ${i.message}`).slice(0, 3).join("; ") : (e as Error).message;
-    return { error: `Not a ${adapter.label} delivery note (${detail}).` };
+    if (e instanceof z.ZodError) return { error: `Not a ${adapter.label} delivery note (${e.issues.map((i) => `${i.path.join(".") || "note"}: ${i.message}`).slice(0, 3).join("; ")}).` };
+    if (e instanceof SyntaxError) return { error: `Not a ${adapter.label} delivery note (not valid JSON).` };
+    return { error: `Couldn't read this ${adapter.label} note: ${(e as Error).message}.` }; // the format, with a bad row
   }
-  if (note.orderRef !== order._id) return { error: `This note is for order ${note.orderRef}, not ${order._id}.` };
+  if (note.orderRef !== order._id.toUpperCase()) return { error: `This note is for order ${note.orderRef}, not ${order._id}.` };
+  if (!note.lines.length) return { error: "The note lists no products." };
   const seen = new Set<string>();
   for (const l of note.lines) {
     const line = order.lines.find((x) => x.sku === l.sku);
@@ -104,6 +117,8 @@ export function readDeliveryNote(
     if (seen.has(l.sku)) return { error: `${l.sku} appears twice on the note.` };
     seen.add(l.sku);
     if (l.qty > line.ordered - line.received) return { error: `${l.sku}: the note says ${l.qty}, but only ${line.ordered - line.received} are still to arrive.` };
+    l.batchCode = normaliseBatchCode(l.batchCode);
+    if (l.batchCode && !BATCH_CODE.test(l.batchCode)) return { error: `${l.sku}: batch code "${l.batchCode}" isn't a label code (letters, digits, spaces and . _ / -, up to 40).` };
   }
   return { note };
 }

@@ -31,6 +31,11 @@ test("manager receives an order from the supplier's delivery note", async ({ pag
 
   await form.getByRole("button", { name: "Try a sample note" }).click();
   await expect(form.getByRole("status")).toContainText(/Filled from delivery note SS-\w+/);
+  // Dropping it puts the form back to hand entry; then use it after all.
+  await form.getByRole("button", { name: "Don't use this note" }).click();
+  await expect(form.getByRole("status")).toHaveCount(0);
+  await form.getByRole("button", { name: "Try a sample note" }).click();
+  await expect(form.getByRole("status")).toContainText(/Filled from delivery note SS-\w+/);
   await expect(row.getByRole("alert")).toHaveCount(0);
   const codes = await form.getByLabel(/^Batch code for /).all();
   for (const c of codes) await expect(c).toHaveValue(/^SS\/\w+$/);

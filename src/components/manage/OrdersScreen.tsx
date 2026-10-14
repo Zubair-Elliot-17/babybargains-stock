@@ -94,25 +94,38 @@ export function OrderActions({ order }: { order: OrderRow }) {
   const [error, setError] = useState<string | null>(null);
   const today = new Date().toISOString().slice(0, 10).replaceAll("-", "");
   const outstanding = order.lines.filter((l) => l.received < l.ordered);
-  const [lines, setLines] = useState(() =>
-    outstanding.map((l) => ({ sku: l.sku, qty: l.ordered - l.received, batchCode: order.batchTracked.includes(l.sku) ? "" : `D-${today}` })),
-  );
+  const defaultCode = (sku: string) => (order.batchTracked.includes(sku) ? "" : `D-${today}`);
+  const byHand = () => outstanding.map((l) => ({ sku: l.sku, qty: l.ordered - l.received, batchCode: defaultCode(l.sku) }));
+  const [lines, setLines] = useState(byHand);
   const [note, setNote] = useState<{ noteId: string; text: string } | null>(null);
   const adapter = DELIVERY_NOTE_ADAPTERS[order.supplierAdapter];
 
   // Fill the form from a supplier's delivery note; the manager checks it, then records it as usual.
   function loadNote(text: string) {
     const r = readDeliveryNote(order.supplierAdapter, text, order);
-    if ("error" in r) return setError(r.error);
+    if ("error" in r) {
+      dropNote(); // never leave an earlier note's lines and reference in place behind an error
+      return setError(r.error);
+    }
     setError(null);
     const byS = new Map(r.note.lines.map((l) => [l.sku, l]));
-    setLines(outstanding.map((l) => ({ sku: l.sku, qty: byS.get(l.sku)?.qty ?? 0, batchCode: byS.get(l.sku)?.batchCode ?? "" })));
+    setLines(outstanding.map((l) => ({ sku: l.sku, qty: byS.get(l.sku)?.qty ?? 0, batchCode: byS.get(l.sku)?.batchCode || defaultCode(l.sku) })));
     setNote({ noteId: r.note.noteId, text });
   }
-  async function loadFile(file: File | undefined) {
+  function dropNote() {
+    setNote(null);
+    setLines(byHand());
+  }
+  async function loadFile(input: HTMLInputElement) {
+    const file = input.files?.[0];
+    input.value = ""; // picking the same file again (fixed in an editor) must load it again
     if (!file) return;
     if (file.size > 200_000) return setError("That file is too big for a delivery note (200 KB max).");
-    loadNote(await file.text());
+    try {
+      loadNote(await file.text());
+    } catch {
+      setError("Couldn't read that file. Pick it again.");
+    }
   }
   function loadSample() {
     const ref = Date.now().toString(36).toUpperCase().slice(-6);
@@ -147,7 +160,7 @@ export function OrderActions({ order }: { order: OrderRow }) {
             <div className={styles.filters}>
               <label>
                 Delivery note ({adapter.label})
-                <input className="input" type="file" accept="application/json,.json" onChange={(e) => void loadFile(e.target.files?.[0])} />
+                <input className="input" type="file" accept="application/json,.json" onChange={(e) => void loadFile(e.target)} />
               </label>
               <button className="btn" type="button" onClick={loadSample}>Try a sample note</button>
             </div>
@@ -155,6 +168,7 @@ export function OrderActions({ order }: { order: OrderRow }) {
           {note && (
             <div className="banner" role="status">
               Filled from delivery note <span className="mono">{note.noteId}</span>. Check each line against the boxes, then record it.
+              {!locked && <button className="btn" type="button" onClick={dropNote}>Don&apos;t use this note</button>}
               <details>
                 <summary>Show the note</summary>
                 <pre className={`mono ${styles.note}`}>{note.text}</pre>
