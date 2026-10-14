@@ -192,6 +192,23 @@ export const StocktakeLine = z.object({
 });
 export type StocktakeLine = z.infer<typeof StocktakeLine>;
 
+// Purchase orders: created as SENT (no draft step); receiving posts RECEIVED movements with refId = order id.
+export const PurchaseOrderStatus = z.enum(["SENT", "PARTIAL", "RECEIVED", "CANCELLED"]);
+export type PurchaseOrderStatus = z.infer<typeof PurchaseOrderStatus>;
+
+export const PurchaseOrder = z.object({
+  _id: Id,
+  supplierId: Id,
+  branchId: Id,
+  status: PurchaseOrderStatus,
+  lines: z.array(z.object({ sku: Id, ordered: z.number().int().positive().max(9999), received: z.number().int().min(0) })).min(1).max(200),
+  sentAt: z.date(),
+  receivedAt: z.date().optional(), // when the last outstanding unit arrived
+  cancelledAt: z.date().optional(),
+  origin: Origin,
+});
+export type PurchaseOrder = z.infer<typeof PurchaseOrder>;
+
 // Validated collections; the migrate script applies these as $jsonSchema validators.
 export const validatedCollections = {
   branches: Branch,
@@ -203,4 +220,5 @@ export const validatedCollections = {
   stockPolicies: StockPolicy,
   stocktakes: Stocktake,
   stocktakeLines: StocktakeLine,
+  purchaseOrders: PurchaseOrder,
 } as const;
