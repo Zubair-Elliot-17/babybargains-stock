@@ -54,7 +54,8 @@ export function ReviewScreen(props: {
   const matched = props.lines.filter((l) => l.variance === 0 && !l.flagged).length;
   const allAccepted = flagged.every((l) => accepted.has(l.key));
   const reviewable = props.status === "SUBMITTED" && !result;
-  const net = useMemo(() => props.lines.reduce((n, l) => n + l.variance, 0), [props.lines]);
+  // Quarantined units never reach on-hand stock, so they don't move the net.
+  const net = useMemo(() => props.lines.reduce((n, l) => n + l.variance - l.quarantined, 0), [props.lines]);
 
   async function approve() {
     setBusy(true);
@@ -173,7 +174,7 @@ function LineTable({ lines, accept }: { lines: ReviewLine[]; accept?: { accepted
             <th scope="row">
               {l.productName}
               <span className={styles.sub}>counted {when(l.countedAt)} UTC{l.clampedBy ? ` · ${l.clampedBy} sold since; adjustment capped` : ""}
-                {l.quarantined ? <> · <span className={styles.warn}>{`Recalled batch: ${count(l.quarantined, "found unit")} quarantined`}</span></> : null}
+                {l.quarantined ? <> · <span className={styles.warn}>{`Recalled batch: ${count(l.quarantined, "found unit")} quarantined (${money(l.valuePence)} if sellable)`}</span></> : null}
                 {(l.lateMs ?? 0) > LATE_MS ? <> · <span className={styles.warn}>{`Counted offline, arrived ${duration(l.lateMs!)} later`}</span></> : null}</span>
             </th>
             <td className={`mono ${styles.code}`}>{l.batchCode ?? "–"}</td>

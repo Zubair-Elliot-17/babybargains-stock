@@ -16,6 +16,9 @@ import { getClient, getDb } from "./db";
 
 export const CommandId = z.string().uuid();
 
+const sortKeys = (_k: string, v: unknown) =>
+  v && typeof v === "object" && !Array.isArray(v) ? Object.fromEntries(Object.entries(v).sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))) : v;
+
 export async function currentSession(): Promise<Session | null> {
   return verifySession((await cookies()).get(COOKIE)?.value);
 }
@@ -49,9 +52,11 @@ export async function handleCommand<I extends { commandId: string }, T>(
   let commandId: string | undefined;
   try {
     session = requireRole(await currentSession(), opts.role);
-    const input = opts.input.parse(await req.json());
+    const raw: unknown = await req.json();
+    const input = opts.input.parse(raw);
     commandId = input.commandId;
-    const fingerprint = createHash("sha256").update(JSON.stringify([opts.name, session.sid, input, ...(opts.target ? [opts.target] : [])])).digest("hex");
+    // Raw body with sorted keys, not the parsed input, so a schema change or key reorder across a deploy can't turn a retry into a 409.
+    const fingerprint = createHash("sha256").update(JSON.stringify([opts.name, session.sid, raw, ...(opts.target ? [opts.target] : [])], sortKeys)).digest("hex");
     const [client, db] = await Promise.all([getClient(), getDb()]);
     const prior = await cols(db).commandLog.findOne({ _id: commandId, result: { $ne: null } });
     if (prior) {

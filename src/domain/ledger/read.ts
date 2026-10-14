@@ -4,7 +4,7 @@ import { NotFound } from "../errors";
 import type { Batch, Branch, Product, Stocktake } from "../schemas";
 import { allocateFifo, type Lot } from "./allocate";
 import { DAY, type CompactMovement } from "./fold";
-import { activeStocktakes, countKey, foldCounts, LATE_MS, planLine, unbatchedBatchId, type EffectiveCount, type PlannedLine } from "./stocktake";
+import { activeStocktakes, countKey, foldCounts, LATE_MS, planLine, UNBATCHED, unbatchedBatchId, type EffectiveCount, type PlannedLine } from "./stocktake";
 import { VELOCITY_DAYS, suggestTransfers, type BranchStock, type SkuStock, type TransferSuggestion } from "./transfers";
 
 export interface RecallView {
@@ -247,7 +247,7 @@ export async function computeStocktakePlan(c: Cols, stocktakeId: string, session
       .find({ branchId, sku: { $in: skus }, at: { $gt: minCountedAt } }, { session, projection: { sku: 1, batchId: 1, qty: 1, at: 1 } })
       .toArray(),
     c.batches
-      .find({ sku: { $in: skus }, status: "ACTIVE", batchCode: { $ne: "UNBATCHED" } }, { session, projection: { sku: 1, receivedAt: 1 } })
+      .find({ sku: { $in: skus }, status: "ACTIVE", batchCode: { $ne: UNBATCHED } }, { session, projection: { sku: 1, receivedAt: 1 } })
       .toArray(),
   ]);
   const batchIds = [...new Set([...rows.map((r) => r.batchId), ...[...counts.values()].flatMap((x) => (x.batchId ? [x.batchId] : []))])];
@@ -272,7 +272,7 @@ export async function computeStocktakePlan(c: Cols, stocktakeId: string, session
       .filter((r) => r.onHand > 0 && batchById.has(r.batchId))
       .map((r) => {
         const b = batchById.get(r.batchId)!;
-        return { batchId: r.batchId, onHand: r.onHand, receivedAt: b.receivedAt, status: b.status, unbatched: b.batchCode === "UNBATCHED" };
+        return { batchId: r.batchId, onHand: r.onHand, receivedAt: b.receivedAt, status: b.status, unbatched: b.batchCode === UNBATCHED };
       });
     const planned = planLine(
       { key: x.key, sku: x.sku, batchId: x.batchId, counted: x.counted, expected, pricePence: product.price, lots, newestActiveBatchId: newest.get(x.sku)?.id ?? null, batchRecalled: !!x.batchId && batchById.get(x.batchId)?.status === "RECALLED" },
@@ -482,7 +482,7 @@ export async function listTransferSuggestions(db: Db, opts: { now?: Date; to?: s
       .filter((r) => batchById.has(r.batchId))
       .map((r) => {
         const b = batchById.get(r.batchId)!;
-        return { batchId: r.batchId, onHand: r.onHand, receivedAt: b.receivedAt, status: b.status, unbatched: b.batchCode === "UNBATCHED" };
+        return { batchId: r.batchId, onHand: r.onHand, receivedAt: b.receivedAt, status: b.status, unbatched: b.batchCode === UNBATCHED };
       });
     const preview = allocateFifo(lots, s.qty).allocations.map((a) => ({ batchCode: batchById.get(a.batchId)!.batchCode, qty: a.qty }));
     return {

@@ -1,5 +1,5 @@
 import { allocateFifo, type Lot } from "@/domain/ledger/allocate";
-import { countKey, planLine } from "@/domain/ledger/stocktake";
+import { countKey, planLine, unbatchedBatchId } from "@/domain/ledger/stocktake";
 import type { Batch, Branch, Movement, Product, SalesDay, StockPolicy, Stocktake, StocktakeLine, Supplier } from "@/domain/schemas";
 import { BRANCHES, SUPPLIERS, buildCatalogue } from "./catalogue";
 
@@ -288,7 +288,7 @@ function simulate(cfg: SeedConfig, baseline?: StocktakeTape, tapeOnly = false): 
           if (!approved) continue;
           const plan = planLine(
             { key: countKey(p._id, batchId), sku: p._id, batchId, counted, expected, pricePence: p.price, lots: batchId ? list.filter((l) => l.batchId === batchId) : list, newestActiveBatchId: newest?._id ?? null, batchRecalled: !!batchId && batches.get(batchId)?.status === "RECALLED" },
-            `${p.supplierId}:UNBATCHED:${p._id}`,
+            unbatchedBatchId(p.supplierId, p._id),
           );
           if (plan.quarantined) throw new Error("seed: counted a recalled batch"); // the seed posts no quarantine pairs
           for (const a of plan.adjustments) {

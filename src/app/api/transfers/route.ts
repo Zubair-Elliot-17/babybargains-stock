@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { DomainError } from "@/domain/errors";
+import { SameBranch } from "@/domain/errors";
 import { Id } from "@/domain/schemas";
 import { acceptTransferSuggestion } from "@/domain/ledger/write";
 import { CommandId, handleCommand } from "@/lib/command";
@@ -20,7 +20,7 @@ export async function POST(req: Request) {
     actionClass: "general",
     input: Input,
     precheck: (input) => {
-      if (input.fromBranchId === input.toBranchId) throw new DomainError("SAME_BRANCH", "Pick two different branches", 400);
+      if (input.fromBranchId === input.toBranchId) throw new SameBranch();
     },
     run: (c, s, ctx, input) => acceptTransferSuggestion(c, s, ctx, input),
   });

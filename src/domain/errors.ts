@@ -48,3 +48,9 @@ export class Forbidden extends DomainError {
     super("FORBIDDEN", message, 403);
   }
 }
+
+export class SameBranch extends DomainError {
+  constructor() {
+    super("SAME_BRANCH", "Pick two different branches", 400);
+  }
+}

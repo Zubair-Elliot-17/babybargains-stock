@@ -20,19 +20,24 @@ describe("stocktake review", () => {
   });
 
   it("says found units on a recalled batch will be quarantined", () => {
-    expect(html([line(3)])).toContain("Recalled batch: 3 found units quarantined");
-    expect(html([line(1)])).toContain("Recalled batch: 1 found unit quarantined");
+    expect(html([line(3)])).toContain("Recalled batch: 3 found units quarantined (£1.00 if sellable)");
+    expect(html([line(1)])).toContain("Recalled batch: 1 found unit quarantined (£1.00 if sellable)");
     expect(html([line(0)])).not.toContain("Recalled batch");
   });
 
   // CSS module class names keep the source name (e.g. _warn_1a2b3c), so match on that.
   const row = (markup: string) => markup.match(/<tbody>.*<\/tbody>/)![0];
-  it("shows a quarantined line as worth nothing, in neutral variance and a warning note", () => {
-    const q = row(html([{ ...line(3), valuePence: 900 }]));
-    expect(q).toContain("£0.00");
-    expect(q).not.toContain("£9.00");
+  it("shows a quarantined line as worth nothing, in neutral variance and a warning note with its would-be value", () => {
+    const q = row(html([{ ...line(3), valuePence: 900, flagged: true }]));
+    expect(q).toContain('<td class="num">£0.00</td>');
     expect(q).not.toMatch(/_pos_/);
-    expect(q).toMatch(/<span class="[^"]*_warn_[^"]*">Recalled batch: 3 found units quarantined<\/span>/);
+    expect(q).toMatch(/<span class="[^"]*_warn_[^"]*">Recalled batch: 3 found units quarantined \(£9.00 if sellable\)<\/span>/);
+  });
+
+  it("leaves quarantined units out of Net units", () => {
+    const net = (lines: ReturnType<typeof line>[]) => html(lines).match(/<dt>Net units<\/dt><dd>([^<]*)<\/dd>/)![1];
+    expect(net([line(3), { ...line(0), key: "S|found", variance: 2 }, { ...line(0), key: "S|lost", variance: -5 }])).toBe("-3");
+    expect(net([line(3)])).toBe("0");
   });
 
   it("keeps a found-stock line green with its value", () => {

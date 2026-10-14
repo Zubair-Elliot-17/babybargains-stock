@@ -21,13 +21,13 @@ afterAll(async () => {
 
 let calls = 0;
 const Input = z.object({ commandId: z.string(), n: z.number() });
-const post = (name: string, body: unknown, target?: string) =>
+const post = (name: string, body: unknown, target?: string, input: z.ZodType<{ commandId: string; n: number }> = Input) =>
   handleCommand(new Request("http://x/api", { method: "POST", body: JSON.stringify(body) }), {
     name,
     target,
     role: "manager",
     actionClass: "general",
-    input: Input,
+    input,
     run: async (_c, _s, _ctx, input) => ({ n: input.n, call: ++calls }),
   });
 
@@ -39,6 +39,15 @@ describe("commandId reuse", () => {
     const again = await post("demo", { commandId, n: 1 });
     expect(again.status).toBe(200);
     expect(await again.json()).toEqual({ result: first.result, replayed: true });
+  });
+
+  it("replays a retry whose keys are reordered or whose schema gained a default since the first send", async () => {
+    token = createSession("manager").token;
+    const commandId = randomUUID();
+    const first = await (await post("demo", { commandId, n: 1 })).json();
+    expect(await (await post("demo", { n: 1, commandId })).json()).toEqual({ result: first.result, replayed: true });
+    const newer = Input.extend({ note: z.string().default("") });
+    expect(await (await post("demo", { commandId, n: 1 }, undefined, newer)).json()).toEqual({ result: first.result, replayed: true });
   });
 
   it.each([

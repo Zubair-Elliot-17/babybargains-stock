@@ -1,11 +1,11 @@
 // Pure transfer-suggestion maths shared by the manager screen (read) and Accept (write), so the
 // suggestion shown is exactly the one re-checked before posting.
 //
-//   velocity v = SOLD over the last 8 weeks / 8 (units/week); cover = onHand / v (∞ with no sales)
+//   velocity v = soldInWindow / VELOCITY_WEEKS (units/week, whole UTC days before today); cover = onHand / v (∞ with no sales)
 //   donor:     cover > W and surplus = onHand − max(ceil(W·v), rp+1) ≥ 1
 //   recipient: onHand < rp, need = max(rp+1, ceil(W/2·v)) − onHand
 //
-// Integer forms (W·sold/8, W·sold/16) avoid floating-point edges at the thresholds.
+// Integer forms (W·sold/VELOCITY_WEEKS, W·sold/(2·VELOCITY_WEEKS)) avoid floating-point edges at the thresholds.
 
 export const VELOCITY_WEEKS = 8;
 export const VELOCITY_DAYS = VELOCITY_WEEKS * 7;
