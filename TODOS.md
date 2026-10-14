@@ -32,10 +32,6 @@ Deferred during plan review. Each has the context needed to pick it up later.
 - **Context:** premise 4 of docs/designs/offline-count-queue.md kept this out of that sprint.
 - **Depends on:** the offline count queue.
 
-## Phone layouts for secondary manager screens (P3)
-- **What:** <768px layouts for Stock, Stocktakes, Transfers, Orders, Imports, Analytics.
-- **Context:** Recall and the clerk screens already have phone layouts; follow the Recall pattern.
-
 ## Stockout-adjusted velocity for transfers (P3)
 - **What:** estimate demand on days a branch was out of stock instead of counting only recorded sales.
 - **Why:** a branch that sold out looks slower than it is, so it is under-refilled and can look like

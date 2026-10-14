@@ -244,6 +244,7 @@ th.num {
 
 /* Phone: a table with class "cards" stacks each row as a card; cells label themselves from data-label. */
 @media (max-width: 767px) {
+  /* Fully hidden, not sr-only: the data-label text already names each value, so headers would be read twice. */
   table.cards thead {
     display: none;
   }

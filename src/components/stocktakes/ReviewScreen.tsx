@@ -184,7 +184,7 @@ function LineTable({ lines, accept }: { lines: ReviewLine[]; accept?: { accepted
             <td className={`num ${l.quarantined ? "" : l.variance < 0 ? styles.neg : styles.pos}`} data-label="Variance">{l.variance > 0 ? `+${l.variance}` : l.variance}</td>
             <td className="num" data-label="Value">{money(l.quarantined ? 0 : l.valuePence)}</td>
             {accept && (
-              <td data-label="Accept">
+              <td>
                 <label className={styles.accept}>
                   <input type="checkbox" checked={accept.accepted.has(l.key)} onChange={() => accept.toggle(l.key)} />
                   <span className="sr-only">Accept {l.productName}</span>

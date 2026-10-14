@@ -6,11 +6,13 @@ async function signInManager(page: Page) {
   await page.waitForURL(/\/recall/);
 }
 
-const overflow = (page: Page) => page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth);
+// Page width, and any table wider than the screen (Stock and Orders tables sit in their own scroll box).
+const overflow = (page: Page) =>
+  page.evaluate(() => Math.max(document.documentElement.scrollWidth, ...[...document.querySelectorAll("table")].map((t) => t.getBoundingClientRect().right)) - window.innerWidth);
 
 test("@phone every manager screen fits the width, with no sideways scroll", async ({ page }) => {
   await signInManager(page);
-  for (const path of ["/recall", "/stock", "/stocktakes", "/stocktakes?tab=APPROVED", "/transfers", "/orders", "/analytics"]) {
+  for (const path of ["/recall", "/stock", "/stocktakes", "/stocktakes?tab=APPROVED", "/transfers", "/orders", "/orders?branch=BR-BRS&supplier=SUP-OAK", "/analytics"]) {
     await page.goto(path);
     await expect(page.locator("h1")).toBeVisible();
     expect(await overflow(page), path).toBeLessThanOrEqual(0);
@@ -25,11 +27,15 @@ test("@phone every manager screen fits the width, with no sideways scroll", asyn
   await expect(current).toHaveAttribute("href", "/stocktakes");
 });
 
-test("@phone transfers lists suggestions as cards and opens the review sheet", async ({ page }) => {
+test("@phone transfers lists suggestions as cards and opens the review sheet", async ({ page }, info) => {
+  test.skip(info.project.name !== "phone", "cards are the phone layout");
   await signInManager(page);
   await page.goto("/transfers");
   const first = page.locator("tbody tr").first();
   await expect(first).toBeVisible();
+  await expect(page.locator("thead")).toBeHidden(); // stacked cards, not a squeezed table
+  const row = (await first.boundingBox())!;
+  expect(row.x + row.width).toBeLessThanOrEqual(page.viewportSize()!.width);
   await first.getByRole("button", { name: /^Review transfer of/ }).click();
   const sheet = page.getByRole("dialog");
   await expect(sheet).toBeVisible();
