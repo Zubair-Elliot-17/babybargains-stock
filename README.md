@@ -123,6 +123,11 @@ it off and watch the counts send one by one.
 - **Re-login resumes at once** with a rotating per-stocktake resume key (HMAC of a nonce, so the database
   never holds a usable key), still under the clerk's role and branch.
 - Submit stays disabled, with the reason shown, until every queued count is sent or dealt with.
+- **The count page opens with no signal.** A small service worker (`public/sw.js`, no dependency) keeps
+  the last copy of each `/count` page and the hashed `/_next/static` files. It tries the network first,
+  waits up to 4 s (dead spots tend to hang rather than fail), then serves the copy with a note that counts
+  sent since it was saved aren't shown. Sign-in and sign-out clear it, and a copy older than the 8-hour
+  session is never served. Try it in DevTools: Network → Offline, then reload a count page.
 
 ## Correctness checks
 

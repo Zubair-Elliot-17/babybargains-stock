@@ -3,6 +3,7 @@ import { cols } from "@/domain/collections";
 import { currentSession } from "@/lib/command";
 import { getDb } from "@/lib/db";
 import { ClerkNav } from "@/components/count/ClerkNav";
+import { OfflineCopy } from "@/components/count/OfflineCopy";
 import styles from "@/components/count/count.module.css";
 
 export default async function ClerkLayout({ children }: { children: React.ReactNode }) {
@@ -25,7 +26,10 @@ export default async function ClerkLayout({ children }: { children: React.ReactN
           <span role="note">Demo data resets nightly 03:00 UTC</span>
           <span id="demo-slot" />
         </div>
-        <div className={styles.body}>{children}</div>
+        <div className={styles.body}>
+          <OfflineCopy />
+          {children}
+        </div>
         <ClerkNav />
       </div>
     </div>

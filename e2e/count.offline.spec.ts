@@ -84,3 +84,43 @@ test("@phone counts in a dead spot survive reload and re-login, then send in ord
     expect(res.ok()).toBeTruthy();
   }
 });
+
+test("@phone the count page reopens with no signal, and sign-out forgets the saved copy", async ({ page, context }) => {
+  test.skip(!process.env.E2E_PROD, "the service worker only registers in production builds");
+  test.setTimeout(90_000);
+  await signIn(page);
+  await page.getByRole("button", { name: /Start stocktake|Resume stocktake/ }).click();
+  await page.waitForURL(/\/count\/ST-/);
+  const stocktakeId = page.url().split("/count/")[1];
+  let submitted = false;
+  const submit = async () => {
+    const res = await page.request.post(`/api/stocktakes/${stocktakeId}/submit`, { data: { commandId: crypto.randomUUID(), uncounted: "leave" } });
+    expect(res.ok()).toBeTruthy();
+    submitted = true;
+  };
+  const savedPages = () => page.evaluate(async () => (await (await caches.open("bb-pages-v1")).keys()).length);
+
+  try {
+    await page.evaluate(() => navigator.serviceWorker.ready);
+    await page.reload(); // now controlled: this load goes through the worker and is saved
+    await expect.poll(savedPages).toBeGreaterThan(0);
+    await expect(page.getByText(/^No signal/)).toHaveCount(0); // a live page says nothing
+
+    await context.setOffline(true);
+    await page.reload();
+    await expect(page.getByText(/^No signal: this is the copy of this page saved at \d\d:\d\d/)).toBeVisible();
+    await countDreamtime(page, 2);
+    await expect(page.getByText(/^Kept on this phone · Dreamtime Cot 120 .* × 2/)).toBeVisible();
+
+    await context.setOffline(false);
+    await expect(page.locator("#sync-status")).toHaveText("All counts saved", { timeout: 30_000 });
+
+    await submit(); // while signed in: leave no OPEN stocktake for the other specs
+    await page.getByRole("button", { name: "Sign out" }).click();
+    await page.waitForURL(/\/login/);
+    await expect.poll(savedPages).toBe(0);
+  } finally {
+    await context.setOffline(false);
+    if (!submitted) await submit();
+  }
+});
