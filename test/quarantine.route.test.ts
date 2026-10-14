@@ -48,3 +48,14 @@ it("caps recalls per client IP, so fresh demo sessions can't reset the limit", a
   expect(stored).toHaveLength(2);
   expect(JSON.stringify(stored)).not.toContain("203.0.113"); // hashed, never the raw IP
 });
+
+it("checks the IP cap before the session's, so a refused recall leaves the session's one recall unspent", async () => {
+  const ip = "198.51.100.9";
+  for (let i = 0; i < 3; i++) {
+    token = createSession("manager").token;
+    await recall("B-404", ip);
+  }
+  token = createSession("manager").token;
+  expect((await recall("B-404", ip)).status).toBe(429); // IP refused
+  expect((await recall("B-404", "198.51.100.10")).status).toBe(404); // same session, new IP: its recall is still there
+});

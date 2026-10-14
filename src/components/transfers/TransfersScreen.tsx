@@ -15,7 +15,7 @@ function Cover({ weeks }: { weeks: number | null }) {
   if (weeks === 0) return <span>out of stock</span>; // a fact, not an estimate
   const text = weeks === null ? `no sales in ${VELOCITY_WEEKS} wks` : `${weeks < 10 ? weeks.toFixed(1) : Math.round(weeks)} wks cover`;
   return (
-    <span className="estimated" title={`Estimated from sales over the last ${VELOCITY_WEEKS} weeks`}>
+    <span className="estimated" title={`Estimated from sales over the ${VELOCITY_WEEKS} weeks before today`}>
       {text}
       <span className="sr-only"> (estimated)</span>
     </span>

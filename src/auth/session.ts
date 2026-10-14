@@ -29,6 +29,9 @@ function secret(): string {
 
 const sign = (body: string) => createHmac("sha256", secret()).update(body).digest("base64url");
 
+// Keyed hash, so stored rate-limit keys can't be reversed by hashing all of IPv4.
+export const hashIp = (ip: string) => createHmac("sha256", secret()).update(`ip:${ip}`).digest("hex").slice(0, 32);
+
 // Resume key for a stocktake: lets the phone that holds it take its stocktake back after a re-login.
 export function resumeKeyFor(stocktakeId: string, nonce: string): string {
   return sign(`resume:${stocktakeId}:${nonce}`);

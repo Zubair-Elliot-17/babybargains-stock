@@ -196,8 +196,17 @@ describe("receiveStock", () => {
 
   // BR-B holds none of B-1, so without the branch lock the recall writes nothing this receive touches.
   it("never posts RECEIVED onto a batch recalled by a racing quarantine", async () => {
-    const receive = () => run((c, s, k) => receiveStock(c, s, k, { branchId: "BR-B", sku: COT, batchId: OLD, qty: 1 }));
-    await Promise.allSettled([receive(), run((c, s, k) => quarantineBatch(c, s, k, { batchCode: "B-1" })), receive()]);
+    const recall = t.client.startSession();
+    try {
+      recall.startTransaction();
+      await quarantineBatch(cols(t.db), recall, ctx(), { batchCode: "B-1" }); // uncommitted: the receive's snapshot sees B-1 ACTIVE
+      const receive = run((c, s, k) => receiveStock(c, s, k, { branchId: "BR-B", sku: COT, batchId: OLD, qty: 1 })).catch((e) => e);
+      await new Promise((r) => setTimeout(r, 200));
+      await recall.commitTransaction();
+      expect(await receive).toMatchObject({ code: "BATCH_RECALLED" }); // retried after the recall committed
+    } finally {
+      await recall.endSession();
+    }
     expect((await checkLedgerInvariants(t.db)).violations).toEqual([]);
     expect(await onHand("BR-B", OLD)).toBe(0);
   });

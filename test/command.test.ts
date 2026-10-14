@@ -2,7 +2,7 @@ import { afterAll, beforeAll, describe, expect, inject, it, vi } from "vitest";
 import { randomUUID } from "node:crypto";
 import { z } from "zod";
 import { createSession } from "@/auth/session";
-import { handleCommand } from "@/lib/command";
+import { clientIp, handleCommand } from "@/lib/command";
 import { getClient, getDb } from "@/lib/db";
 
 // The shared route pipeline, driven as a route handler would: a signed session cookie and a JSON body.
@@ -169,5 +169,23 @@ describe("sale route", () => {
     expect(body.error).toMatchObject({ code: "INSUFFICIENT_STOCK", details: [{ sku: TOY }] });
     expect(JSON.stringify(body)).not.toMatch(/available|System shows/);
     expect((await post([{ sku: TOY, qty: 1 }, { sku: TOY, qty: 1 }])).status).toBe(400); // duplicate lines
+  });
+});
+
+describe("clientIp", () => {
+  const ip = (h: Record<string, string>) => clientIp(new Request("http://x", { headers: h }));
+  it("prefers x-real-ip, falls back to the first x-forwarded-for entry, else null", () => {
+    expect(ip({ "x-real-ip": "203.0.113.7", "x-forwarded-for": "198.51.100.1" })).toBe("203.0.113.7");
+    expect(ip({ "x-forwarded-for": "198.51.100.1, 10.0.0.1" })).toBe("198.51.100.1");
+    expect(ip({})).toBeNull();
+  });
+  it("keys IPv6 on its /64, whatever the notation, and unwraps IPv4-mapped addresses", () => {
+    const net = "2001:db8:a:b::/64";
+    expect(ip({ "x-real-ip": "2001:db8:a:b:1:2:3:4" })).toBe(net);
+    expect(ip({ "x-real-ip": "2001:0DB8:000a:b::9" })).toBe(net);
+    expect(ip({ "x-real-ip": "2001:db8:a:c::9" })).not.toBe(net);
+    expect(ip({ "x-real-ip": "2001:db8::1" })).toBe("2001:db8:0:0::/64");
+    expect(ip({ "x-real-ip": "::1" })).toBe("0:0:0:0::/64");
+    expect(ip({ "x-real-ip": "::ffff:203.0.113.7" })).toBe("203.0.113.7");
   });
 });

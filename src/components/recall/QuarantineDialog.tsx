@@ -61,7 +61,7 @@ export function QuarantineDialog(props: {
         const retryAt = body?.error?.details?.retryAt;
         setError(
           body?.error?.code === "RATE_LIMITED" && retryAt
-            ? `Demo limit: one quarantine per hour. Next quarantine available ${new Date(retryAt).toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" })}.`
+            ? `Demo limit reached. Next quarantine available ${new Date(retryAt).toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" })}.`
             : (body?.error?.message ?? "Couldn't save. Retry"),
         );
         return;
