@@ -27,6 +27,7 @@ export interface QueueSnapshot {
 
 export interface SentResult {
   lineId: string;
+  line: QueuedLine; // already removed from the queue when this is reported
   counted: number; // running count for the item after this line
   countedAt: string;
 }
@@ -142,10 +143,13 @@ export function createCountQueue(stocktakeId: string, deps: QueueDeps) {
   }
 
   async function send(item: QueuedLine) {
-    // Within the page life that captured it, derive capture time from the monotonic clock: survives a phone clock resync.
-    const capturedAt = item.life === LIFE && item.perf !== undefined
-      ? new Date(Date.now() - (performance.now() - item.perf)).toISOString()
-      : item.capturedAt;
+    // Within the page life that captured it, derive capture time from the monotonic clock (survives a phone clock
+    // resync), then pin it so every resend has the same body and fingerprint.
+    let capturedAt = item.capturedAt;
+    if (item.life === LIFE && item.perf !== undefined) {
+      capturedAt = new Date(Date.now() - (performance.now() - item.perf)).toISOString();
+      write({ ...item, capturedAt, perf: undefined });
+    }
     return post(
       `/api/stocktakes/${stocktakeId}/lines`,
       { commandId: item.lineId, sku: item.sku, batchId: item.batchId, counted: item.counted, mode: item.mode, capturedAt },
@@ -158,7 +162,7 @@ export function createCountQueue(stocktakeId: string, deps: QueueDeps) {
     const key = getResumeKey(deps.storage, stocktakeId);
     if (!key) return "nokey";
     try {
-      const { res, body } = await post("/api/stocktakes", { commandId: crypto.randomUUID(), resumeKey: key });
+      const { res, body } = await post("/api/stocktakes", { commandId: crypto.randomUUID(), resume: { stocktakeId, key } });
       if (res.ok && body?.result?._id === stocktakeId) {
         if (body.result.resumeKey) setResumeKey(deps.storage, stocktakeId, body.result.resumeKey);
         return "ok";
@@ -191,10 +195,10 @@ export function createCountQueue(stocktakeId: string, deps: QueueDeps) {
         // REUSED: the line id is only ever resent by this queue, so the server already holds this line.
         attempt = 0;
         serverErrors = 0;
+        // REUSED carries no result, and a 200 body can be cut off: fall back to the line's own values.
+        const r = res.ok ? body?.result : null;
+        const result: SentResult = { lineId: head.lineId, line: head, counted: r?.counted ?? head.counted, countedAt: r?.countedAt ?? head.capturedAt };
         remove(head.lineId);
-        const result: SentResult = res.ok
-          ? { lineId: head.lineId, counted: body.result.counted, countedAt: body.result.countedAt }
-          : { lineId: head.lineId, counted: head.counted, countedAt: head.capturedAt };
         waiters.get(head.lineId)?.(result);
         waiters.delete(head.lineId);
         for (const fn of sentListeners) fn(result);
@@ -228,7 +232,12 @@ export function createCountQueue(stocktakeId: string, deps: QueueDeps) {
   }
 
   async function drain() {
-    if (draining) return wake.abort(); // already running: cut any backoff short
+    if (draining) {
+      // Already running: cut the current backoff short, with a fresh signal for the next one.
+      wake.abort();
+      wake = new AbortController();
+      return;
+    }
     draining = true;
     try {
       if (deps.lock) await deps.lock(`bb-queue:${stocktakeId}`, loop);
@@ -374,6 +383,7 @@ export function browserDeps(): QueueDeps {
     random: Math.random,
     sleep: (ms, wake) =>
       new Promise((resolve) => {
+        if (wake.aborted) return resolve();
         const t = setTimeout(resolve, ms);
         wake.addEventListener("abort", () => (clearTimeout(t), resolve()), { once: true });
       }),

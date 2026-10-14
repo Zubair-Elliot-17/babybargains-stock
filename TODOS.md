@@ -57,12 +57,6 @@ Deferred during plan review. Each has the context needed to pick it up later.
 - **Context:** `stocktakeLines` will already store `clerkId`; add `stocktakeParticipants` and a join UI.
 - **Depends on:** Milestone 2.
 
-## Offline count queue (P2)
-- **What:** localStorage queue, sync badge and disabled Submit while queued.
-- **Why:** stockroom dead spots lose counts.
-- **Context:** per-line saves are idempotent by `lineId`, so the queue is additive.
-- **Depends on:** Milestone 2.
-
 ## Open the count page offline (P3)
 - **What:** cache the count page shell and catalogue with a service worker so a reload in a stockroom dead spot
   still opens the count screen; the offline queue itself is unchanged.

@@ -15,11 +15,11 @@ export function StartStocktake({ resumeId, openId }: { resumeId: string | null; 
 
   useEffect(() => sweepOld(browserStorage()), []);
 
-  async function open(resumeKey?: string): Promise<void> {
+  async function open(resume?: { stocktakeId: string; key: string }): Promise<void> {
     const res = await fetch("/api/stocktakes", {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ commandId: crypto.randomUUID(), resumeKey }),
+      body: JSON.stringify({ commandId: crypto.randomUUID(), resume }),
     });
     const body = await res.json().catch(() => null);
     if (res.ok) {
@@ -27,10 +27,10 @@ export function StartStocktake({ resumeId, openId }: { resumeId: string | null; 
       return router.push(`/count/${body.result._id}`);
     }
     const d = body?.error?.details;
-    const key = d?.stocktakeId && !resumeKey ? getResumeKey(browserStorage(), d.stocktakeId) : null;
-    if (key) return open(key); // this phone counted it before the re-login
+    const key = d?.stocktakeId && !resume ? getResumeKey(browserStorage(), d.stocktakeId) : null;
+    if (key) return open({ stocktakeId: d.stocktakeId, key }); // this phone counted it before the re-login
     setError(
-      body?.error?.code === "STOCKTAKE_BUSY" && d
+      body?.error?.code === "STOCKTAKE_BUSY" && d?.clerkLabel
         ? `${d.clerkLabel} is counting this branch (last activity ${new Date(d.lastActivityAt).toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" })}). Sign out and pick another branch, or try again after 2 hours idle.`
         : (body?.error?.message ?? "Couldn't start. Retry"),
     );

@@ -318,13 +318,13 @@ describe("counts queued offline", () => {
 });
 
 describe("resume key", () => {
-  const openWith = (sid: string, ok: boolean, branchId = "BR-A") =>
-    run((c, s, k) => openStocktake(c, s, k, { branchId, sid, clerkLabel: `Clerk ${sid}`, resumeOk: () => ok }));
+  const openWith = (sid: string, ok: boolean, stocktakeId: string, branchId = "BR-A") =>
+    run((c, s, k) => openStocktake(c, s, k, { branchId, sid, clerkLabel: `Clerk ${sid}`, resume: { stocktakeId, ok: () => ok } }));
 
   it("takes over at once with the key, refuses without it, and rotates the nonce on every open", async () => {
     const a = (await open()).result;
-    await expect(openWith("clerk-2", false)).rejects.toMatchObject({ code: "STOCKTAKE_BUSY", details: { stocktakeId: a._id } });
-    const b = (await openWith("clerk-2", true)).result;
+    await expect(openWith("clerk-2", false, a._id)).rejects.toMatchObject({ code: "STOCKTAKE_BUSY", details: { stocktakeId: a._id } });
+    const b = (await openWith("clerk-2", true, a._id)).result;
     expect(b).toMatchObject({ _id: a._id, openedBy: "clerk-2", openedAt: a.openedAt });
     expect(b.resumeNonce).toBeTruthy();
     expect(b.resumeNonce).not.toBe(a.resumeNonce);
@@ -335,14 +335,19 @@ describe("resume key", () => {
     const oldNonce = a.resumeNonce;
     await cols(t.db).stocktakes.updateOne({ _id: a._id }, { $set: { lastActivityAt: new Date(Date.now() - 3 * 3_600_000) } });
     await open("phone-b"); // stale takeover rotates the nonce
-    const err = await run((c, s, k) => openStocktake(c, s, k, { branchId: "BR-A", sid: "phone-a-again", clerkLabel: "A", resumeOk: (st) => st.resumeNonce === oldNonce })).catch((e) => e);
+    const err = await run((c, s, k) => openStocktake(c, s, k, { branchId: "BR-A", sid: "phone-a-again", clerkLabel: "A", resume: { stocktakeId: a._id, ok: (st) => st.resumeNonce === oldNonce } })).catch((e) => e);
     expect(err).toMatchObject({ code: "STOCKTAKE_BUSY" });
   });
 
-  it("a key never reaches another branch's stocktake: the session's branch decides", async () => {
+  it("a resume from another branch's session is refused and opens nothing there", async () => {
     const a = (await open()).result;
-    const other = (await openWith("clerk-b", true, "BR-B")).result;
-    expect(other._id).not.toBe(a._id);
+    await expect(openWith("clerk-b", true, a._id, "BR-B")).rejects.toMatchObject({ code: "STOCKTAKE_BUSY" });
+    expect(await cols(t.db).stocktakes.countDocuments({ branchId: "BR-B" })).toBe(0);
     expect((await cols(t.db).stocktakes.findOne({ _id: a._id }))?.openedBy).toBe("clerk-1");
+  });
+
+  it("the same session reopening keeps its key (overlapping opens can't store a stale one)", async () => {
+    const a = (await open()).result;
+    expect((await open()).result.resumeNonce).toBe(a.resumeNonce);
   });
 });

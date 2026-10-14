@@ -80,15 +80,20 @@ export function CountScreen(props: {
     // Lines the server already holds (a timed-out save that arrived) leave the queue; the rest start sending.
     queue.forget(props.initialEntries.map((e) => e._id));
     void queue.drain();
-    const offSent = queue.onSent((r: SentResult) =>
-      setSent((list) => {
-        if (list.some((e) => e._id === r.lineId)) return list;
-        const q = queue.snapshot().items.find((i) => i.lineId === r.lineId);
-        return q ? [...list, { _id: q.lineId, sku: q.sku, batchId: q.batchId, batchCode: codeOf(q.sku, q.batchId), counted: q.counted, mode: q.mode, countedAt: r.countedAt }] : list;
-      }),
+    const offSent = queue.onSent(({ line: q, countedAt }: SentResult) =>
+      setSent((list) =>
+        list.some((e) => e._id === q.lineId)
+          ? list
+          : [...list, { _id: q.lineId, sku: q.sku, batchId: q.batchId, batchCode: codeOf(q.sku, q.batchId), counted: q.counted, mode: q.mode, countedAt }],
+      ),
     );
     const kick = () => document.visibilityState === "visible" && queue.kick();
-    const onStorage = (e: StorageEvent) => e.key?.startsWith("bb-q:") && queue.refresh();
+    // Another tab changed the queue: redraw, and take over sending if that tab has let go of the lock.
+    const onStorage = (e: StorageEvent) => {
+      if (!e.key?.startsWith("bb-q:")) return;
+      queue.refresh();
+      void queue.drain();
+    };
     const onUnload = (e: BeforeUnloadEvent) => {
       if (queue.snapshot().items.length) e.preventDefault(); // best-effort: iOS Safari ignores it
     };

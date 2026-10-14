@@ -335,7 +335,7 @@ export interface OpenInput {
   branchId: string;
   sid: string;
   clerkLabel: string;
-  resumeOk?: (st: Stocktake) => boolean; // true when the caller presented this stocktake's current resume key
+  resume?: { stocktakeId: string; ok: (st: Stocktake) => boolean }; // a resume targets one stocktake and never opens or takes over another
 }
 
 // Resumes the clerk's OPEN stocktake for the branch, takes over an idle one (or at once with its resume key),
@@ -345,9 +345,17 @@ export async function openStocktake(c: Cols, s: ClientSession, ctx: CommandCtx, 
   const resumeNonce = randomBytes(16).toString("hex");
   await lockBranches(c, s, [input.branchId]);
   const open = await c.stocktakes.findOne({ branchId: input.branchId, status: "OPEN" }, { session: s });
+  if (input.resume && open?._id !== input.resume.stocktakeId) {
+    throw new DomainError("STOCKTAKE_BUSY", "That stocktake can't be resumed from this branch or is no longer open", 409, { stocktakeId: input.resume.stocktakeId });
+  }
   if (open) {
+    if (open.openedBy === input.sid) {
+      // Same session: keep the key, so overlapping opens from one phone can't leave a stale one stored.
+      await c.stocktakes.updateOne({ _id: open._id }, { $set: { lastActivityAt: now } }, { session: s });
+      return { ...open, lastActivityAt: now };
+    }
     const idle = now.getTime() - open.lastActivityAt.getTime() >= STALE_MS;
-    if (open.openedBy !== input.sid && !idle && !input.resumeOk?.(open)) {
+    if (!idle && !input.resume?.ok(open)) {
       throw new DomainError("STOCKTAKE_BUSY", "This branch's stocktake is in progress on another device", 409, {
         stocktakeId: open._id,
         clerkLabel: open.clerkLabel,

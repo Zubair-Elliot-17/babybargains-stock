@@ -62,9 +62,17 @@ describe("count queue", () => {
     const sentA = q.enqueue(a);
     await idle(q);
     expect(lines().map((c) => c.body.sku)).toEqual(["B", "A"]); // B was already in flight when A arrived
-    expect(await sentA).toMatchObject({ lineId: a.lineId, counted: 5 });
+    expect(await sentA).toMatchObject({ lineId: a.lineId, counted: 5, line: expect.objectContaining({ sku: "A", counted: 1 }) });
     expect(storage.m.size).toBe(0);
     expect(q.snapshot()).toMatchObject({ items: [], status: "idle" });
+  });
+
+  it("pins the capture time at the first send so a resend has the same body", async () => {
+    const { q, lines } = setup(["drop", ok(1)]);
+    q.enqueue(line());
+    await idle(q);
+    expect(lines()).toHaveLength(2);
+    expect(lines()[1].body).toEqual(lines()[0].body);
   });
 
   it("sends the capture time in the body and the send time in a header", async () => {
@@ -75,24 +83,29 @@ describe("count queue", () => {
     expect(lines()[0].headers["x-sent-at"]).toMatch(/^\d{4}-\d\d-\d\dT/);
   });
 
-  it("orders queued lines by capture time across a reload", async () => {
-    const { q, storage, deps, lines } = setup(["drop", "drop"]);
-    q.enqueue(line("B", "2026-10-14T09:00:02.000Z"));
-    q.enqueue(line("A", "2026-10-14T09:00:01.000Z"));
-    q.setDeadSpot(true);
-    await idle(q);
-    expect(lines().length).toBeGreaterThan(0);
-    const after: string[] = [];
-    const reloaded = createCountQueue("ST-1", { ...deps, storage, fetch: (async (_url: string, init: RequestInit) => {
-      after.push(JSON.parse(String(init.body)).sku);
+  it("after a reload, sends lines from the earlier page life in capture order with their stored times", async () => {
+    const { storage, deps } = setup([]);
+    // Written by an earlier page life (no life/perf), in reverse order of capture.
+    for (const [sku, at] of [["B", "2026-10-14T09:00:02.000Z"], ["A", "2026-10-14T09:00:01.000Z"]] as const) {
+      const l = { ...line(sku, at), state: "pending" };
+      storage.setItem(`bb-q:ST-1:${l.lineId}`, JSON.stringify(l));
+    }
+    const sent: string[] = [];
+    const reloaded = createCountQueue("ST-1", { ...deps, fetch: (async (_url: string, init: RequestInit) => {
+      const b = JSON.parse(String(init.body));
+      sent.push(`${b.sku}@${b.capturedAt}`);
       return new Response(JSON.stringify(ok(1).body), { status: 200 });
     }) as typeof fetch });
     expect(reloaded.snapshot().items.map((i) => i.sku)).toEqual(["A", "B"]);
-    expect(reloaded.snapshot().deadSpot).toBe(true); // the switch survives the reload too
-    reloaded.setDeadSpot(false);
-    await idle(reloaded);
-    expect(after).toEqual(["A", "B"]);
+    await reloaded.drain();
+    expect(sent).toEqual(["A@2026-10-14T09:00:01.000Z", "B@2026-10-14T09:00:02.000Z"]);
     expect(storage.m.size).toBe(0);
+  });
+
+  it("the dead-spot switch survives a reload", () => {
+    const { q, deps } = setup([], { lock: async () => {} });
+    q.setDeadSpot(true);
+    expect(createCountQueue("ST-1", deps).snapshot().deadSpot).toBe(true);
   });
 
   it("treats COMMAND_ID_REUSED as saved (a timed-out save that reached the server)", async () => {
@@ -168,7 +181,7 @@ describe("count queue", () => {
     q.enqueue(line());
     await idle(q);
     expect(calls.map((c) => c.url)).toEqual(["/api/stocktakes/ST-1/lines", "/api/stocktakes", "/api/stocktakes/ST-1/lines"]);
-    expect(calls[1].body.resumeKey).toBe("key-1");
+    expect(calls[1].body.resume).toEqual({ stocktakeId: "ST-1", key: "key-1" });
     expect(getResumeKey(storage, "ST-1")).toBe("key-2");
     expect(q.snapshot()).toMatchObject({ status: "idle", items: [] });
   });
@@ -231,6 +244,42 @@ describe("count queue", () => {
     q.forget([l.lineId]);
     expect(q.snapshot().items).toEqual([]);
     expect(deps.storage!.length).toBe(0);
+  });
+});
+
+describe("backoff wake-up", () => {
+  it("turning the dead-spot switch off wakes a backoff even after earlier interrupts", async () => {
+    const sleeps: AbortSignal[] = [];
+    const { q, lines } = setup([ok(1), ok(2), ok(3)], {
+      // Real-like sleep: only an abort ends it early.
+      sleep: (_ms, wake) => new Promise((r) => {
+        sleeps.push(wake);
+        if (wake.aborted) return r();
+        wake.addEventListener("abort", () => r(), { once: true });
+      }),
+    });
+    q.setDeadSpot(true);
+    q.enqueue(line("A"));
+    await settle();
+    q.enqueue(line("B")); // interrupts the first backoff
+    await settle();
+    q.enqueue(line("C")); // and the next
+    await settle();
+    expect(sleeps.at(-1)!.aborted).toBe(false); // the current backoff can still be woken
+    q.setDeadSpot(false);
+    await idle(q);
+    expect(lines().map((c) => c.body.sku)).toEqual(["A", "B", "C"]);
+  });
+
+  it("an unreadable 200 body still counts the line as sent and keeps draining", async () => {
+    const { q, lines } = setup([{ status: 200, body: null as unknown as undefined }, ok(2)]);
+    const a = line("A");
+    const sent = q.enqueue(a);
+    q.enqueue(line("B"));
+    await idle(q);
+    expect(await sent).toMatchObject({ lineId: a.lineId, counted: 1 });
+    expect(lines()).toHaveLength(2);
+    expect(q.snapshot().items).toEqual([]);
   });
 });
 

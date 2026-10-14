@@ -3,7 +3,7 @@ import { saveCountLine } from "@/domain/ledger/write";
 import { CommandId, handleCommand } from "@/lib/command";
 
 // One count entry; commandId doubles as the line id so retries never double count.
-// capturedAt is in the body (same on every resend); the send time is a header so resends keep one fingerprint.
+// capturedAt is in the body (pinned by the queue at first send); the send time is a header so resends keep one fingerprint.
 const Input = z.object({
   commandId: CommandId,
   sku: z.string().min(1).max(120),

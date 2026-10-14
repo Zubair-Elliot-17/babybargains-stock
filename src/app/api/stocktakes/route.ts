@@ -12,13 +12,16 @@ export async function POST(req: Request) {
     name: "openStocktake",
     role: "clerk",
     actionClass: "general",
-    input: z.object({ commandId: CommandId, resumeKey: z.string().min(1).max(100).optional() }),
+    input: z.object({
+      commandId: CommandId,
+      resume: z.object({ stocktakeId: z.string().min(1).max(120), key: z.string().min(1).max(100) }).optional(),
+    }),
     run: (c, s, ctx, input, session) => {
       if (!session.branchId) throw new Forbidden("Sign in again and pick a branch");
-      const key = input.resumeKey;
+      const r = input.resume;
       return openStocktake(c, s, ctx, {
         branchId: session.branchId, sid: session.sid, clerkLabel: clerkLabel(session.sid),
-        resumeOk: key ? (st) => resumeKeyMatches(st._id, st.resumeNonce, key) : undefined,
+        resume: r ? { stocktakeId: r.stocktakeId, ok: (st) => resumeKeyMatches(st._id, st.resumeNonce, r.key) } : undefined,
       });
     },
     present: ({ resumeNonce, ...st }: Stocktake) => ({ ...st, resumeKey: resumeNonce ? resumeKeyFor(st._id, resumeNonce) : undefined }),

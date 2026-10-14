@@ -1,11 +1,11 @@
 import { expect, test, type Page } from "@playwright/test";
 
 // Offline count queue end to end: the demo's dead-spot switch, a reload, a re-login resume, and a save that
-// reached the server but timed out on the phone. Manchester is not used by the other clerk specs.
+// reached the server but timed out on the phone. Leeds: manager specs pick Manchester/Bristol rows, and stocktake.spec starts its own Leeds stocktake after this one.
 
 async function signIn(page: Page) {
   await page.goto("/login");
-  await page.getByLabel("Branch").selectOption({ label: "Manchester Arndale" });
+  await page.getByLabel("Branch").selectOption({ label: "Leeds Kirkgate" });
   await page.getByRole("button", { name: "Start counting" }).click();
   await page.waitForURL(/\/count$/);
 }
@@ -19,6 +19,7 @@ async function countDreamtime(page: Page, qty: number, repeat?: "Add" | "Replace
 }
 
 test("@phone counts in a dead spot survive reload and re-login, then send in order", async ({ page }) => {
+  test.setTimeout(90_000); // one journey: reload, re-login, drain, and a lost response with backoff
   await signIn(page);
   await page.getByRole("button", { name: /Start stocktake|Resume stocktake/ }).click();
   await page.waitForURL(/\/count\/ST-/);
@@ -70,13 +71,15 @@ test("@phone counts in a dead spot survive reload and re-login, then send in ord
       await route.abort("failed"); // …but the phone never hears back
     });
     await countDreamtime(page, 5, "Replace");
-    await expect(status).toHaveText("All counts saved", { timeout: 15_000 });
+    // The retry may land inside the 1.5 s save window ("Saved") or after it ("Kept on this phone").
+    await expect(page.getByText(/^(Saved|Kept on this phone) · Dreamtime Cot 120 .* × 5/)).toBeVisible();
+    await expect(page.getByText("Waiting", { exact: true })).toHaveCount(0, { timeout: 15_000 });
     await page.unrouteAll();
     await page.reload();
     await expect(page.getByRole("region", { name: "Recent counts" }).getByRole("listitem")).toHaveCount(3);
   } finally {
     await page.unrouteAll();
-    // Leave no OPEN stocktake behind: it would hold Manchester out of the transfer specs.
+    // Leave no OPEN stocktake behind: it would hold Leeds out of the transfer specs and stocktake.spec.
     const res = await page.request.post(`/api/stocktakes/${stocktakeId}/submit`, { data: { commandId: crypto.randomUUID(), uncounted: "leave" } });
     expect(res.ok()).toBeTruthy();
   }
