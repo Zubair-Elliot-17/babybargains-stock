@@ -4,6 +4,7 @@ import { cols, type Cols } from "../collections";
 import { DomainError, NotFound } from "../errors";
 import type { PurchaseOrder } from "../schemas";
 import { BATCH_CODE, normaliseBatchCode } from "./read";
+import { UNBATCHED } from "./stocktake";
 import { lockBranches, postMovements, type CommandCtx, type NewMovement } from "./write";
 
 // Purchase orders (Milestone 4, docs/designs/milestone-4.md): create as SENT, receive in one or more
@@ -70,7 +71,7 @@ export async function receivePurchaseOrder(c: Cols, s: ClientSession, ctx: Comma
       throw new DomainError("OVER_RECEIVED", `${a.sku}: only ${line.ordered - line.received} still to arrive`, 400);
     }
     const batchCode = normaliseBatchCode(a.batchCode);
-    if (!batchCode || batchCode === "UNBATCHED") throw new DomainError("BATCH_CODE_REQUIRED", `Enter the batch code on the label for ${a.sku}`, 400);
+    if (!batchCode || batchCode === UNBATCHED) throw new DomainError("BATCH_CODE_REQUIRED", `Enter the batch code on the label for ${a.sku}`, 400);
     if (!BATCH_CODE.test(batchCode)) throw new DomainError("BATCH_CODE_INVALID", `Batch codes use letters, digits, spaces and . _ / - only (${a.sku})`, 400);
     // A recall covers the code across every SKU (sizes, colours), so any recalled batch with it refuses.
     if (await c.batches.findOne({ batchCode, status: "RECALLED" }, { session: s, projection: { _id: 1 } })) {

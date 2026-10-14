@@ -44,7 +44,7 @@ recorded or counted figures are solid.
 - Deterministic seed: 15 branches, 300 SKUs, 12 months, ~250k movements, ~125 MB.
 - Nightly server-side reset that removes visitor changes and shifts dates to end today, so the
   free Atlas tier never re-uploads the dataset.
-- Demo safety: signed session cookie, server-side role checks, per-session rate limits
+- Demo safety: signed session cookie, server-side role checks, per-session rate limits, plus a per-IP cap on recalls
   (quarantine 1/hour), structured JSON logs per command, `/api/health`.
 
 ## What's in Milestone 2: stocktake
@@ -73,7 +73,7 @@ recorded or counted figures are solid.
   retail value. Filter by receiving branch; Review opens a side panel with before/after stock and the
   batches that would move (oldest first); Accept moves the stock at once as a `TRANSFER_OUT/IN` pair.
 - **The rule, per SKU and branch** (policy from `stockPolicies`: reorder point `rp`, overstock weeks
-  `W`; velocity `v` = units sold in the last 8 weeks ÷ 8, counted in whole UTC days so a suggestion holds
+  `W`; velocity `v` = units sold in the 56 whole UTC days before today ÷ 8, so a suggestion holds
   all day):
   - *donor:* weeks of cover (`onHand ÷ v`, infinite with no sales) above `W`; it keeps
     `max(⌈W·v⌉, rp+1)` and offers the rest.

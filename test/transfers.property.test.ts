@@ -6,7 +6,7 @@ const branchStock = (branchId: string) =>
   fc.record({
     branchId: fc.constant(branchId),
     onHand: fc.integer({ min: 0, max: 80 }),
-    sold56: fc.integer({ min: 0, max: 60 }),
+    soldInWindow: fc.integer({ min: 0, max: 60 }),
     policy: fc.option(fc.record({ reorderPoint: fc.integer({ min: 0, max: 12 }), overstockWeeks: fc.integer({ min: 1, max: 10 }) }), { freq: 8 }),
     stocktakeOpen: fc.oneof({ arbitrary: fc.constant(false), weight: 3 }, { arbitrary: fc.constant(true), weight: 1 }),
   }) satisfies fc.Arbitrary<BranchStock>;

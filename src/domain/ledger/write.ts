@@ -1,11 +1,11 @@
 import { createHash, randomBytes } from "node:crypto";
 import { MongoServerError, type ClientSession, type Db, type MongoClient } from "mongodb";
 import { cols, type Cols, type CommandLogEntry } from "../collections";
-import { DomainError, InsufficientStock, NotFound, type ShortLine } from "../errors";
+import { DomainError, InsufficientStock, NotFound, SameBranch, type ShortLine } from "../errors";
 import type { Movement, Origin, Stocktake } from "../schemas";
 import { allocateFifo, type Lot } from "./allocate";
 import { computeStocktakePlan, loadTransferInputs } from "./read";
-import { activeStocktakes, countKey, foldCounts, STALE_MS, unbatchedBatchId } from "./stocktake";
+import { activeStocktakes, countKey, foldCounts, STALE_MS, UNBATCHED, unbatchedBatchId } from "./stocktake";
 import { suggestForSku } from "./transfers";
 
 // The only runtime write path for stock. Every command runs in one transaction:
@@ -126,7 +126,7 @@ async function lotsFor(c: Cols, session: ClientSession, branchId: string, sku: s
   return rows.flatMap((r) => {
     const b = byId.get(r.batchId);
     if (!b) return [];
-    return [{ batchId: r.batchId, onHand: r.onHand, receivedAt: b.receivedAt, status: b.status, unbatched: b.batchCode === "UNBATCHED" }];
+    return [{ batchId: r.batchId, onHand: r.onHand, receivedAt: b.receivedAt, status: b.status, unbatched: b.batchCode === UNBATCHED }];
   });
 }
 
@@ -143,6 +143,7 @@ export interface ReceiveInput {
 }
 
 export async function receiveStock(c: Cols, s: ClientSession, ctx: CommandCtx, input: ReceiveInput) {
+  await lockBranches(c, s, [input.branchId]); // conflicts with a recall (it locks every branch), so RECEIVED never lands on a recalled batch
   const batch = await c.batches.findOne({ _id: input.batchId }, { session: s });
   if (!batch) throw new NotFound(`Batch ${input.batchId} not found`);
   if (batch.status === "RECALLED") {
@@ -209,7 +210,7 @@ export interface TransferInput {
 }
 
 export async function transferStock(c: Cols, s: ClientSession, ctx: CommandCtx, input: TransferInput) {
-  if (input.fromBranchId === input.toBranchId) throw new DomainError("SAME_BRANCH", "Pick two different branches", 400);
+  if (input.fromBranchId === input.toBranchId) throw new SameBranch();
   const { allocations, shortBy } = allocateFifo(await lotsFor(c, s, input.fromBranchId, input.sku), input.qty);
   if (shortBy > 0) {
     throw new InsufficientStock([
@@ -232,7 +233,7 @@ export async function transferStock(c: Cols, s: ClientSession, ctx: CommandCtx, 
 // Accept re-derives the suggestion inside the transaction, so a stale screen can never move more
 // than the ledger supports right now.
 export async function acceptTransferSuggestion(c: Cols, s: ClientSession, ctx: CommandCtx, input: TransferInput) {
-  if (input.fromBranchId === input.toBranchId) throw new DomainError("SAME_BRANCH", "Pick two different branches", 400);
+  if (input.fromBranchId === input.toBranchId) throw new SameBranch();
   await lockBranches(c, s, [input.fromBranchId, input.toBranchId]);
   const now = ctx.now ?? new Date();
   const open = await c.stocktakes.distinct("branchId", { branchId: { $in: [input.fromBranchId, input.toBranchId] }, ...activeStocktakes(now) }, { session: s });
@@ -271,7 +272,7 @@ export interface QuarantineResult {
 
 // UNBATCHED is a per-SKU catch-all for found stock, not a supplier batch; recalling it would pull unrelated units.
 export function assertRecallable(batchCode: string): void {
-  if (batchCode === "UNBATCHED") throw new DomainError("UNBATCHED_RECALL", "Stock without a batch code can't be recalled; recall the supplier's batch code", 400);
+  if (batchCode === UNBATCHED) throw new DomainError("UNBATCHED_RECALL", "Stock without a batch code can't be recalled; recall the supplier's batch code", 400);
 }
 
 // Marks every ACTIVE batch with this code RECALLED and pulls its current stock everywhere.
@@ -503,7 +504,7 @@ export async function approveStocktake(c: Cols, s: ClientSession, ctx: CommandCt
     const parent = await c.products.findOne({ _id: line.sku }, { session: s, projection: { parentSku: 1 } });
     await c.batches.updateOne(
       { _id: id },
-      { $setOnInsert: { supplierId: line.supplierId, batchCode: "UNBATCHED", sku: line.sku, parentSku: parent?.parentSku ?? line.sku, receivedAt: now, status: "ACTIVE", createdOrigin: ctx.origin } },
+      { $setOnInsert: { supplierId: line.supplierId, batchCode: UNBATCHED, sku: line.sku, parentSku: parent?.parentSku ?? line.sku, receivedAt: now, status: "ACTIVE", createdOrigin: ctx.origin } },
       { session: s, upsert: true },
     );
   }

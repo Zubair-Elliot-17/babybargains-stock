@@ -3,8 +3,8 @@ import type { ClientSession } from "mongodb";
 import { cookies } from "next/headers";
 import { NextResponse } from "next/server";
 import { z } from "zod";
-import { consume, type ActionClass } from "@/auth/rateLimit";
-import { COOKIE, requireRole, verifySession, type Role, type Session } from "@/auth/session";
+import { consume, consumeIp, type ActionClass } from "@/auth/rateLimit";
+import { COOKIE, hashIp, requireRole, verifySession, type Role, type Session } from "@/auth/session";
 import { cols, type Cols } from "@/domain/collections";
 import { DomainError } from "@/domain/errors";
 import { assertSameCommand, runCommand, type CommandCtx } from "@/domain/ledger/write";
@@ -15,6 +15,21 @@ import { getClient, getDb } from "./db";
 // session → role → Zod → replay of a finished commandId → precheck → rate limit → transaction → log.
 
 export const CommandId = z.string().uuid();
+
+// shortcut: trusts the proxy headers Vercel sets (and overwrites); behind another host, read the IP its proxy guarantees.
+export function clientIp(req: Request): string | null {
+  const ip = req.headers.get("x-real-ip") ?? req.headers.get("x-forwarded-for")?.split(",")[0].trim();
+  if (!ip?.includes(":")) return ip || null;
+  if (ip.includes(".")) return ip.slice(ip.lastIndexOf(":") + 1); // IPv4-mapped (::ffff:1.2.3.4)
+  // IPv6: one subscriber usually holds a whole /64, so key on that prefix.
+  const [head, tail = ""] = ip.toLowerCase().split("::");
+  const h = head ? head.split(":") : [];
+  const groups = ip.includes("::") ? [...h, ...Array(8 - h.length - (tail ? tail.split(":").length : 0)).fill("0")] : h;
+  return `${groups.slice(0, 4).map((g) => g.replace(/^0+(?=.)/, "")).join(":")}::/64`;
+}
+
+const sortKeys = (_k: string, v: unknown) =>
+  v && typeof v === "object" && !Array.isArray(v) ? Object.fromEntries(Object.entries(v).sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))) : v;
 
 export async function currentSession(): Promise<Session | null> {
   return verifySession((await cookies()).get(COOKIE)?.value);
@@ -49,9 +64,11 @@ export async function handleCommand<I extends { commandId: string }, T>(
   let commandId: string | undefined;
   try {
     session = requireRole(await currentSession(), opts.role);
-    const input = opts.input.parse(await req.json());
+    const raw: unknown = await req.json();
+    const input = opts.input.parse(raw);
     commandId = input.commandId;
-    const fingerprint = createHash("sha256").update(JSON.stringify([opts.name, session.sid, input, ...(opts.target ? [opts.target] : [])])).digest("hex");
+    // Raw body with sorted keys, not the parsed input, so a schema change or key reorder across a deploy can't turn a retry into a 409.
+    const fingerprint = createHash("sha256").update(JSON.stringify([opts.name, session.sid, raw, ...(opts.target ? [opts.target] : [])], sortKeys)).digest("hex");
     const [client, db] = await Promise.all([getClient(), getDb()]);
     const prior = await cols(db).commandLog.findOne({ _id: commandId, result: { $ne: null } });
     if (prior) {
@@ -60,6 +77,8 @@ export async function handleCommand<I extends { commandId: string }, T>(
       return NextResponse.json({ result: opts.present ? opts.present(prior.result as T) : prior.result, replayed: true });
     }
     opts.precheck?.(input);
+    const ip = clientIp(req);
+    if (ip) await consumeIp(db, hashIp(ip), opts.actionClass); // first, so a refusal here doesn't spend the session's budget
     await consume(db, session.sid, opts.actionClass);
     const ctx: CommandCtx = { commandId, actor: `${session.role}:${session.sid.slice(0, 8)}`, origin: "visitor", fingerprint };
     const { result, replayed } = await runCommand(client, db, opts.name, ctx, (c, s) => opts.run(c, s, ctx, input, session!));

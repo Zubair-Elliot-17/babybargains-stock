@@ -45,7 +45,8 @@ function setup(replies: Reply[], over: Partial<QueueDeps> = {}) {
 }
 
 let n = 0;
-const line = (sku = "TOY", capturedAt = `2026-10-14T09:00:${String(n % 60).padStart(2, "0")}.000Z`) => ({
+// Real clock: send() re-pins capturedAt from it, so a fixed date sorts after-the-fact lines first once the day passes it.
+const line = (sku = "TOY", capturedAt = new Date().toISOString()) => ({
   lineId: `00000000-0000-4000-8000-${String(++n).padStart(12, "0")}`, sku, counted: 1, mode: "replace" as const, capturedAt,
 });
 const settle = () => new Promise((r) => setTimeout(r, 0));

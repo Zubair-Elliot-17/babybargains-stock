@@ -4,7 +4,7 @@ import { NotFound } from "../errors";
 import type { Batch, Branch, Product, Stocktake } from "../schemas";
 import { allocateFifo, type Lot } from "./allocate";
 import { DAY, type CompactMovement } from "./fold";
-import { activeStocktakes, countKey, foldCounts, LATE_MS, planLine, unbatchedBatchId, type EffectiveCount, type PlannedLine } from "./stocktake";
+import { activeStocktakes, countKey, foldCounts, LATE_MS, planLine, UNBATCHED, unbatchedBatchId, type EffectiveCount, type PlannedLine } from "./stocktake";
 import { VELOCITY_DAYS, suggestTransfers, type BranchStock, type SkuStock, type TransferSuggestion } from "./transfers";
 
 export interface RecallView {
@@ -247,7 +247,7 @@ export async function computeStocktakePlan(c: Cols, stocktakeId: string, session
       .find({ branchId, sku: { $in: skus }, at: { $gt: minCountedAt } }, { session, projection: { sku: 1, batchId: 1, qty: 1, at: 1 } })
       .toArray(),
     c.batches
-      .find({ sku: { $in: skus }, status: "ACTIVE", batchCode: { $ne: "UNBATCHED" } }, { session, projection: { sku: 1, receivedAt: 1 } })
+      .find({ sku: { $in: skus }, status: "ACTIVE", batchCode: { $ne: UNBATCHED } }, { session, projection: { sku: 1, receivedAt: 1 } })
       .toArray(),
   ]);
   const batchIds = [...new Set([...rows.map((r) => r.batchId), ...[...counts.values()].flatMap((x) => (x.batchId ? [x.batchId] : []))])];
@@ -272,7 +272,7 @@ export async function computeStocktakePlan(c: Cols, stocktakeId: string, session
       .filter((r) => r.onHand > 0 && batchById.has(r.batchId))
       .map((r) => {
         const b = batchById.get(r.batchId)!;
-        return { batchId: r.batchId, onHand: r.onHand, receivedAt: b.receivedAt, status: b.status, unbatched: b.batchCode === "UNBATCHED" };
+        return { batchId: r.batchId, onHand: r.onHand, receivedAt: b.receivedAt, status: b.status, unbatched: b.batchCode === UNBATCHED };
       });
     const planned = planLine(
       { key: x.key, sku: x.sku, batchId: x.batchId, counted: x.counted, expected, pricePence: product.price, lots, newestActiveBatchId: newest.get(x.sku)?.id ?? null, batchRecalled: !!x.batchId && batchById.get(x.batchId)?.status === "RECALLED" },
@@ -379,7 +379,7 @@ export async function latestStocktakeForBranch(db: Db, branchId: string): Promis
 
 // ── Transfers ────────────────────────────────────────────────────────────────
 
-// Current stock, 8-week sales, policy and stocktake state per SKU and branch. On-hand is ACTIVE stock only.
+// Current stock, VELOCITY_WEEKS of sales, policy and stocktake state per SKU and branch. On-hand is ACTIVE stock only.
 export async function loadTransferInputs(
   c: Cols,
   now: Date,
@@ -387,8 +387,8 @@ export async function loadTransferInputs(
 ): Promise<SkuStock[]> {
   const { session } = opts;
   const bySku = opts.skus ? { sku: { $in: opts.skus } } : {};
-  // Whole UTC days ending tonight, so the page and a later Accept the same day see the same sales.
-  const until = new Date(Math.floor(now.getTime() / DAY) * DAY + DAY);
+  // VELOCITY_DAYS whole UTC days ending at today 00:00, so the page and a later Accept the same day see the same sales.
+  const until = new Date(Math.floor(now.getTime() / DAY) * DAY);
   const since = new Date(until.getTime() - VELOCITY_DAYS * DAY);
   const recalled = await c.batches.distinct("_id", { ...bySku, status: "RECALLED" }, { session });
   const [policies, products, stock, sold, open] = await Promise.all([
@@ -413,14 +413,14 @@ export async function loadTransferInputs(
   ]);
   const key = (x: { branchId: string; sku: string }) => `${x.branchId}|${x.sku}`;
   const onHand = new Map(stock.map((r) => [key(r._id), r.onHand]));
-  const sold56 = new Map(sold.map((r) => [key(r._id), r.units]));
+  const soldInWindow = new Map(sold.map((r) => [key(r._id), r.units]));
   const openBranches = new Set(open);
   const out = new Map(products.map((p) => [p._id, { sku: p._id, pricePence: p.price, branches: [] as BranchStock[] }]));
   for (const p of policies) {
     out.get(p.sku)?.branches.push({
       branchId: p.branchId,
       onHand: onHand.get(key(p)) ?? 0,
-      sold56: sold56.get(key(p)) ?? 0,
+      soldInWindow: soldInWindow.get(key(p)) ?? 0,
       policy: { reorderPoint: p.reorderPoint, overstockWeeks: p.overstockWeeks },
       stocktakeOpen: openBranches.has(p.branchId),
     });
@@ -482,7 +482,7 @@ export async function listTransferSuggestions(db: Db, opts: { now?: Date; to?: s
       .filter((r) => batchById.has(r.batchId))
       .map((r) => {
         const b = batchById.get(r.batchId)!;
-        return { batchId: r.batchId, onHand: r.onHand, receivedAt: b.receivedAt, status: b.status, unbatched: b.batchCode === "UNBATCHED" };
+        return { batchId: r.batchId, onHand: r.onHand, receivedAt: b.receivedAt, status: b.status, unbatched: b.batchCode === UNBATCHED };
       });
     const preview = allocateFifo(lots, s.qty).allocations.map((a) => ({ batchCode: batchById.get(a.batchId)!.batchCode, qty: a.qty }));
     return {

@@ -118,4 +118,5 @@ export function sortForReview(lines: PlannedLine[]): PlannedLine[] {
   return [...lines].sort((a, b) => b.valuePence - a.valuePence || Math.abs(b.variance) - Math.abs(a.variance) || a.key.localeCompare(b.key));
 }
 
-export const unbatchedBatchId = (supplierId: string, sku: string) => `${supplierId}:UNBATCHED:${sku}`;
+export const UNBATCHED = "UNBATCHED"; // batch code of the per-SKU catch-all for found stock with no supplier batch
+export const unbatchedBatchId = (supplierId: string, sku: string) => `${supplierId}:${UNBATCHED}:${sku}`;
