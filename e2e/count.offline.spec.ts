@@ -84,3 +84,61 @@ test("@phone counts in a dead spot survive reload and re-login, then send in ord
     expect(res.ok()).toBeTruthy();
   }
 });
+
+test("@phone the count page reopens with no signal, and sign-out forgets the saved copy", async ({ page, context }) => {
+  test.skip(!process.env.E2E_PROD, "the service worker only registers in production builds");
+  test.setTimeout(90_000);
+  await signIn(page);
+  await page.getByRole("button", { name: /Start stocktake|Resume stocktake/ }).click();
+  await page.waitForURL(/\/count\/ST-/);
+  const stocktakeId = page.url().split("/count/")[1];
+  let submitted = false;
+  const submit = async () => {
+    const res = await page.request.post(`/api/stocktakes/${stocktakeId}/submit`, { data: { commandId: crypto.randomUUID(), uncounted: "leave" } });
+    expect(res.ok()).toBeTruthy();
+    submitted = true;
+  };
+  const savedPages = () => page.evaluate(async () => (await (await caches.open("bb-pages-v2")).keys()).length);
+
+  try {
+    // Reached by client-side navigation (Start stocktake), as clerks do: the page asks to be saved.
+    await expect.poll(savedPages, { timeout: 15_000 }).toBeGreaterThan(0);
+    await expect(page.getByText(/^Offline copy/)).toHaveCount(0); // a live page says nothing
+    // Every script and stylesheet the saved copy needs is on the phone too, even ones this tab never loaded
+    // through the worker (after a deploy, the saved copy is from a newer build): drop them, save again.
+    await page.evaluate(async () => {
+      await caches.delete("bb-static-v1");
+      window.dispatchEvent(new Event("bb:save-copy"));
+    });
+    const missingAssets = () => page.evaluate(async () => {
+      const html = await (await (await caches.open("bb-pages-v2")).match(location.origin + location.pathname))!.text();
+      const statics = await caches.open("bb-static-v1");
+      const tags = [...document.querySelectorAll<HTMLScriptElement | HTMLLinkElement>("script[src], link[rel=stylesheet]")];
+      const urls = tags.map((t) => new URL("src" in t ? t.src : t.href).pathname).filter((u) => u.startsWith("/_next/static/"));
+      const out = [];
+      for (const u of urls) if (html.includes(u) && !(await statics.match(u))) out.push(u);
+      return urls.length ? out : ["no static assets found"];
+    });
+    await expect.poll(missingAssets, { timeout: 15_000 }).toEqual([]);
+
+    await context.setOffline(true);
+    await page.reload();
+    await expect(page.getByText(/^Offline copy of this page, saved at \d\d:\d\d/)).toBeVisible();
+    // It can't see counts sent after it was saved, so even a first-looking count asks before replacing.
+    await countDreamtime(page, 2);
+    await expect(page.getByRole("dialog", { name: /^Counted since \d\d:\d\d\?$/ })).toBeVisible();
+    await page.getByRole("dialog").getByRole("button", { name: "Add 2" }).click();
+    await expect(page.getByText(/^Kept on this phone · Dreamtime Cot 120 .* × 2/)).toBeVisible();
+
+    await context.setOffline(false);
+    await expect(page.locator("#sync-status")).toHaveText("All counts saved", { timeout: 30_000 });
+
+    await submit(); // while signed in: leave no OPEN stocktake for the other specs
+    await page.getByRole("button", { name: "Sign out" }).click();
+    await page.waitForURL(/\/login/);
+    await expect.poll(savedPages).toBe(0);
+  } finally {
+    await context.setOffline(false);
+    if (!submitted) await submit();
+  }
+});

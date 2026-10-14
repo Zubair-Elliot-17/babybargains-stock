@@ -26,7 +26,7 @@ A recruiter opens the live demo on a phone and flips a **"Stockroom dead spot"**
 1. It's a real gap and an unmet promise (D5/T8).
 2. Every count-line save, online or offline, goes through one localStorage FIFO queue with one request in flight; new saves never overtake queued ones.
 3. Batch-tracked products are countable offline: batch choices for the branch load with the count page, not per product.
-4. No service worker, no new dependency. Queued counts survive reload and tab close and send when the page next loads with signal. Opening the page while offline is out of scope.
+4. No service worker, no new dependency. Queued counts survive reload and tab close and send when the page next loads with signal. Opening the page while offline is out of scope. **Revised 2026-10-14 (P3 follow-up):** a hand-written service worker (`public/sw.js`, still no dependency) now keeps the count page openable offline; the queue is unchanged and Background Sync is still not used.
 5. ~~The server keeps setting `countedAt` (arrival time).~~ **Revised after spec review (user D4):** arrival time is wrong for variance (a count queued at 09:00 that arrives at 10:00 misses a 09:30 sale and shows a false +2 found). The phone records `capturedAt`; the server converts it to server time and clamps it (see Recommended Approach).
 6. The dead-spot switch only affects the queue's sends, is clearly labelled as a demo control, and persists across reload in sessionStorage.
 7. Submit is disabled while this phone has queued counts. Lines rejected after a submit stay visible ("Stocktake already submitted, show these to your manager"). Cross-phone coordination stays in the "Team stocktakes" P3.

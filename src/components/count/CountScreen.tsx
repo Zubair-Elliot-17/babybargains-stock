@@ -7,6 +7,7 @@ import type { ClerkProduct, CountView } from "@/domain/ledger/read";
 import { countKey, foldCounts } from "@/domain/ledger/stocktake";
 import { count as plural } from "@/lib/plural";
 import { browserDeps, createCountQueue, type QueueSnapshot, type SentResult } from "./countQueue";
+import { SAVE_COPY_EVENT } from "./OfflineCopy";
 import { Scanner } from "./Scanner";
 import { SyncBadge, syncAnnouncement } from "./SyncBadge";
 import styles from "./count.module.css";
@@ -41,7 +42,7 @@ export function CountScreen(props: {
   const [saving, setSaving] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
   const [showSync, setShowSync] = useState(false); // footer status appears after the first save that wasn't sent at once
-  const [sheet, setSheet] = useState<null | { kind: "repeat"; prev: number } | { kind: "submit"; uncounted: number } | { kind: "discard"; lineId: string; label: string }>(null);
+  const [sheet, setSheet] = useState<null | { kind: "repeat"; prev: number } | { kind: "unseen"; savedAt: string } | { kind: "submit"; uncounted: number } | { kind: "discard"; lineId: string; label: string }>(null);
   const [submitted, setSubmitted] = useState<null | { productsCounted: number; submittedAt: string }>(null);
   const [scanning, setScanning] = useState(false);
   const searchRef = useRef<HTMLInputElement>(null);
@@ -80,13 +81,14 @@ export function CountScreen(props: {
     // Lines the server already holds (a timed-out save that arrived) leave the queue; the rest start sending.
     queue.forget(props.initialEntries.map((e) => e._id));
     void queue.drain();
-    const offSent = queue.onSent(({ line: q, countedAt }: SentResult) =>
+    const offSent = queue.onSent(({ line: q, countedAt }: SentResult) => {
+      window.dispatchEvent(new Event(SAVE_COPY_EVENT)); // keep the offline copy current
       setSent((list) =>
         list.some((e) => e._id === q.lineId)
           ? list
           : [...list, { _id: q.lineId, sku: q.sku, batchId: q.batchId, batchCode: codeOf(q.sku, q.batchId), counted: q.counted, mode: q.mode, countedAt }],
-      ),
-    );
+      );
+    });
     const kick = () => document.visibilityState === "visible" && queue.kick();
     // Another tab changed the queue: redraw, and take over sending if that tab has let go of the lock.
     const onStorage = (e: StorageEvent) => {
@@ -146,6 +148,9 @@ export function CountScreen(props: {
     if (product.batchTracked && !batchId) return setNotice("Scan or pick the batch label for this product.");
     const prev = counts.get(countKey(product.sku, product.batchTracked ? batchId : undefined));
     if (prev && !editing) return setSheet({ kind: "repeat", prev: prev.counted });
+    // An offline copy can't show counts sent after it was saved, so a silent replace could wipe one.
+    const savedAt = document.documentElement.dataset.offlineCopy;
+    if (savedAt && !editing) return setSheet({ kind: "unseen", savedAt });
     void save("replace");
   }
 
@@ -399,6 +404,13 @@ export function CountScreen(props: {
       {sheet?.kind === "repeat" && product && (
         <Sheet title={`Counted ${sheet.prev} earlier`} onClose={() => setSheet(null)}>
           <button className={`btn btn-primary ${styles.bigButton}`} onClick={() => save("add")}>Add {qty} (total {sheet.prev + qty})</button>
+          <button className={`btn ${styles.bigButton}`} onClick={() => save("replace")}>Replace with {qty}</button>
+        </Sheet>
+      )}
+      {sheet?.kind === "unseen" && product && (
+        <Sheet title={`Counted since ${sheet.savedAt}?`} onClose={() => setSheet(null)}>
+          <p className={styles.hint}>This offline copy can&apos;t show counts saved after {sheet.savedAt}. If this product was counted since, add to that count.</p>
+          <button className={`btn btn-primary ${styles.bigButton}`} onClick={() => save("add")}>Add {qty}</button>
           <button className={`btn ${styles.bigButton}`} onClick={() => save("replace")}>Replace with {qty}</button>
         </Sheet>
       )}
