@@ -19,20 +19,22 @@ async function resetStatus(): Promise<string> {
 
 export default async function ManagerLayout({ children }: { children: React.ReactNode }) {
   await requireManagerPage();
+  const db = await getDb();
+  const [awaiting, reset] = await Promise.all([awaitingReviewCount(db).catch(() => 0), resetStatus()]);
   return (
     <div className={styles.shell}>
       <nav className={styles.rail} aria-label="Main">
         <div className={styles.brand}>
           <Wordmark />
         </div>
-        <NavLinks awaiting={await awaitingReviewCount(await getDb()).catch(() => 0)} />
+        <NavLinks awaiting={awaiting} />
         <form action="/logout" method="post" className={styles.signout}>
           <span className={styles.who}>Manager (demo)</span>
           <button className="btn" type="submit">Sign out</button>
         </form>
       </nav>
       <div className={styles.main}>
-        <div className={styles.demobar} role="note">Demo data resets nightly 03:00 UTC{await resetStatus()}</div>
+        <div className={styles.demobar} role="note">Demo data resets nightly 03:00 UTC{reset}</div>
         <main className={styles.content}>{children}</main>
       </div>
     </div>
