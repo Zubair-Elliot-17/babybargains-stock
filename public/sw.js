@@ -1,11 +1,17 @@
 // Lets a clerk reopen the count page in a stockroom dead spot. Counts themselves already survive
 // offline in the page's queue (localStorage); this only keeps the page and its assets openable.
-const PAGES = "bb-pages-v1"; // /count pages, per signed-in clerk; cleared on sign-in and sign-out
+const PAGES = "bb-pages-v2"; // /count pages, saved on the page's request; cleared on sign-in and sign-out
 const STATIC = "bb-static-v1"; // /_next/static files: content-hashed, so a cached copy never goes stale
 const STATIC_MAX = 200;
 const NETWORK_WAIT_MS = 4000; // dead spots often hang rather than fail
-const PAGE_MAX_AGE_MS = 8 * 3_600_000; // the session's lifetime: never show a copy older than a sign-in
-const served = new Map(); // url -> { fromCache, cachedAt, at }, so the page can say it is an offline copy
+const served = new Map(); // page key -> { fromCache, cachedAt, at }, so the page can say it is an offline copy
+let epoch = 0; // bumped by sign-in/out, so a save still in flight can't bring back the last clerk's page
+
+const pageKey = (url) => {
+  const u = new URL(url);
+  return u.origin + u.pathname; // the count pages read no query string
+};
+const isCountPage = (url) => url.pathname === "/count" || url.pathname.startsWith("/count/");
 
 self.addEventListener("install", () => self.skipWaiting());
 self.addEventListener("activate", (event) => {
@@ -16,20 +22,23 @@ self.addEventListener("activate", (event) => {
   );
 });
 
+function forgetPages() {
+  epoch++;
+  return caches.delete(PAGES);
+}
+
 self.addEventListener("fetch", (event) => {
   const req = event.request;
   const url = new URL(req.url);
   if (url.origin !== self.location.origin) return;
   // A new or ended session must never see the previous clerk's page.
-  if (req.method === "POST" && (url.pathname === "/logout" || url.pathname === "/api/session")) {
-    event.waitUntil(caches.delete(PAGES));
+  if ((req.method === "POST" && url.pathname === "/logout") || (req.method !== "GET" && url.pathname === "/api/session")) {
+    event.waitUntil(forgetPages());
     return;
   }
   if (req.method !== "GET") return;
   if (url.pathname.startsWith("/_next/static/")) return event.respondWith(staticFile(req));
-  if (req.mode === "navigate" && (url.pathname === "/count" || url.pathname.startsWith("/count/"))) {
-    event.respondWith(page(event, req));
-  }
+  if (req.mode === "navigate" && isCountPage(url)) event.respondWith(page(event, req));
 });
 
 async function staticFile(req) {
@@ -45,36 +54,47 @@ async function staticFile(req) {
   return res;
 }
 
+// Network first; the saved copy only when the network fails or hangs. Pages are saved by request (below),
+// because the app reaches them by client-side navigation, which never comes through here.
 async function page(event, req) {
-  const network = fetch(req).then(async (res) => {
-    // Only a real page for this session: not a redirect to /login or /count, not an error.
-    if (res.ok && !res.redirected && res.type === "basic") {
-      const copy = new Headers(res.headers);
-      copy.set("x-cached-at", String(Date.now()));
-      const body = await res.clone().arrayBuffer();
-      await (await caches.open(PAGES)).put(req.url, new Response(body, { status: res.status, headers: copy }));
-    }
-    return res;
-  });
-  event.waitUntil(network.catch(() => {})); // a slow page still refreshes the copy after we fall back
+  const network = fetch(req);
+  event.waitUntil(network.catch(() => {}));
   const timeout = new Promise((resolve) => setTimeout(resolve, NETWORK_WAIT_MS, null));
   const fresh = await Promise.race([network.catch(() => null), timeout]);
+  const key = pageKey(req.url);
   if (fresh) {
-    served.set(req.url, { fromCache: false, at: Date.now() });
+    if (fresh.type === "opaqueredirect") event.waitUntil(forgetPages()); // signed out or not theirs: drop copies
+    served.set(key, { fromCache: false, at: Date.now() });
     return fresh;
   }
-  const cached = await (await caches.open(PAGES)).match(req.url);
-  const cachedAt = Number(cached?.headers.get("x-cached-at"));
-  if (cached && Date.now() - cachedAt < PAGE_MAX_AGE_MS) {
-    served.set(req.url, { fromCache: true, cachedAt, at: Date.now() });
+  const cached = await (await caches.open(PAGES)).match(key);
+  if (cached && Date.now() < Number(cached.headers.get("x-expires-at"))) {
+    served.set(key, { fromCache: true, cachedAt: Number(cached.headers.get("x-cached-at")), at: Date.now() });
     return cached;
   }
   return network; // nothing usable saved: let the browser show its own error (or a late response)
 }
 
-// The page asks how it was served; answers only about a load in the last minute.
+async function savePage(url, expiresAt) {
+  const target = new URL(url);
+  if (target.origin !== self.location.origin || !isCountPage(target) || !(expiresAt > Date.now())) return;
+  const started = epoch;
+  const res = await fetch(target.href, { redirect: "manual" });
+  // Only this session's real page: not a redirect to /login or /count, not an error.
+  if (!res.ok || res.type !== "basic") return;
+  const body = await res.arrayBuffer();
+  if (epoch !== started) return; // signed in or out meanwhile
+  const headers = { "content-type": res.headers.get("content-type") ?? "text/html", "x-cached-at": String(Date.now()), "x-expires-at": String(expiresAt) };
+  await (await caches.open(PAGES)).put(pageKey(target.href), new Response(body, { headers }));
+}
+
 self.addEventListener("message", (event) => {
-  if (event.data?.type !== "served?" || !event.ports[0]) return;
-  const s = served.get(event.data.url);
-  event.ports[0].postMessage(s && Date.now() - s.at < 60_000 ? s : { fromCache: false });
+  const data = event.data;
+  // The page asks to be saved (expiresAt: its session's end, so a copy never outlives the sign-in).
+  if (data?.type === "save") return event.waitUntil(savePage(data.url, Number(data.expiresAt)).catch(() => {}));
+  // The page asks how it was served; answers only about a load in the last minute.
+  if (data?.type === "served?" && event.ports[0]) {
+    const s = served.get(pageKey(data.url));
+    event.ports[0].postMessage(s && Date.now() - s.at < 60_000 ? s : { fromCache: false });
+  }
 });

@@ -98,18 +98,20 @@ test("@phone the count page reopens with no signal, and sign-out forgets the sav
     expect(res.ok()).toBeTruthy();
     submitted = true;
   };
-  const savedPages = () => page.evaluate(async () => (await (await caches.open("bb-pages-v1")).keys()).length);
+  const savedPages = () => page.evaluate(async () => (await (await caches.open("bb-pages-v2")).keys()).length);
 
   try {
-    await page.evaluate(() => navigator.serviceWorker.ready);
-    await page.reload(); // now controlled: this load goes through the worker and is saved
-    await expect.poll(savedPages).toBeGreaterThan(0);
-    await expect(page.getByText(/^No signal/)).toHaveCount(0); // a live page says nothing
+    // Reached by client-side navigation (Start stocktake), as clerks do: the page asks to be saved.
+    await expect.poll(savedPages, { timeout: 15_000 }).toBeGreaterThan(0);
+    await expect(page.getByText(/^Offline copy/)).toHaveCount(0); // a live page says nothing
 
     await context.setOffline(true);
     await page.reload();
-    await expect(page.getByText(/^No signal: this is the copy of this page saved at \d\d:\d\d/)).toBeVisible();
+    await expect(page.getByText(/^Offline copy of this page, saved at \d\d:\d\d/)).toBeVisible();
+    // It can't see counts sent after it was saved, so even a first-looking count asks before replacing.
     await countDreamtime(page, 2);
+    await expect(page.getByRole("dialog", { name: /^Counted since \d\d:\d\d\?$/ })).toBeVisible();
+    await page.getByRole("dialog").getByRole("button", { name: "Add 2" }).click();
     await expect(page.getByText(/^Kept on this phone · Dreamtime Cot 120 .* × 2/)).toBeVisible();
 
     await context.setOffline(false);

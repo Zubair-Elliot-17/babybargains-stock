@@ -124,10 +124,12 @@ it off and watch the counts send one by one.
   never holds a usable key), still under the clerk's role and branch.
 - Submit stays disabled, with the reason shown, until every queued count is sent or dealt with.
 - **The count page opens with no signal.** A small service worker (`public/sw.js`, no dependency) keeps
-  the last copy of each `/count` page and the hashed `/_next/static` files. It tries the network first,
-  waits up to 4 s (dead spots tend to hang rather than fail), then serves the copy with a note that counts
-  sent since it was saved aren't shown. Sign-in and sign-out clear it, and a copy older than the 8-hour
-  session is never served. Try it in DevTools: Network → Offline, then reload a count page.
+  a copy of each `/count` page the clerk opens (the page asks for it, since the app moves between pages
+  client-side) and refreshes it after counts send. Reloads try the network first and wait up to 4 s
+  (dead spots tend to hang rather than fail), then serve the copy with a note that later counts aren't
+  shown; on that copy every count asks "add or replace?", so a recount can't silently wipe one it can't
+  see. Copies end with the session (8 h), and sign-in and sign-out clear them. Try it in DevTools:
+  Network → Offline, then reload a count page. To switch it off, ship a `sw.js` that unregisters itself.
 
 ## Correctness checks
 

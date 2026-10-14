@@ -27,7 +27,7 @@ export default async function ClerkLayout({ children }: { children: React.ReactN
           <span id="demo-slot" />
         </div>
         <div className={styles.body}>
-          <OfflineCopy />
+          <OfflineCopy sessionExpiresAt={session.exp} />
           {children}
         </div>
         <ClerkNav />
