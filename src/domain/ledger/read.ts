@@ -4,7 +4,7 @@ import { NotFound } from "../errors";
 import type { Batch, Branch, Product, Stocktake } from "../schemas";
 import { allocateFifo, type Lot } from "./allocate";
 import { DAY, type CompactMovement } from "./fold";
-import { activeStocktakes, foldCounts, planLine, unbatchedBatchId, type EffectiveCount, type PlannedLine } from "./stocktake";
+import { activeStocktakes, countKey, foldCounts, LATE_MS, planLine, unbatchedBatchId, type EffectiveCount, type PlannedLine } from "./stocktake";
 import { VELOCITY_DAYS, suggestTransfers, type BranchStock, type SkuStock, type TransferSuggestion } from "./transfers";
 
 export interface RecallView {
@@ -217,7 +217,7 @@ export async function rebuildProjection(db: Db): Promise<void> {
 
 export interface StocktakePlan {
   stocktake: Stocktake;
-  lines: (PlannedLine & { countedAt: Date; productName: string; batchCode?: string; supplierId: string })[];
+  lines: (PlannedLine & { countedAt: Date; lateMs: number; productName: string; batchCode?: string; supplierId: string })[];
   counts: Map<string, EffectiveCount>;
 }
 
@@ -229,6 +229,11 @@ export async function computeStocktakePlan(c: Cols, stocktakeId: string, session
   const counts = foldCounts(entries);
   const skus = [...new Set([...counts.values()].map((x) => x.sku))];
   if (!skus.length) return { stocktake, lines: [], counts };
+  const lateMs = new Map<string, number>(); // longest arrival delay per item: back-dating stays visible on review
+  for (const e of entries) {
+    const k = countKey(e.sku, e.batchId);
+    if (e.receivedAt) lateMs.set(k, Math.max(lateMs.get(k) ?? 0, e.receivedAt.getTime() - e.countedAt.getTime()));
+  }
 
   const branchId = stocktake.branchId;
   const minCountedAt = new Date(Math.min(...[...counts.values()].map((x) => x.countedAt.getTime())));
@@ -270,7 +275,9 @@ export async function computeStocktakePlan(c: Cols, stocktakeId: string, session
       { key: x.key, sku: x.sku, batchId: x.batchId, counted: x.counted, expected, pricePence: product.price, lots, newestActiveBatchId: newest.get(x.sku)?.id ?? null, batchRecalled: !!x.batchId && batchById.get(x.batchId)?.status === "RECALLED" },
       unbatchedBatchId(product.supplierId, x.sku),
     );
-    return { ...planned, countedAt: x.countedAt, productName: product.name, batchCode: x.batchId ? batchById.get(x.batchId)?.batchCode : undefined, supplierId: product.supplierId };
+    const late = lateMs.get(x.key) ?? 0;
+    // A late line is flagged even when it matches: a back-dated count could hide a variance.
+    return { ...planned, flagged: planned.flagged || late > LATE_MS, countedAt: x.countedAt, lateMs: late, productName: product.name, batchCode: x.batchId ? batchById.get(x.batchId)?.batchCode : undefined, supplierId: product.supplierId };
   });
   return { stocktake, lines, counts };
 }

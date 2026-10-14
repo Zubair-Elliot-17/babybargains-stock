@@ -10,6 +10,7 @@ export const activeStocktakes = (now: Date) => ({ status: "OPEN" as const, lastA
 
 export const FLAG_UNITS = 3;
 export const FLAG_PENCE = 5000; // £50
+export const LATE_MS = 15 * 60_000; // a line counted offline that arrived later than this is flagged on review
 
 export interface CountEntry {
   sku: string;

@@ -260,7 +260,8 @@ describe("counts queued offline", () => {
 
   it("keeps the capture time, so a sale between capture and arrival is not a variance, and stores the arrival", async () => {
     // Receipts in beforeEach happened at real now, so this timeline runs after them.
-    const at = (m: number) => new Date(Date.now() + m * MIN);
+    const base = Date.now();
+    const at = (m: number) => new Date(base + m * MIN);
     const st = (await run((c, s, k) => openStocktake(c, s, k, { branchId: "BR-A", sid: "clerk-1", clerkLabel: "C" }), { now: at(1) })).result;
     const captured = at(2);
     await run((c, s, k) => recordSale(c, s, k, { branchId: "BR-A", lines: [{ sku: TOY, qty: 1 }] }), { now: at(3) });
@@ -271,7 +272,18 @@ describe("counts queued offline", () => {
     expect(line.receivedAt).toEqual(now);
     await run((c, s, k) => submitStocktake(c, s, k, { stocktakeId: st._id, sid: "clerk-1", uncounted: "leave" }), { now: at(5) });
     const plan = await computeStocktakePlan(cols(t.db), st._id);
-    expect(plan.lines.map((l) => [l.expected, l.variance])).toEqual([[4, 0]]);
+    expect(plan.lines.map((l) => [l.expected, l.variance, l.lateMs, l.flagged])).toEqual([[4, 0, 2 * MIN, false]]);
+  });
+
+  it("flags a matching line that arrived over 15 minutes after its count, so approval needs an explicit accept", async () => {
+    const base = Date.now();
+    const at = (m: number) => new Date(base + m * MIN);
+    const st = (await run((c, s, k) => openStocktake(c, s, k, { branchId: "BR-A", sid: "clerk-1", clerkLabel: "C" }), { now: at(1) })).result;
+    await queued(st._id, TOY, 4, at(2), at(70), at(70));
+    await run((c, s, k) => submitStocktake(c, s, k, { stocktakeId: st._id, sid: "clerk-1", uncounted: "leave" }), { now: at(71) });
+    const [line] = (await computeStocktakePlan(cols(t.db), st._id)).lines;
+    expect(line).toMatchObject({ variance: 0, lateMs: 68 * MIN, flagged: true });
+    await expect(run((c, s, k) => approveStocktake(c, s, k, { stocktakeId: st._id, acceptedKeys: [] }))).rejects.toMatchObject({ code: "REVIEW_REQUIRED" });
   });
 
   it("corrects a wrong phone clock with the send-time header and clamps to [openedAt, now]", async () => {
