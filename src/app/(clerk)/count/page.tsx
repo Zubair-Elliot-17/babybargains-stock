@@ -25,7 +25,7 @@ export default async function ClerkHome() {
           Last stocktake: {latest.status === "APPROVED" ? `Submitted → Approved ${fmt(latest.approvedAt!)} UTC` : `Submitted ${fmt(latest.submittedAt!)} UTC · waiting for manager`}
         </p>
       )}
-      <StartStocktake resumeId={mine ? latest!._id : null} />
+      <StartStocktake resumeId={mine ? latest!._id : null} openId={latest?.status === "OPEN" && !mine ? latest._id : null} />
       <p className={styles.hint}>Counts are blind: you won&apos;t see the system&apos;s quantities. Scan or search each product, count it, save, repeat.</p>
     </div>
   );

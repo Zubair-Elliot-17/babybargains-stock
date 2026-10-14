@@ -21,7 +21,10 @@ export default async function ClerkLayout({ children }: { children: React.ReactN
             <button className={styles.signout} type="submit">Sign out</button>
           </form>
         </header>
-        <div className={styles.demobar} role="note">Demo data resets nightly 03:00 UTC</div>
+        <div className={styles.demobar}>
+          <span role="note">Demo data resets nightly 03:00 UTC</span>
+          <span id="demo-slot" />
+        </div>
         <div className={styles.body}>{children}</div>
         <nav className={styles.bottomBar} aria-label="Clerk">
           <Link className={styles.tab} aria-current="page" href="/count">Count</Link>

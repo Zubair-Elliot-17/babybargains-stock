@@ -355,15 +355,19 @@ export async function countView(db: Db, stocktakeId: string): Promise<CountView 
   };
 }
 
-// Batch codes a clerk can pick for a batch-tracked SKU at their branch (codes only, no quantities).
-export async function batchChoices(db: Db, branchId: string, sku: string): Promise<{ batchId: string; batchCode: string }[]> {
+// Batch codes a clerk can pick at their branch, per batch-tracked SKU (codes only, no quantities), newest first.
+// Loaded with the count page so batch-tracked products can be counted offline; fixed until the page reloads.
+export async function branchBatchChoices(db: Db, branchId: string): Promise<Record<string, { batchId: string; batchCode: string }[]>> {
   const c = cols(db);
-  const rows = await c.inventory.find({ branchId, sku }, { projection: { batchId: 1 } }).toArray();
+  const tracked = await c.products.distinct("_id", { batchTracked: true });
+  const rows = await c.inventory.find({ branchId, sku: { $in: tracked } }, { projection: { batchId: 1 } }).toArray();
   const batches = await c.batches
-    .find({ _id: { $in: rows.map((r) => r.batchId) }, status: "ACTIVE" }, { projection: { batchCode: 1, receivedAt: 1 } })
+    .find({ _id: { $in: rows.map((r) => r.batchId) }, status: "ACTIVE" }, { projection: { sku: 1, batchCode: 1, receivedAt: 1 } })
     .sort({ receivedAt: -1 })
     .toArray();
-  return batches.map((b) => ({ batchId: b._id, batchCode: b.batchCode }));
+  const out: Record<string, { batchId: string; batchCode: string }[]> = {};
+  for (const b of batches) (out[b.sku] ??= []).push({ batchId: b._id, batchCode: b.batchCode });
+  return out;
 }
 
 export async function latestStocktakeForBranch(db: Db, branchId: string): Promise<Stocktake | null> {
