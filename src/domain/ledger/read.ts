@@ -379,7 +379,7 @@ export async function latestStocktakeForBranch(db: Db, branchId: string): Promis
 
 // ── Transfers ────────────────────────────────────────────────────────────────
 
-// Current stock, 8-week sales, policy and stocktake state per SKU and branch. On-hand is ACTIVE stock only.
+// Current stock, VELOCITY_WEEKS of sales, policy and stocktake state per SKU and branch. On-hand is ACTIVE stock only.
 export async function loadTransferInputs(
   c: Cols,
   now: Date,
@@ -387,8 +387,8 @@ export async function loadTransferInputs(
 ): Promise<SkuStock[]> {
   const { session } = opts;
   const bySku = opts.skus ? { sku: { $in: opts.skus } } : {};
-  // Whole UTC days ending tonight, so the page and a later Accept the same day see the same sales.
-  const until = new Date(Math.floor(now.getTime() / DAY) * DAY + DAY);
+  // VELOCITY_DAYS whole UTC days ending at today 00:00, so the page and a later Accept the same day see the same sales.
+  const until = new Date(Math.floor(now.getTime() / DAY) * DAY);
   const since = new Date(until.getTime() - VELOCITY_DAYS * DAY);
   const recalled = await c.batches.distinct("_id", { ...bySku, status: "RECALLED" }, { session });
   const [policies, products, stock, sold, open] = await Promise.all([
@@ -413,14 +413,14 @@ export async function loadTransferInputs(
   ]);
   const key = (x: { branchId: string; sku: string }) => `${x.branchId}|${x.sku}`;
   const onHand = new Map(stock.map((r) => [key(r._id), r.onHand]));
-  const sold56 = new Map(sold.map((r) => [key(r._id), r.units]));
+  const soldInWindow = new Map(sold.map((r) => [key(r._id), r.units]));
   const openBranches = new Set(open);
   const out = new Map(products.map((p) => [p._id, { sku: p._id, pricePence: p.price, branches: [] as BranchStock[] }]));
   for (const p of policies) {
     out.get(p.sku)?.branches.push({
       branchId: p.branchId,
       onHand: onHand.get(key(p)) ?? 0,
-      sold56: sold56.get(key(p)) ?? 0,
+      soldInWindow: soldInWindow.get(key(p)) ?? 0,
       policy: { reorderPoint: p.reorderPoint, overstockWeeks: p.overstockWeeks },
       stocktakeOpen: openBranches.has(p.branchId),
     });

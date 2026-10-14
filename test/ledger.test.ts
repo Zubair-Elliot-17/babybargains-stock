@@ -193,4 +193,12 @@ describe("receiveStock", () => {
     expect(err).toMatchObject({ code: "BATCH_RECALLED" });
     expect(await onHand("BR-A", OLD)).toBe(0);
   });
+
+  // BR-B holds none of B-1, so without the branch lock the recall writes nothing this receive touches.
+  it("never posts RECEIVED onto a batch recalled by a racing quarantine", async () => {
+    const receive = () => run((c, s, k) => receiveStock(c, s, k, { branchId: "BR-B", sku: COT, batchId: OLD, qty: 1 }));
+    await Promise.allSettled([receive(), run((c, s, k) => quarantineBatch(c, s, k, { batchCode: "B-1" })), receive()]);
+    expect((await checkLedgerInvariants(t.db)).violations).toEqual([]);
+    expect(await onHand("BR-B", OLD)).toBe(0);
+  });
 });

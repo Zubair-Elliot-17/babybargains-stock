@@ -2,8 +2,8 @@ import { describe, expect, it } from "vitest";
 import { assessBranch, suggestForSku, suggestTransfers, type BranchStock, type SkuStock } from "@/domain/ledger/transfers";
 
 // Velocity is SOLD over the last 56 days / 8, in units per week.
-const br = (branchId: string, onHand: number, sold56: number, over: Partial<BranchStock> = {}): BranchStock => ({
-  branchId, onHand, sold56, policy: { reorderPoint: 4, overstockWeeks: 6 }, stocktakeOpen: false, ...over,
+const br = (branchId: string, onHand: number, soldInWindow: number, over: Partial<BranchStock> = {}): BranchStock => ({
+  branchId, onHand, soldInWindow, policy: { reorderPoint: 4, overstockWeeks: 6 }, stocktakeOpen: false, ...over,
 });
 const sku = (id: string, branches: BranchStock[], pricePence = 1000): SkuStock => ({ sku: id, pricePence, branches });
 

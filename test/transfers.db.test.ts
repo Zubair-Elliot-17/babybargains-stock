@@ -22,11 +22,11 @@ beforeEach(async () => {
     ({ _id: `${branchId}:${sku}`, branchId, sku, reorderPoint, overstockWeeks: 6 });
   await cols(t.db).stockPolicies.insertMany([policy("BR-A", TOY, 2), policy("BR-B", TOY, 2), policy("BR-A", COT, 1), policy("BR-B", COT, 2)]);
 
-  // TOY: Alpha holds 20 with no sales; Bravo sold 2 nine weeks ago (outside the window) and 3 today.
+  // TOY: Alpha holds 20 with no sales; Bravo sold 2 nine weeks ago (outside the window) and 3 yesterday.
   await run((c, s, k) => receiveStock(c, s, k, { branchId: "BR-A", sku: TOY, batchId: TOYB, qty: 20 }));
   await run((c, s, k) => receiveStock(c, s, k, { branchId: "BR-B", sku: TOY, batchId: TOYB, qty: 5 }), { now: new Date(Date.now() - 70 * DAY) });
   await run((c, s, k) => recordSale(c, s, k, { branchId: "BR-B", lines: [{ sku: TOY, qty: 2 }] }), { now: new Date(Date.now() - 60 * DAY) });
-  await run((c, s, k) => recordSale(c, s, k, { branchId: "BR-B", lines: [{ sku: TOY, qty: 3 }] }));
+  await run((c, s, k) => recordSale(c, s, k, { branchId: "BR-B", lines: [{ sku: TOY, qty: 3 }] }), { now: new Date(Date.now() - DAY) });
   // COT: Alpha holds two batches, Bravo none.
   await run((c, s, k) => receiveStock(c, s, k, { branchId: "BR-A", sku: COT, batchId: OLD, qty: 6 }));
   await run((c, s, k) => receiveStock(c, s, k, { branchId: "BR-A", sku: COT, batchId: NEW, qty: 6 }));
@@ -38,20 +38,22 @@ describe("transfer suggestions from the ledger", () => {
     const toy = inputs.find((s) => s.sku === TOY)!;
     expect(toy.pricePence).toBe(500);
     expect(toy.branches).toEqual(expect.arrayContaining([
-      { branchId: "BR-A", onHand: 20, sold56: 0, policy: { reorderPoint: 2, overstockWeeks: 6 }, stocktakeOpen: false },
-      { branchId: "BR-B", onHand: 0, sold56: 3, policy: { reorderPoint: 2, overstockWeeks: 6 }, stocktakeOpen: false },
+      { branchId: "BR-A", onHand: 20, soldInWindow: 0, policy: { reorderPoint: 2, overstockWeeks: 6 }, stocktakeOpen: false },
+      { branchId: "BR-B", onHand: 0, soldInWindow: 3, policy: { reorderPoint: 2, overstockWeeks: 6 }, stocktakeOpen: false },
     ]));
   });
 
-  it("uses whole UTC days, so a suggestion seen in the morning is still the one accepted at night", async () => {
+  it("uses the 56 whole UTC days before today, so a suggestion seen in the morning is still the one accepted at night", async () => {
     const dayStart = new Date(new Date().toISOString().slice(0, 10)).getTime();
-    // Inside a window sliding back from 06:00, outside one sliding back from 18:00.
-    await run((c, s, k) => receiveStock(c, s, k, { branchId: "BR-B", sku: TOY, batchId: TOYB, qty: 1 }), { now: new Date(dayStart - 57 * DAY) });
-    await run((c, s, k) => recordSale(c, s, k, { branchId: "BR-B", lines: [{ sku: TOY, qty: 1 }] }), { now: new Date(dayStart - 56 * DAY + 12 * 3_600_000) });
+    await run((c, s, k) => receiveStock(c, s, k, { branchId: "BR-B", sku: TOY, batchId: TOYB, qty: 3 }), { now: new Date(dayStart - 57 * DAY) });
+    const sell = (at: number) => run((c, s, k) => recordSale(c, s, k, { branchId: "BR-B", lines: [{ sku: TOY, qty: 1 }] }), { now: new Date(at) });
+    await sell(dayStart - 56 * DAY); // first instant of the window: in
+    await sell(dayStart - 56 * DAY - 1); // last instant before it: out
+    await sell(dayStart + 3_600_000); // today: out, whatever the hour
     const sold = async (hour: number) =>
-      (await loadTransferInputs(cols(t.db), new Date(dayStart + hour * 3_600_000), { skus: [TOY] }))[0].branches.find((b) => b.branchId === "BR-B")!.sold56;
-    expect(await sold(0.01)).toBe(3);
-    expect(await sold(23.99)).toBe(3);
+      (await loadTransferInputs(cols(t.db), new Date(dayStart + hour * 3_600_000), { skus: [TOY] }))[0].branches.find((b) => b.branchId === "BR-B")!.soldInWindow;
+    expect(await sold(0.01)).toBe(4);
+    expect(await sold(23.99)).toBe(4);
   });
 
   it("lists ranked suggestions with names and the FIFO batches that would move", async () => {
@@ -165,12 +167,14 @@ describe("accept vs stocktake race", () => {
   const lockRev = async (branchId: string) => (await cols(t.db).branchLocks.findOne({ _id: branchId }))?.rev ?? 0;
 
   it("accept, stocktake open and stocktake submit each bump the branch lock they depend on", async () => {
+    const [a0, b0] = [await lockRev("BR-A"), await lockRev("BR-B")]; // the fixture's receives bump them too
+    const bumps = async () => [(await lockRev("BR-A")) - a0, (await lockRev("BR-B")) - b0];
     await run((c, s, k) => acceptTransferSuggestion(c, s, k, { sku: COT, fromBranchId: "BR-A", toBranchId: "BR-B", qty: 1 }));
-    expect([await lockRev("BR-A"), await lockRev("BR-B")]).toEqual([1, 1]);
+    expect(await bumps()).toEqual([1, 1]);
     const { result: st } = await run((c, s, k) => openStocktake(c, s, k, { branchId: "BR-B", sid: "clerk", clerkLabel: "Clerk" }));
-    expect([await lockRev("BR-A"), await lockRev("BR-B")]).toEqual([1, 2]);
+    expect(await bumps()).toEqual([1, 2]);
     await run((c, s, k) => submitStocktake(c, s, k, { stocktakeId: st._id, sid: "clerk", uncounted: "leave" }));
-    expect([await lockRev("BR-A"), await lockRev("BR-B")]).toEqual([1, 3]);
+    expect(await bumps()).toEqual([1, 3]);
   });
 
   it("a stocktake opening while an accept is uncommitted conflicts instead of both committing", async () => {

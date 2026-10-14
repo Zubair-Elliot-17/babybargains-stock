@@ -13,7 +13,7 @@ export const VELOCITY_DAYS = VELOCITY_WEEKS * 7;
 export interface BranchStock {
   branchId: string;
   onHand: number; // ACTIVE batches only (UNBATCHED included); recalled stock never counts
-  sold56: number; // units SOLD in the last VELOCITY_DAYS
+  soldInWindow: number; // units SOLD in the VELOCITY_DAYS whole UTC days before today
   policy: { reorderPoint: number; overstockWeeks: number } | null;
   stocktakeOpen: boolean; // an active OPEN stocktake (see activeStocktakes) freezes the branch on both sides
 }
@@ -55,16 +55,16 @@ const cover = (p: BranchPosition) => p.coverWeeks ?? Number.POSITIVE_INFINITY;
 export function assessBranch(b: BranchStock): BranchPosition | null {
   if (!b.policy || b.stocktakeOpen) return null;
   const { reorderPoint: rp, overstockWeeks: w } = b.policy;
-  const coverWeeks = b.sold56 > 0 ? (b.onHand * VELOCITY_WEEKS) / b.sold56 : b.onHand > 0 ? null : 0;
-  const overstocked = b.sold56 > 0 ? b.onHand * VELOCITY_WEEKS > w * b.sold56 : b.onHand > 0;
-  const keep = Math.max(ceilDiv(w * b.sold56, VELOCITY_WEEKS), rp + 1);
-  const target = Math.max(rp + 1, ceilDiv(w * b.sold56, 2 * VELOCITY_WEEKS));
+  const coverWeeks = b.soldInWindow > 0 ? (b.onHand * VELOCITY_WEEKS) / b.soldInWindow : b.onHand > 0 ? null : 0;
+  const overstocked = b.soldInWindow > 0 ? b.onHand * VELOCITY_WEEKS > w * b.soldInWindow : b.onHand > 0;
+  const keep = Math.max(ceilDiv(w * b.soldInWindow, VELOCITY_WEEKS), rp + 1);
+  const target = Math.max(rp + 1, ceilDiv(w * b.soldInWindow, 2 * VELOCITY_WEEKS));
   const surplus = overstocked ? Math.max(0, b.onHand - keep) : 0;
   const need = b.onHand < rp ? target - b.onHand : 0;
   return {
     branchId: b.branchId,
     onHand: b.onHand,
-    velocity: b.sold56 / VELOCITY_WEEKS,
+    velocity: b.soldInWindow / VELOCITY_WEEKS,
     coverWeeks,
     reorderPoint: rp,
     overstockWeeks: w,

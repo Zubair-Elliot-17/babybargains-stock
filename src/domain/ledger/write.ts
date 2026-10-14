@@ -143,6 +143,7 @@ export interface ReceiveInput {
 }
 
 export async function receiveStock(c: Cols, s: ClientSession, ctx: CommandCtx, input: ReceiveInput) {
+  await lockBranches(c, s, [input.branchId]); // conflicts with a recall (it locks every branch), so RECEIVED never lands on a recalled batch
   const batch = await c.batches.findOne({ _id: input.batchId }, { session: s });
   if (!batch) throw new NotFound(`Batch ${input.batchId} not found`);
   if (batch.status === "RECALLED") {
