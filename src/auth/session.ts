@@ -29,6 +29,18 @@ function secret(): string {
 
 const sign = (body: string) => createHmac("sha256", secret()).update(body).digest("base64url");
 
+// Resume key for a stocktake: lets the phone that holds it take its stocktake back after a re-login.
+export function resumeKeyFor(stocktakeId: string, nonce: string): string {
+  return sign(`resume:${stocktakeId}:${nonce}`);
+}
+
+export function resumeKeyMatches(stocktakeId: string, nonce: string | undefined, key: string): boolean {
+  if (!nonce) return false;
+  const want = Buffer.from(resumeKeyFor(stocktakeId, nonce));
+  const got = Buffer.from(key);
+  return want.length === got.length && timingSafeEqual(want, got);
+}
+
 export function createSession(role: Role, branchId?: string, now = Date.now()): { token: string; session: Session } {
   const session: Session = { sid: randomUUID(), role, branchId, exp: now + TTL_MS };
   const body = Buffer.from(JSON.stringify(session)).toString("base64url");

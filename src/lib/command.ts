@@ -40,6 +40,7 @@ export async function handleCommand<I extends { commandId: string }, T>(
     input: z.ZodType<I>;
     precheck?: (input: I) => void; // cheap validation that must not spend rate-limit budget
     run: (c: Cols, s: ClientSession, ctx: CommandCtx, input: I, session: Session) => Promise<T>;
+    present?: (result: T) => unknown; // shapes the response, also for replays; the stored result stays as run returned it
   },
 ): Promise<NextResponse> {
   const started = Date.now();
@@ -56,14 +57,14 @@ export async function handleCommand<I extends { commandId: string }, T>(
     if (prior) {
       assertSameCommand(prior, fingerprint);
       logCommand({ requestId, role: session.role, branchId: session.branchId, command: opts.name, commandId, outcome: "replayed", ms: Date.now() - started });
-      return NextResponse.json({ result: prior.result, replayed: true });
+      return NextResponse.json({ result: opts.present ? opts.present(prior.result as T) : prior.result, replayed: true });
     }
     opts.precheck?.(input);
     await consume(db, session.sid, opts.actionClass);
     const ctx: CommandCtx = { commandId, actor: `${session.role}:${session.sid.slice(0, 8)}`, origin: "visitor", fingerprint };
     const { result, replayed } = await runCommand(client, db, opts.name, ctx, (c, s) => opts.run(c, s, ctx, input, session!));
     logCommand({ requestId, role: session.role, branchId: session.branchId, command: opts.name, commandId, outcome: replayed ? "replayed" : "ok", ms: Date.now() - started });
-    return NextResponse.json({ result, replayed });
+    return NextResponse.json({ result: opts.present ? opts.present(result) : result, replayed });
   } catch (err) {
     const known = err instanceof DomainError || err instanceof z.ZodError;
     logCommand({

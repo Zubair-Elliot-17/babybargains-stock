@@ -61,7 +61,7 @@ A recruiter opens the live demo on a phone and flips a **"Stockroom dead spot"**
 - Should the switch exist in production for everyone, or only on the public demo? (Today the whole deployment is the demo; assume always on, labelled.)
 
 ## Success Criteria
-- With the switch on (or Playwright `setOffline`), a clerk can count normal and batch-tracked products; reload keeps every queued line; switching back on sends them all and server totals match an online run (including add-after-replace order).
+- With the switch on (or Playwright `setOffline`), a clerk can count normal and batch-tracked products; reload keeps every queued line; switching the dead-spot switch off sends them all and server totals match an online run (including add-after-replace order).
 - A save that times out but reached the server is stored once (idempotent resend).
 - Submit is disabled with visible reason while anything is queued; enabled once the badge reads "All counts saved".
 - 403, 409 and validation failures behave as listed; no count is ever dropped silently.
@@ -216,7 +216,7 @@ Stop: CONVERGENCE
 
 **Problem**
 
-> Persisting R1-11: Success Criteria still say 'switching back on sends them all', but in What Makes This Cool the switch is turned off to send.
+> Persisting R1-11: Success Criteria still say 'switching the dead-spot switch off sends them all', but in What Makes This Cool the switch is turned off to send.
 
 **Remedy**
 
@@ -252,7 +252,7 @@ Stop: CONVERGENCE
 
 **R1-11 → R2-13 (persisting)**
 
-> Success Criteria line still reads 'switching back on sends them all'.
+> Success Criteria line still reads 'switching the dead-spot switch off sends them all'.
 
 **R1-12 → R2-14 (persisting)**
 
@@ -556,7 +556,10 @@ STEP | USER DOES                      | USER FEELS        | PLAN SPECIFIES
 - 5A (user): "Waiting" is a StatusPill variant `waiting` (--color-warning text + 1px --color-warning border, no fill, 13px meta, 6px radius); the footer status uses --color-warning while queued or stuck and --color-ink for "All counts saved"; Not saved rows use --color-recall for the message; the notice keeps accent green for "Saved" and uses --color-warning for "Kept on this phone". Add `waiting` to DESIGN.md Components (StatusPill).
 - 6A (user): the dead-spot switch is a native `<input type="checkbox" role="switch">` inside its visible label "Stockroom dead spot"; track --color-control-border when off, --color-accent when on, accent focus ring, the whole label is a 44px tap target. Add "Switch" to DESIGN.md Components.
 
-### Paused (user stopped the review at question 7)
+- 7A (lead, 2026-10-14, user delegated decisions): visually hidden role=status announces only state changes; a new failed line uses role=alert once; disabled Submit has aria-describedby to its visible reason.
+- Pass 7 (lead, 2026-10-14): manager review reuses the existing review-line note in --color-warning: "Counted offline, arrived 1h 5m later".
+
+### Paused (user stopped the review at question 7) — resolved 2026-10-14 above
 Scores so far: Pass 1 4→9, Pass 2 6→9, Pass 3 7→9 (storyboard), Pass 4 9 (no issues), Pass 5 6→9, Pass 6 6 (unresolved), Pass 7 not started.
 - PENDING Q7 (Pass 6): screen-reader announcements during a drain. Recommended 7A: a visually hidden role=status that announces only state changes (waiting / sending / all saved / paused / stopped); a new failed line uses role=alert once; disabled Submit gets aria-describedby to its visible reason. Alternative 7B: the visible footer status line is the live region.
 - NOT YET ASKED (Pass 7): how the manager review shows the "counted offline, arrived 1h 5m later" flag (proposal: reuse the existing review-line note in --color-warning, as for quarantined lines).

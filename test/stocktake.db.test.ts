@@ -251,3 +251,86 @@ describe("found units on a recalled batch", () => {
     expect((await checkLedgerInvariants(t.db)).violations).toContain(`recalled batch ${OLD} still has stock in 1 row(s)`);
   });
 });
+
+describe("counts queued offline", () => {
+  const MIN = 60_000;
+  const queued = (stocktakeId: string, sku: string, counted: number, capturedAt: Date, sentAt: Date, now: Date, mode: "add" | "replace" = "replace", batchId?: string) =>
+    run((c, s, k) => saveCountLine(c, s, k, { stocktakeId, lineId: lineId(), sid: "clerk-1", sku, batchId, counted, mode, capturedAt, sentAt }), { now });
+  const lines = async (id: string) => cols(t.db).stocktakeLines.find({ stocktakeId: id }).sort({ countedAt: 1 }).toArray();
+
+  it("keeps the capture time, so a sale between capture and arrival is not a variance, and stores the arrival", async () => {
+    // Receipts in beforeEach happened at real now, so this timeline runs after them.
+    const at = (m: number) => new Date(Date.now() + m * MIN);
+    const st = (await run((c, s, k) => openStocktake(c, s, k, { branchId: "BR-A", sid: "clerk-1", clerkLabel: "C" }), { now: at(1) })).result;
+    const captured = at(2);
+    await run((c, s, k) => recordSale(c, s, k, { branchId: "BR-A", lines: [{ sku: TOY, qty: 1 }] }), { now: at(3) });
+    const now = at(4);
+    await queued(st._id, TOY, 4, captured, now, now); // phone clock correct; counted before the sale
+    const [line] = await lines(st._id);
+    expect(line.countedAt).toEqual(captured);
+    expect(line.receivedAt).toEqual(now);
+    await run((c, s, k) => submitStocktake(c, s, k, { stocktakeId: st._id, sid: "clerk-1", uncounted: "leave" }), { now: at(5) });
+    const plan = await computeStocktakePlan(cols(t.db), st._id);
+    expect(plan.lines.map((l) => [l.expected, l.variance])).toEqual([[4, 0]]);
+  });
+
+  it("corrects a wrong phone clock with the send-time header and clamps to [openedAt, now]", async () => {
+    const opened = new Date(Date.now() - 60 * MIN);
+    const st = (await run((c, s, k) => openStocktake(c, s, k, { branchId: "BR-A", sid: "clerk-1", clerkLabel: "C" }), { now: opened })).result;
+    const now = new Date();
+    const fast = 10 * MIN; // phone clock runs 10 minutes ahead
+    await queued(st._id, TOY, 1, new Date(now.getTime() - 20 * MIN + fast), new Date(now.getTime() + fast), now);
+    await queued(st._id, COT, 1, new Date(opened.getTime() - 99 * MIN), now, now, "replace", NEW); // before the open → openedAt
+    await queued(st._id, TOY, 2, new Date(now.getTime() + 99 * MIN), now, now, "add"); // future → now
+    const got = (await lines(st._id)).map((l) => [l.sku, l.countedAt.getTime()]);
+    expect(got).toEqual([[COT, opened.getTime()], [TOY, now.getTime() - 20 * MIN], [TOY, now.getTime()]]);
+  }, 15_000);
+
+  it("never stamps a line before an earlier-sent line for the same item (uneven latency keeps capture order)", async () => {
+    const st = (await open()).result;
+    const now = Date.now();
+    // Line A was captured first but sat 5 s in flight (skew +5 s); line B, captured 1 s later, went straight through.
+    await queued(st._id, TOY, 5, new Date(now - 3000), new Date(now - 5000), new Date(now));
+    const b = await queued(st._id, TOY, 2, new Date(now - 2000), new Date(now), new Date(now), "add");
+    expect(b.result.counted).toBe(7); // A (replace 5) then B (add 2)
+    const [a, bLine] = await lines(st._id);
+    expect(bLine.countedAt.getTime()).toBeGreaterThan(a.countedAt.getTime());
+  });
+
+  it("stamps a line without capturedAt at arrival (older clients)", async () => {
+    const st = (await open()).result;
+    const now = new Date();
+    await run((c, s, k) => saveCountLine(c, s, k, { stocktakeId: st._id, lineId: lineId(), sid: "clerk-1", sku: TOY, counted: 1, mode: "replace" }), { now });
+    expect((await lines(st._id))[0]).toMatchObject({ countedAt: now, receivedAt: now });
+  });
+});
+
+describe("resume key", () => {
+  const openWith = (sid: string, ok: boolean, branchId = "BR-A") =>
+    run((c, s, k) => openStocktake(c, s, k, { branchId, sid, clerkLabel: `Clerk ${sid}`, resumeOk: () => ok }));
+
+  it("takes over at once with the key, refuses without it, and rotates the nonce on every open", async () => {
+    const a = (await open()).result;
+    await expect(openWith("clerk-2", false)).rejects.toMatchObject({ code: "STOCKTAKE_BUSY", details: { stocktakeId: a._id } });
+    const b = (await openWith("clerk-2", true)).result;
+    expect(b).toMatchObject({ _id: a._id, openedBy: "clerk-2", openedAt: a.openedAt });
+    expect(b.resumeNonce).toBeTruthy();
+    expect(b.resumeNonce).not.toBe(a.resumeNonce);
+  });
+
+  it("an old key is refused after a stale takeover by another phone", async () => {
+    const a = (await open()).result;
+    const oldNonce = a.resumeNonce;
+    await cols(t.db).stocktakes.updateOne({ _id: a._id }, { $set: { lastActivityAt: new Date(Date.now() - 3 * 3_600_000) } });
+    await open("phone-b"); // stale takeover rotates the nonce
+    const err = await run((c, s, k) => openStocktake(c, s, k, { branchId: "BR-A", sid: "phone-a-again", clerkLabel: "A", resumeOk: (st) => st.resumeNonce === oldNonce })).catch((e) => e);
+    expect(err).toMatchObject({ code: "STOCKTAKE_BUSY" });
+  });
+
+  it("a key never reaches another branch's stocktake: the session's branch decides", async () => {
+    const a = (await open()).result;
+    const other = (await openWith("clerk-b", true, "BR-B")).result;
+    expect(other._id).not.toBe(a._id);
+    expect((await cols(t.db).stocktakes.findOne({ _id: a._id }))?.openedBy).toBe("clerk-1");
+  });
+});

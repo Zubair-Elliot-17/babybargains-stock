@@ -93,3 +93,36 @@ describe("stocktake routes fingerprint their [id]", () => {
     }
   });
 });
+
+// The resume path a phone takes after a re-login: open without the key is BUSY, open with it takes over at once.
+describe("stocktake resume key over the route", () => {
+  it("hands out a key, never the nonce, and accepts only the latest key", async () => {
+    const { migrate } = await import("@/seed/apply");
+    const { buildWorld } = await import("./world");
+    const open = await import("@/app/api/stocktakes/route");
+    const db = await getDb();
+    await db.dropDatabase();
+    await migrate(db);
+    await buildWorld(db);
+    const call = async (as: string, resumeKey?: string) => {
+      token = as;
+      const res = await open.POST(new Request("http://x/api", { method: "POST", body: JSON.stringify({ commandId: randomUUID(), resumeKey }) }));
+      return { status: res.status, body: await res.json() };
+    };
+    const first = await call(createSession("clerk", "BR-A").token);
+    expect(first.status).toBe(200);
+    expect(first.body.result.resumeKey).toMatch(/^[\w-]{20,}$/);
+    expect(first.body.result).not.toHaveProperty("resumeNonce");
+
+    const relogin = createSession("clerk", "BR-A").token;
+    const busy = await call(relogin);
+    expect(busy.status).toBe(409);
+    expect(busy.body.error).toMatchObject({ code: "STOCKTAKE_BUSY", details: { stocktakeId: first.body.result._id } });
+    expect((await call(relogin, "wrong-key")).status).toBe(409);
+    const resumed = await call(relogin, first.body.result.resumeKey);
+    expect(resumed.status).toBe(200);
+    expect(resumed.body.result._id).toBe(first.body.result._id);
+    expect(resumed.body.result.resumeKey).not.toBe(first.body.result.resumeKey);
+    expect((await call(createSession("clerk", "BR-A").token, first.body.result.resumeKey)).status).toBe(409); // rotated
+  });
+});
