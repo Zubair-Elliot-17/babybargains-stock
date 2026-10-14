@@ -93,3 +93,51 @@ describe("stocktake routes fingerprint their [id]", () => {
     }
   });
 });
+
+// The resume path a phone takes after a re-login: open without the key is BUSY, open with it takes over at once.
+describe("stocktake resume key over the route", () => {
+  it("hands out a key, never the nonce, and accepts only the latest key", async () => {
+    const { migrate } = await import("@/seed/apply");
+    const { buildWorld } = await import("./world");
+    const open = await import("@/app/api/stocktakes/route");
+    const db = await getDb();
+    await db.dropDatabase();
+    await migrate(db);
+    await buildWorld(db);
+    let id = "";
+    const call = async (as: string, key?: string) => {
+      token = as;
+      const resume = key ? { stocktakeId: id, key } : undefined;
+      const res = await open.POST(new Request("http://x/api", { method: "POST", body: JSON.stringify({ commandId: randomUUID(), resume }) }));
+      return { status: res.status, body: await res.json() };
+    };
+    const first = await call(createSession("clerk", "BR-A").token);
+    expect(first.status).toBe(200);
+    expect(first.body.result.resumeKey).toMatch(/^[\w-]{20,}$/);
+    expect(first.body.result).not.toHaveProperty("resumeNonce");
+    id = first.body.result._id;
+
+    const relogin = createSession("clerk", "BR-A").token;
+    const busy = await call(relogin);
+    expect(busy.status).toBe(409);
+    expect(busy.body.error).toMatchObject({ code: "STOCKTAKE_BUSY", details: { stocktakeId: first.body.result._id } });
+    expect((await call(relogin, "wrong-key")).status).toBe(409);
+    const resumed = await call(relogin, first.body.result.resumeKey);
+    expect(resumed.status).toBe(200);
+    expect(resumed.body.result._id).toBe(first.body.result._id);
+    expect(resumed.body.result.resumeKey).not.toBe(first.body.result.resumeKey);
+    expect((await call(createSession("clerk", "BR-A").token, first.body.result.resumeKey)).status).toBe(409); // rotated
+  });
+});
+
+describe("resume key helpers", () => {
+  it("ties the key to the stocktake and nonce", async () => {
+    const { resumeKeyFor, resumeKeyMatches } = await import("@/auth/session");
+    const key = resumeKeyFor("ST-1", "n1");
+    expect(resumeKeyMatches("ST-1", "n1", key)).toBe(true);
+    expect(resumeKeyMatches("ST-2", "n1", key)).toBe(false);
+    expect(resumeKeyMatches("ST-1", "n2", key)).toBe(false);
+    expect(resumeKeyMatches("ST-1", "n1", key.slice(0, -1))).toBe(false);
+    expect(resumeKeyMatches("ST-1", undefined, key)).toBe(false);
+  });
+});

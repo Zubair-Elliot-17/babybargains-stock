@@ -93,6 +93,23 @@ recorded or counted figures are solid.
 
 Orders/imports and analytics are Milestone 4.
 
+## Counting in a stockroom dead spot
+
+Flip **Stockroom dead spot** in the demo strip on the count screen, count a few products, reload, then flip
+it off and watch the counts send one by one.
+
+- **Every save goes through one queue** (`src/components/count/countQueue.ts`): one localStorage key per
+  line, sent oldest first, one request in flight. Counts survive reload and tab close; resends are
+  idempotent by line id.
+- **Count time is capture time.** The phone sends when the count was entered plus a send-time header; the
+  server corrects clock skew, clamps to [stocktake open, now] and never stamps a line before an earlier one
+  for the same item. A count queued before a sale gets no false variance.
+- **Back-dating is visible.** The server stores arrival time; a line that arrived over 15 minutes after its
+  count is flagged and needs an explicit accept on review.
+- **Re-login resumes at once** with a rotating per-stocktake resume key (HMAC of a nonce, so the database
+  never holds a usable key), still under the clerk's role and branch.
+- Submit stays disabled, with the reason shown, until every queued count is sent or dealt with.
+
 ## Correctness checks
 
 | Check | Where |

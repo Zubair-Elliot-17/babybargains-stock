@@ -29,7 +29,8 @@ floor, so the app is light with high contrast. Tokens live as CSS variables in `
 
 ## Components
 Table · SidePanel · Dialog (confirm, typed-confirm) · BottomSheet · Stepper · StatusPill
-(counted / expected / recalled) · Toast · Skeleton · Banner · Slider.
+(counted / expected / recalled / waiting: `--color-warning` text and 1px border, no fill) · Toast · Skeleton ·
+Banner · Slider · Switch (native `role="switch"` checkbox in its label, 44px target, accent when on).
 
 ## Honest numbers
 Counted or recorded figures are solid. Estimated figures (FIFO-attributed sales, expected stock) use a

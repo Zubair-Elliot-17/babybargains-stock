@@ -12,9 +12,10 @@ const fmt = (d: Date) => d.toLocaleString("en-GB", { day: "numeric", month: "sho
 export default async function ClerkHome() {
   const session = (await currentSession())!;
   const db = await getDb();
-  const [latest, branch] = await Promise.all([
+  const [latest, branch, open] = await Promise.all([
     latestStocktakeForBranch(db, session.branchId!),
     cols(db).branches.findOne({ _id: session.branchId! }),
+    cols(db).stocktakes.findOne({ branchId: session.branchId!, status: "OPEN" }, { projection: { openedBy: 1 } }),
   ]);
   const mine = latest?.status === "OPEN" && latest.openedBy === session.sid;
   return (
@@ -25,7 +26,7 @@ export default async function ClerkHome() {
           Last stocktake: {latest.status === "APPROVED" ? `Submitted → Approved ${fmt(latest.approvedAt!)} UTC` : `Submitted ${fmt(latest.submittedAt!)} UTC · waiting for manager`}
         </p>
       )}
-      <StartStocktake resumeId={mine ? latest!._id : null} />
+      <StartStocktake resumeId={mine ? latest!._id : null} openId={open && open.openedBy !== session.sid ? open._id : null} />
       <p className={styles.hint}>Counts are blind: you won&apos;t see the system&apos;s quantities. Scan or search each product, count it, save, repeat.</p>
     </div>
   );

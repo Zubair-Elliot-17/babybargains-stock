@@ -2,15 +2,21 @@
 
 import Link from "next/link";
 import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
+import { createPortal } from "react-dom";
 import type { ClerkProduct, CountView } from "@/domain/ledger/read";
 import { countKey, foldCounts } from "@/domain/ledger/stocktake";
 import { count as plural } from "@/lib/plural";
+import { browserDeps, createCountQueue, type QueueSnapshot, type SentResult } from "./countQueue";
 import { Scanner } from "./Scanner";
+import { SyncBadge, syncAnnouncement } from "./SyncBadge";
 import styles from "./count.module.css";
 
 type Entry = CountView["entries"][number];
 type BatchChoice = { batchId: string; batchCode: string };
-type Pending = { lineId: string; sku: string; batchId?: string; counted: number; mode: "add" | "replace" };
+
+const KEPT = "Kept on this phone";
+const SAVE_WAIT_MS = 1_500; // after this the line is "Kept on this phone" and the button frees (design 4A)
+const EMPTY: QueueSnapshot = { items: [], status: "idle", persistent: true, deadSpot: false };
 
 const CATEGORY: Record<ClerkProduct["category"], string> = { cot: "Cots", pram: "Prams", monitor: "Monitors", clothing: "Clothing", toy: "Toys" };
 
@@ -21,26 +27,42 @@ export function CountScreen(props: {
   openedAt: string;
   products: ClerkProduct[];
   initialEntries: Entry[];
+  batches: Record<string, BatchChoice[]>;
 }) {
-  const [entries, setEntries] = useState<Entry[]>(props.initialEntries);
+  const [queue] = useState(() => createCountQueue(props.stocktakeId, browserDeps()));
+  const snap = useSyncExternalStore(queue.subscribe, queue.snapshot, () => EMPTY);
+  const [sent, setSent] = useState<Entry[]>(props.initialEntries);
   const [tab, setTab] = useState<"count" | "uncounted">("count");
   const [query, setQuery] = useState("");
   const [product, setProduct] = useState<ClerkProduct | null>(null);
   const [qty, setQty] = useState(1);
-  const [batches, setBatches] = useState<BatchChoice[] | null>(null);
   const [batchId, setBatchId] = useState<string | undefined>();
   const [editing, setEditing] = useState(false);
   const [saving, setSaving] = useState(false);
-  const [failed, setFailed] = useState<{ pending: Pending; message: string } | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
-  const [sheet, setSheet] = useState<null | { kind: "repeat"; prev: number } | { kind: "submit"; uncounted: number }>(null);
+  const [showSync, setShowSync] = useState(false); // footer status appears after the first save that wasn't sent at once
+  const [sheet, setSheet] = useState<null | { kind: "repeat"; prev: number } | { kind: "submit"; uncounted: number } | { kind: "discard"; lineId: string; label: string }>(null);
   const [submitted, setSubmitted] = useState<null | { productsCounted: number; submittedAt: string }>(null);
   const [scanning, setScanning] = useState(false);
   const searchRef = useRef<HTMLInputElement>(null);
   // Camera scanning only where the browser supports BarcodeDetector (false during SSR, no hydration mismatch).
   const canScan = useSyncExternalStore(noop, () => "BarcodeDetector" in window, () => false);
+  const demoSlot = useSyncExternalStore(noop, () => document.getElementById("demo-slot"), () => null); // in the clerk layout's demo strip
 
   const bySku = useMemo(() => new Map(props.products.map((p) => [p.sku, p])), [props.products]);
+  const codeOf = (sku: string, id?: string) => (id ? props.batches[sku]?.find((b) => b.batchId === id)?.batchCode : undefined);
+  const batches = product?.batchTracked ? (props.batches[product.sku] ?? []) : null;
+  // Queued lines count straight away; the server copy wins once it holds a line (dedupe by lineId).
+  const failedLines = snap.items.filter((i) => i.state === "failed");
+  const entries = useMemo(() => {
+    const held = new Set(sent.map((e) => e._id));
+    const queued = snap.items
+      .filter((i) => i.state === "pending" && !held.has(i.lineId))
+      .map((i): Entry => ({ _id: i.lineId, sku: i.sku, batchId: i.batchId, batchCode: codeOf(i.sku, i.batchId), counted: i.counted, mode: i.mode, countedAt: i.capturedAt }));
+    return [...sent, ...queued].sort((a, b) => a.countedAt.localeCompare(b.countedAt) || a._id.localeCompare(b._id));
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- codeOf only reads props.batches
+  }, [sent, snap.items, props.batches]);
+  const waiting = useMemo(() => new Set(snap.items.map((i) => i.lineId)), [snap.items]);
   const counts = useMemo(
     () => foldCounts(entries.map((e) => ({ sku: e.sku, batchId: e.batchId, counted: e.counted, mode: e.mode, countedAt: new Date(e.countedAt) }))),
     [entries],
@@ -54,35 +76,56 @@ export function CountScreen(props: {
     return props.products.filter((p) => p.sku.toLowerCase().includes(q) || p.name.toLowerCase().includes(q)).slice(0, 8);
   }, [query, props.products]);
 
-  // Batch-tracked products: load this branch's batch codes and prefill the last one used (D28).
   useEffect(() => {
-    if (!product?.batchTracked) return;
-    let cancelled = false;
-    fetch(`/api/stocktakes/${props.stocktakeId}/batches?sku=${encodeURIComponent(product.sku)}`)
-      .then((r) => (r.ok ? r.json() : { batches: [] }))
-      .then((b: { batches: BatchChoice[] }) => {
-        if (cancelled) return;
-        setBatches(b.batches);
-        setBatchId((current) => {
-          if (current) return current;
-          const remembered = safeGet(`bb-batch:${product.sku}`);
-          return b.batches.find((x) => x.batchId === remembered)?.batchId ?? b.batches[0]?.batchId;
-        });
-      })
-      .catch(() => !cancelled && setBatches([]));
-    return () => {
-      cancelled = true;
+    // Lines the server already holds (a timed-out save that arrived) leave the queue; the rest start sending.
+    queue.forget(props.initialEntries.map((e) => e._id));
+    void queue.drain();
+    const offSent = queue.onSent(({ line: q, countedAt }: SentResult) =>
+      setSent((list) =>
+        list.some((e) => e._id === q.lineId)
+          ? list
+          : [...list, { _id: q.lineId, sku: q.sku, batchId: q.batchId, batchCode: codeOf(q.sku, q.batchId), counted: q.counted, mode: q.mode, countedAt }],
+      ),
+    );
+    const kick = () => document.visibilityState === "visible" && queue.kick();
+    // Another tab changed the queue: redraw, and take over sending if that tab has let go of the lock.
+    const onStorage = (e: StorageEvent) => {
+      if (!e.key?.startsWith("bb-q:")) return;
+      queue.refresh();
+      void queue.drain();
     };
-  }, [product, props.stocktakeId]);
+    const onUnload = (e: BeforeUnloadEvent) => {
+      if (queue.snapshot().items.length) e.preventDefault(); // best-effort: iOS Safari ignores it
+    };
+    window.addEventListener("online", kick);
+    document.addEventListener("visibilitychange", kick);
+    window.addEventListener("storage", onStorage);
+    window.addEventListener("beforeunload", onUnload);
+    return () => {
+      offSent();
+      window.removeEventListener("online", kick);
+      document.removeEventListener("visibilitychange", kick);
+      window.removeEventListener("storage", onStorage);
+      window.removeEventListener("beforeunload", onUnload);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- once per page life
+  }, [queue]);
+
+  // Footer appears once anything is stuck, not for saves that went straight through.
+  // A line still queued while no save is in progress was not sent at once (or was queued before a reload).
+  if (!showSync && snap.items.length > 0 && !saving) setShowSync(true);
+
+  // A newly failed line is announced once (role=alert); state changes go to the polite region.
+  const lastFailed = failedLines.at(-1);
 
   function choose(p: ClerkProduct, opts: { batchId?: string; qty?: number; editing?: boolean } = {}) {
     setProduct(p);
-    setBatches(null);
-    setBatchId(opts.batchId);
+    const list = props.batches[p.sku] ?? [];
+    const remembered = safeGet(`bb-batch:${p.sku}`);
+    setBatchId(p.batchTracked ? (opts.batchId ?? list.find((x) => x.batchId === remembered)?.batchId ?? list[0]?.batchId) : undefined);
     setQty(opts.qty ?? 1);
     setEditing(Boolean(opts.editing));
     setQuery("");
-    setFailed(null);
     setNotice(null);
     setTab("count");
   }
@@ -106,53 +149,31 @@ export function CountScreen(props: {
     void save("replace");
   }
 
-  async function save(mode: "add" | "replace", retry?: Pending) {
-    if (!product && !retry) return;
-    const pending: Pending = retry ?? {
+  async function save(mode: "add" | "replace") {
+    if (!product) return;
+    const line = {
       lineId: crypto.randomUUID(),
-      sku: product!.sku,
-      batchId: product!.batchTracked ? batchId : undefined,
+      sku: product.sku,
+      batchId: product.batchTracked ? batchId : undefined,
       counted: qty,
       mode,
+      capturedAt: new Date().toISOString(),
     };
     setSheet(null);
     setSaving(true);
-    setFailed(null);
-    try {
-      const res = await fetch(`/api/stocktakes/${props.stocktakeId}/lines`, {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ commandId: pending.lineId, sku: pending.sku, batchId: pending.batchId, counted: pending.counted, mode: pending.mode }),
-      });
-      const body = await res.json().catch(() => null);
-      // The line id is only reused by this retry, so COMMAND_ID_REUSED means the server already holds this
-      // line (saved before a re-login). A new id would count it twice.
-      const held = body?.error?.code === "COMMAND_ID_REUSED";
-      if (!res.ok && !held) {
-        setFailed({ pending, message: body?.error?.message ?? "Not saved. Retry" });
-        return;
-      }
-      const result = held ? { counted: pending.counted, countedAt: new Date().toISOString() } : body.result;
-      const name = bySku.get(pending.sku)?.name ?? pending.sku;
-      setEntries((list) => [
-        ...list,
-        {
-          _id: pending.lineId, sku: pending.sku, batchId: pending.batchId,
-          batchCode: batches?.find((b) => b.batchId === pending.batchId)?.batchCode,
-          counted: pending.counted, mode: pending.mode, countedAt: result.countedAt,
-        },
-      ]);
-      if (pending.batchId) safeSet(`bb-batch:${pending.sku}`, pending.batchId);
-      setNotice(`Saved · ${name} × ${result.counted}`);
-      setProduct(null);
-      setEditing(false);
-      setQty(1);
-      searchRef.current?.focus();
-    } catch {
-      setFailed({ pending, message: "Not saved: no connection. Retry" });
-    } finally {
-      setSaving(false);
+    const result = await Promise.race([queue.enqueue(line), new Promise<null>((r) => setTimeout(() => r(null), SAVE_WAIT_MS))]);
+    const name = product.name;
+    if (line.batchId) safeSet(`bb-batch:${line.sku}`, line.batchId);
+    if (result) setNotice(`Saved · ${name} × ${result.counted}`);
+    else {
+      setNotice(`${KEPT} · ${name} × ${line.counted}`);
+      setShowSync(true);
     }
+    setSaving(false);
+    setProduct(null);
+    setEditing(false);
+    setQty(1);
+    searchRef.current?.focus();
   }
 
   async function submit(uncountedMode: "zero" | "leave") {
@@ -188,6 +209,12 @@ export function CountScreen(props: {
   }
 
   const recent = [...entries].reverse().slice(0, 5);
+  const pendingCount = snap.items.length - failedLines.length;
+  const blocked = failedLines.length
+    ? `Fix ${failedLines.length} not saved above`
+    : pendingCount
+      ? "Submit after counts are sent"
+      : null;
   const productCount = props.products.length;
 
   return (
@@ -248,9 +275,7 @@ export function CountScreen(props: {
               {product.batchTracked && (
                 <div className={styles.batchRow}>
                   <label htmlFor="batch-pick">Batch</label>
-                  {batches === null ? (
-                    <span className={styles.hint}>Loading batches…</span>
-                  ) : batches.length === 0 ? (
+                  {!batches?.length ? (
                     <span className={styles.hint}>No batches on record here. Scan the label.</span>
                   ) : (
                     <select id="batch-pick" className={`input mono ${styles.batchChip}`} value={batchId ?? ""} onChange={(e) => setBatchId(e.target.value)}>
@@ -261,12 +286,6 @@ export function CountScreen(props: {
                   )}
                 </div>
               )}
-              {failed && (
-                <p className="banner banner-error" role="alert">
-                  {failed.message}{" "}
-                  <button className="btn" onClick={() => save(failed.pending.mode, failed.pending)}>Retry</button>
-                </p>
-              )}
               <button className={`btn btn-primary ${styles.bigButton}`} onClick={requestSave} disabled={saving}>
                 {saving ? "Saving…" : editing ? "Save correction" : "Save count"}
               </button>
@@ -274,7 +293,27 @@ export function CountScreen(props: {
           ) : (
             <p className={styles.hint}>Scan a label or type at least two letters of a product name or SKU.</p>
           )}
-          {notice && <p className={styles.notice} role="status">{notice}</p>}
+          {notice && <p className={`${styles.notice} ${notice.startsWith(KEPT) ? styles.noticeKept : ""}`} role="status">{notice}</p>}
+
+          {failedLines.length > 0 && (
+            <section className={styles.unsaved} aria-labelledby="unsaved-head">
+              <h2 id="unsaved-head" className={styles.subhead} style={{ margin: 0 }}>Not saved · {failedLines.length}</h2>
+              <ul className={styles.recent}>
+                {failedLines.map((l) => {
+                  const label = `${bySku.get(l.sku)?.name ?? l.sku}${l.batchId ? ` · ${codeOf(l.sku, l.batchId) ?? ""}` : ""} ${l.mode === "add" ? "+" : "×"} ${l.counted}`;
+                  return (
+                    <li key={l.lineId} className={styles.unsavedRow}>
+                      <span>{label}</span>
+                      <span className={styles.unsavedMsg}>{l.error}</span>
+                      <button className="btn" onClick={() => queue.retry(l.lineId)} aria-label={`Retry ${label}`}
+                        title="Sends now; counts as the latest entry for this product">Retry</button>
+                      <button className="btn" onClick={() => setSheet({ kind: "discard", lineId: l.lineId, label })} aria-label={`Discard ${label}`}>Discard</button>
+                    </li>
+                  );
+                })}
+              </ul>
+            </section>
+          )}
 
           {recent.length > 0 && (
             <section aria-label="Recent counts">
@@ -287,7 +326,10 @@ export function CountScreen(props: {
                     <li key={e._id}>
                       <button className={styles.recentRow} onClick={() => p && choose(p, { batchId: e.batchId, qty: eff?.counted ?? e.counted, editing: true })}>
                         <span>{p?.name ?? e.sku}{e.batchCode ? ` · ${e.batchCode}` : ""}</span>
-                        <span>{e.mode === "add" ? "+" : "×"} {e.counted}</span>
+                        <span>
+                          {e.mode === "add" ? "+" : "×"} {e.counted}
+                          {waiting.has(e._id) && <span className={styles.waiting}>Waiting</span>}
+                        </span>
                       </button>
                     </li>
                   );
@@ -324,20 +366,55 @@ export function CountScreen(props: {
       )}
 
       <footer className={styles.footer}>
-        <span aria-live="polite">{countedSkus.size} of {productCount} products counted</span>
+        <div className={styles.footerStack}>
+          {showSync && <SyncBadge snap={snap} id="sync-status" />}
+          {blocked && <p id="submit-reason" className={`${styles.sync} ${styles.syncWarn}`}>{blocked}</p>}
+          <span aria-live="polite">{countedSkus.size} of {productCount} products counted</span>
+        </div>
         <button
           className="btn btn-primary"
-          disabled={saving}
+          disabled={saving || Boolean(blocked)}
+          aria-describedby={blocked ? "submit-reason" : undefined}
           onClick={() => (uncounted.length ? setSheet({ kind: "submit", uncounted: uncounted.length }) : submit("leave"))}
         >
           {saving ? "Saving…" : "Submit stocktake"}
         </button>
+        {snap.status === "closed" && (
+          <button className="btn" onClick={() => setSheet({ kind: "discard", lineId: "*", label: `${snap.items.length} counts kept on this phone` })}>Clear</button>
+        )}
       </footer>
+      <p className="sr-only" role="status">{showSync ? syncAnnouncement(snap) : ""}</p>
+      {lastFailed && <p key={lastFailed.lineId} className="sr-only" role="alert">{`Not saved: ${bySku.get(lastFailed.sku)?.name ?? lastFailed.sku}. ${lastFailed.error ?? ""}`}</p>}
+      {!snap.persistent && (
+        <p className="banner banner-error" role="alert">This browser can&apos;t store counts: any not yet sent are lost if you close the tab.</p>
+      )}
+      {demoSlot && createPortal(
+        <label className={styles.switch}>
+          <input type="checkbox" role="switch" checked={snap.deadSpot} onChange={(e) => queue.setDeadSpot(e.target.checked)} />
+          Stockroom dead spot
+        </label>,
+        demoSlot,
+      )}
 
       {sheet?.kind === "repeat" && product && (
         <Sheet title={`Counted ${sheet.prev} earlier`} onClose={() => setSheet(null)}>
           <button className={`btn btn-primary ${styles.bigButton}`} onClick={() => save("add")}>Add {qty} (total {sheet.prev + qty})</button>
           <button className={`btn ${styles.bigButton}`} onClick={() => save("replace")}>Replace with {qty}</button>
+        </Sheet>
+      )}
+      {sheet?.kind === "discard" && (
+        <Sheet title={sheet.lineId === "*" ? "Clear counts from this phone?" : "Discard this count?"} onClose={() => setSheet(null)}>
+          <p className={styles.hint}>{sheet.label}. This can&apos;t be undone.</p>
+          <button
+            className={`btn ${styles.bigButton}`}
+            onClick={() => {
+              if (sheet.lineId === "*") queue.clear();
+              else queue.discard(sheet.lineId);
+              setSheet(null);
+            }}
+          >
+            {sheet.lineId === "*" ? "Clear" : "Discard"}
+          </button>
         </Sheet>
       )}
       {sheet?.kind === "submit" && (

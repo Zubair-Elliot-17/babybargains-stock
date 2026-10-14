@@ -1,4 +1,4 @@
-import { createHash } from "node:crypto";
+import { createHash, randomBytes } from "node:crypto";
 import { MongoServerError, type ClientSession, type Db, type MongoClient } from "mongodb";
 import { cols, type Cols, type CommandLogEntry } from "../collections";
 import { DomainError, InsufficientStock, NotFound, type ShortLine } from "../errors";
@@ -335,21 +335,35 @@ export interface OpenInput {
   branchId: string;
   sid: string;
   clerkLabel: string;
+  resume?: { stocktakeId: string; ok: (st: Stocktake) => boolean }; // a resume targets one stocktake and never opens or takes over another
 }
 
-// Resumes the clerk's OPEN stocktake for the branch, takes over an idle one, or opens a new one.
+// Resumes the clerk's OPEN stocktake for the branch, takes over an idle one (or at once with its resume key),
+// or opens a new one. Every success rotates the resume nonce, so only the latest holder's key works.
 export async function openStocktake(c: Cols, s: ClientSession, ctx: CommandCtx, input: OpenInput): Promise<Stocktake> {
   const now = ctx.now ?? new Date();
+  const resumeNonce = randomBytes(16).toString("hex");
   await lockBranches(c, s, [input.branchId]);
   const open = await c.stocktakes.findOne({ branchId: input.branchId, status: "OPEN" }, { session: s });
+  if (input.resume && open?._id !== input.resume.stocktakeId) {
+    throw new DomainError("STOCKTAKE_BUSY", "That stocktake can't be resumed from this branch or is no longer open", 409, { stocktakeId: input.resume.stocktakeId });
+  }
   if (open) {
-    if (open.openedBy !== input.sid && now.getTime() - open.lastActivityAt.getTime() < STALE_MS) {
+    if (open.openedBy === input.sid) {
+      // Same session: keep the key, so overlapping opens from one phone can't leave a stale one stored.
+      await c.stocktakes.updateOne({ _id: open._id }, { $set: { lastActivityAt: now } }, { session: s });
+      return { ...open, lastActivityAt: now };
+    }
+    const idle = now.getTime() - open.lastActivityAt.getTime() >= STALE_MS;
+    if (!idle && !input.resume?.ok(open)) {
       throw new DomainError("STOCKTAKE_BUSY", "This branch's stocktake is in progress on another device", 409, {
+        stocktakeId: open._id,
         clerkLabel: open.clerkLabel,
         lastActivityAt: open.lastActivityAt,
       });
     }
-    const update = { openedBy: input.sid, clerkLabel: input.clerkLabel, lastActivityAt: now };
+    // openedAt stays the original open time: queued counts are clamped to it.
+    const update = { openedBy: input.sid, clerkLabel: input.clerkLabel, lastActivityAt: now, resumeNonce };
     await c.stocktakes.updateOne({ _id: open._id }, { $set: update }, { session: s });
     return { ...open, ...update };
   }
@@ -363,6 +377,7 @@ export async function openStocktake(c: Cols, s: ClientSession, ctx: CommandCtx, 
     openedBy: input.sid,
     clerkLabel: input.clerkLabel,
     lastActivityAt: now,
+    resumeNonce,
     origin: ctx.origin,
   };
   await c.stocktakes.insertOne(doc, { session: s }); // partial unique index refuses a second OPEN per branch
@@ -385,6 +400,22 @@ export interface CountLineInput {
   batchId?: string;
   counted: number;
   mode: "add" | "replace";
+  capturedAt?: Date; // phone time the count was entered (queued offline)
+  sentAt?: Date; // phone time the request left; serverNow − sentAt corrects the phone's clock
+}
+
+// countedAt drives expected stock, so a count queued offline keeps its capture time: corrected for clock skew,
+// clamped to [openedAt, now], and never earlier than a stored line for the same item (keeps capture order).
+async function countTime(c: Cols, s: ClientSession, st: Stocktake, input: CountLineInput, now: Date): Promise<Date> {
+  if (!input.capturedAt) return now;
+  const skew = input.sentAt ? now.getTime() - input.sentAt.getTime() : 0;
+  const t = Math.min(Math.max(input.capturedAt.getTime() + skew, st.openedAt.getTime()), now.getTime());
+  const latest = await c.stocktakeLines
+    .find({ stocktakeId: st._id, sku: input.sku, batchId: input.batchId ?? { $exists: false } }, { session: s, projection: { countedAt: 1 } })
+    .sort({ countedAt: -1 })
+    .limit(1)
+    .next();
+  return new Date(latest ? Math.max(t, latest.countedAt.getTime() + 1) : t); // +1 ms: ties would fold by random lineId
 }
 
 export async function saveCountLine(c: Cols, s: ClientSession, ctx: CommandCtx, input: CountLineInput) {
@@ -400,10 +431,11 @@ export async function saveCountLine(c: Cols, s: ClientSession, ctx: CommandCtx, 
     const batch = await c.batches.findOne({ _id: input.batchId }, { session: s });
     if (!batch || batch.sku !== input.sku) throw new DomainError("BATCH_MISMATCH", "That batch label belongs to a different product", 400);
   }
+  const countedAt = await countTime(c, s, st, input, now);
   await c.stocktakeLines.insertOne(
     {
       _id: input.lineId, stocktakeId: input.stocktakeId, sku: input.sku, counted: input.counted, mode: input.mode,
-      countedAt: now, clerkId: input.sid, origin: ctx.origin,
+      countedAt, receivedAt: now, clerkId: input.sid, origin: ctx.origin,
       ...(input.batchId ? { batchId: input.batchId } : {}), // undefined would be stored as null and fail validation
     },
     { session: s },
@@ -414,7 +446,7 @@ export async function saveCountLine(c: Cols, s: ClientSession, ctx: CommandCtx, 
     .sort({ countedAt: 1, _id: 1 })
     .toArray();
   const effective = foldCounts(entries).get(countKey(input.sku, input.batchId));
-  return { lineId: input.lineId, counted: effective?.counted ?? input.counted, countedAt: now };
+  return { lineId: input.lineId, counted: effective?.counted ?? input.counted, countedAt };
 }
 
 export interface SubmitInput {

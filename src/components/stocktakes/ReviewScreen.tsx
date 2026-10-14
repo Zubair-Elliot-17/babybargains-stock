@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useMemo, useRef, useState } from "react";
-import { FLAG_PENCE, FLAG_UNITS } from "@/domain/ledger/stocktake";
+import { FLAG_PENCE, FLAG_UNITS, LATE_MS } from "@/domain/ledger/stocktake";
 import { money, when } from "@/lib/format";
 import { count } from "@/lib/plural";
 import styles from "./stocktakes.module.css";
@@ -21,6 +21,7 @@ export interface ReviewLine {
   clampedBy: number;
   quarantined: number;
   countedAt: string;
+  lateMs?: number; // longest gap between count and arrival (counted offline)
 }
 
 interface Approved {
@@ -50,7 +51,7 @@ export function ReviewScreen(props: {
 
   const flagged = props.lines.filter((l) => l.flagged);
   const small = props.lines.filter((l) => !l.flagged && l.variance !== 0);
-  const matched = props.lines.filter((l) => l.variance === 0).length;
+  const matched = props.lines.filter((l) => l.variance === 0 && !l.flagged).length;
   const allAccepted = flagged.every((l) => accepted.has(l.key));
   const reviewable = props.status === "SUBMITTED" && !result;
   const net = useMemo(() => props.lines.reduce((n, l) => n + l.variance, 0), [props.lines]);
@@ -172,7 +173,8 @@ function LineTable({ lines, accept }: { lines: ReviewLine[]; accept?: { accepted
             <th scope="row">
               {l.productName}
               <span className={styles.sub}>counted {when(l.countedAt)} UTC{l.clampedBy ? ` · ${l.clampedBy} sold since; adjustment capped` : ""}
-                {l.quarantined ? <> · <span className={styles.warn}>{`Recalled batch: ${count(l.quarantined, "found unit")} quarantined`}</span></> : null}</span>
+                {l.quarantined ? <> · <span className={styles.warn}>{`Recalled batch: ${count(l.quarantined, "found unit")} quarantined`}</span></> : null}
+                {(l.lateMs ?? 0) > LATE_MS ? <> · <span className={styles.warn}>{`Counted offline, arrived ${duration(l.lateMs!)} later`}</span></> : null}</span>
             </th>
             <td className={`mono ${styles.code}`}>{l.batchCode ?? "–"}</td>
             <td className="num"><span className="estimated" title="System stock at the moment this line was counted">{l.expected}</span></td>
@@ -193,4 +195,9 @@ function LineTable({ lines, accept }: { lines: ReviewLine[]; accept?: { accepted
       </tbody>
     </table>
   );
+}
+
+function duration(ms: number) {
+  const mins = Math.round(ms / 60_000);
+  return mins >= 60 ? `${Math.floor(mins / 60)}h ${mins % 60}m` : `${mins}m`;
 }

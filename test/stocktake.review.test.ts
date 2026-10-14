@@ -9,10 +9,16 @@ const line = (quarantined: number) => ({
   key: `S|B${quarantined}`, sku: "S", productName: `Cot ${quarantined}`, batchCode: "B-1", counted: quarantined, expected: 0, variance: quarantined,
   valuePence: 100, flagged: false, clampedBy: 0, quarantined, countedAt: "2026-10-10T09:00:00.000Z",
 });
-const html = (lines: ReturnType<typeof line>[]) =>
+const html = (lines: (ReturnType<typeof line> & { lateMs?: number })[]) =>
   renderToStaticMarkup(createElement(ReviewScreen, { stocktakeId: "st", branchName: "Alpha", status: "SUBMITTED", clerkLabel: "C", submittedAt: null, approvedAt: null, lines }));
 
 describe("stocktake review", () => {
+  it("flags a line that arrived more than 15 minutes after it was counted", () => {
+    expect(html([{ ...line(0), flagged: true, lateMs: 65 * 60_000 }])).toContain("Counted offline, arrived 1h 5m later");
+    expect(html([{ ...line(0), flagged: true, lateMs: 15 * 60_000 }])).not.toContain("Counted offline");
+    expect(html([{ ...line(0), flagged: true }])).not.toContain("Counted offline");
+  });
+
   it("says found units on a recalled batch will be quarantined", () => {
     expect(html([line(3)])).toContain("Recalled batch: 3 found units quarantined");
     expect(html([line(1)])).toContain("Recalled batch: 1 found unit quarantined");

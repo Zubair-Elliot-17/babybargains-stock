@@ -172,6 +172,7 @@ export const Stocktake = z.object({
   uncounted: z.enum(["zero", "leave"]).optional(),
   approvedAt: z.date().optional(),
   approvedOrigin: Origin.optional(),
+  resumeNonce: z.string().max(64).optional(), // the current resume key is HMAC(id:nonce); rotated on every open
   origin: Origin,
 });
 export type Stocktake = z.infer<typeof Stocktake>;
@@ -185,6 +186,7 @@ export const StocktakeLine = z.object({
   counted: z.number().int().min(0).max(9999),
   mode: z.enum(["add", "replace"]),
   countedAt: z.date(),
+  receivedAt: z.date().optional(), // server arrival; differs from countedAt for counts queued offline
   clerkId: Id,
   origin: Origin,
 });

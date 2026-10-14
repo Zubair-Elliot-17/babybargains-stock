@@ -25,7 +25,7 @@ export default async function ReviewPage({ params }: { params: Promise<{ id: str
     const full = plan.lines.find((x) => x.key === l.key)!;
     return {
       key: l.key, sku: l.sku, productName: full.productName, batchCode: full.batchCode, counted: l.counted, expected: l.expected,
-      variance: l.variance, valuePence: l.valuePence, flagged: l.flagged, clampedBy: l.clampedBy, quarantined: l.quarantined, countedAt: full.countedAt.toISOString(),
+      variance: l.variance, valuePence: l.valuePence, flagged: l.flagged, clampedBy: l.clampedBy, quarantined: l.quarantined, countedAt: full.countedAt.toISOString(), lateMs: full.lateMs,
     };
   });
   const st = plan.stocktake;
