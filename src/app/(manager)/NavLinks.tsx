@@ -4,7 +4,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import styles from "./shell.module.css";
 
-const RELEASED = 3; // highest milestone shipped; later items show as "coming"
+const RELEASED = 4; // highest milestone shipped; later items show as "coming"
 
 const ITEMS = [
   { href: "/recall", label: "Recall", short: "Rec", milestone: 1 },

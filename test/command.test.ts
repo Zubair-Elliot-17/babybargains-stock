@@ -141,3 +141,24 @@ describe("resume key helpers", () => {
     expect(resumeKeyMatches("ST-1", undefined, key)).toBe(false);
   });
 });
+
+// Clerks count blind: a refused sale names the short lines but never the system quantity.
+describe("sale route", () => {
+  it("refuses short stock without revealing on-hand", async () => {
+    const { migrate } = await import("@/seed/apply");
+    const { buildWorld, TOY } = await import("./world");
+    const sales = await import("@/app/api/sales/route");
+    const db = await getDb();
+    await db.dropDatabase();
+    await migrate(db);
+    await buildWorld(db);
+    token = createSession("clerk", "BR-A").token;
+    const post = (lines: unknown) => sales.POST(new Request("http://x/api", { method: "POST", body: JSON.stringify({ commandId: randomUUID(), lines }) }));
+    const res = await post([{ sku: TOY, qty: 999 }]);
+    expect(res.status).toBe(409);
+    const body = await res.json();
+    expect(body.error).toMatchObject({ code: "INSUFFICIENT_STOCK", details: [{ sku: TOY }] });
+    expect(JSON.stringify(body)).not.toMatch(/available|System shows/);
+    expect((await post([{ sku: TOY, qty: 1 }, { sku: TOY, qty: 1 }])).status).toBe(400); // duplicate lines
+  });
+});

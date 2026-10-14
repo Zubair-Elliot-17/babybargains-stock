@@ -92,6 +92,7 @@ export async function resetDemo(db: Db, now = new Date()): Promise<ResetReport> 
   removed.stocktakes = (await c.stocktakes.deleteMany({ origin: "visitor" })).deletedCount;
   removed.stocktakeLines = (await c.stocktakeLines.deleteMany({ origin: "visitor" })).deletedCount;
   removed.batches = (await c.batches.deleteMany({ createdOrigin: "visitor" })).deletedCount;
+  removed.purchaseOrders = (await c.purchaseOrders.deleteMany({ origin: "visitor" })).deletedCount;
   // A visitor approving the seeded stocktake: its adjustments were visitor movements (already removed).
   await c.stocktakes.updateMany({ approvedOrigin: "visitor" }, { $set: { status: "SUBMITTED" }, $unset: { approvedAt: "", approvedOrigin: "" } });
   const restored = await c.batches.updateMany(

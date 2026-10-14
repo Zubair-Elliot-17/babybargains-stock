@@ -93,6 +93,20 @@ recorded or counted figures are solid.
 
 Orders/imports and analytics are Milestone 4.
 
+## What's in Milestone 4: sales, orders, stock and analytics
+
+- **Record sale (clerk, phone):** a till-style basket with the count screen's search and stepper. One
+  sale posts every line oldest batch first, or none: short stock refuses the whole sale and marks each
+  short line with what the system holds.
+- **Orders (manager):** pick a branch and supplier and the order prefills with that supplier's products
+  below reorder point, topped up to twice it. Receive deliveries in parts: each line lands in the batch
+  named on its label (new batches are created, recalled ones refused) as `RECEIVED` movements tied to
+  the order. An order can be cancelled until something arrives.
+- **Stock (manager):** sellable on-hand per product for a branch or all branches, low stock first.
+- **Analytics (manager):** exceptions first (low stock, dead stock with no sale in 90 days, orders over
+  a week late), then 12 months of sales by branch and category, top movers, supplier lead time and fill
+  rate.
+
 ## Counting in a stockroom dead spot
 
 Flip **Stockroom dead spot** in the demo strip on the count screen, count a few products, reload, then flip

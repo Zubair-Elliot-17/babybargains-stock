@@ -16,7 +16,7 @@ test("a clerk replaying a manager page's navigation payload gets none of its dat
   await page.goto("/login");
   await page.getByRole("button", { name: /Manager/ }).click();
   await page.waitForURL(/\/recall/);
-  const nav = (name: string) => () => page.getByRole("navigation", { name: "Main" }).getByRole("link", { name }).click();
+  const nav = (name: string | RegExp) => () => page.getByRole("navigation", { name: "Main" }).getByRole("link", { name }).click();
 
   // [request, text only the page's data would contain]
   const captured: [Request, string][] = [];
@@ -27,6 +27,9 @@ test("a clerk replaying a manager page's navigation payload gets none of its dat
   captured.push([await navigate(page, () => page.getByRole("link", { name: "View", exact: true }).first().click(), /^\/stocktakes\/ST-/), "valuePence"]);
   captured.push([await navigate(page, nav("Transfers"), /^\/transfers$/), "fromBranchId"]);
   captured.push([await navigate(page, nav("Recall"), /^\/recall$/), "B-3920"]);
+  captured.push([await navigate(page, nav(/^Stock$/), /^\/stock$/), "PRAM-ROAMCITYPRAM-GRAPHITE"]);
+  captured.push([await navigate(page, nav("Orders"), /^\/orders$/), "SUP-ROAM"]);
+  captured.push([await navigate(page, nav("Analytics"), /^\/analytics$/), "Below reorder point"]);
 
   const clerk = await playwright.request.newContext({ baseURL });
   const branchId = "BR-LEE";
@@ -46,7 +49,7 @@ test("a clerk replaying a manager page's navigation payload gets none of its dat
 
 test("a signed-in clerk who opens a manager page is sent back to counting, not to sign-in", async ({ page }) => {
   expect((await page.request.post("/api/session", { data: { role: "clerk", branchId: "BR-LEE" } })).ok()).toBeTruthy();
-  for (const path of ["/transfers", "/recall", "/stocktakes"]) {
+  for (const path of ["/transfers", "/recall", "/stocktakes", "/stock", "/orders", "/analytics"]) {
     await page.goto(path);
     await expect(page, `clerk opening ${path}`).toHaveURL(/\/count$/);
   }

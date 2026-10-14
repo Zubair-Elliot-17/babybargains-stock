@@ -90,3 +90,8 @@ Deferred during plan review. Each has the context needed to pick it up later.
 ## Hero-screen mockups (P3)
 - **What:** generate and approve mockups for Recall and Count before more UI work.
 - **Depends on:** an OpenAI API key for the gstack designer.
+
+## Supplier delivery-note and catalogue imports (P3)
+- **What:** import a supplier's delivery note (JSON) against an order, and a catalogue import with a diff preview.
+- **Why:** the original plan's adapter pattern; Milestone 4 receives deliveries with a form instead.
+- **Context:** `receivePurchaseOrder` in `src/domain/ledger/orders.ts` already takes `{sku, qty, batchCode}` lines; an adapter maps a supplier format onto it.

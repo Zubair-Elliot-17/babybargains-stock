@@ -3,6 +3,7 @@ import type {
   Batch,
   Branch,
   InventoryRow,
+  PurchaseOrder,
   Movement,
   Product,
   SalesDay,
@@ -49,6 +50,7 @@ export function cols(db: Db) {
     stockPolicies: db.collection<StockPolicy>("stockPolicies"),
     stocktakes: db.collection<Stocktake>("stocktakes"),
     stocktakeLines: db.collection<StocktakeLine>("stocktakeLines"),
+    purchaseOrders: db.collection<PurchaseOrder>("purchaseOrders"),
     commandLog: db.collection<CommandLogEntry>("commandLog"),
     rateLimits: db.collection<RateLimitEntry>("rateLimits"),
     ops: db.collection<OpsDoc>("ops"),
@@ -85,6 +87,8 @@ export async function ensureIndexes(db: Db): Promise<void> {
     c.stocktakes.createIndex({ status: 1, submittedAt: -1 }),
     c.stocktakeLines.createIndex({ stocktakeId: 1, sku: 1, batchId: 1, countedAt: 1 }),
     c.stocktakeLines.createIndex({ batchId: 1 }),
+    c.purchaseOrders.createIndex({ status: 1, sentAt: -1 }),
+    c.purchaseOrders.createIndex({ origin: 1 }),
   ]);
 }
 
