@@ -3,8 +3,8 @@ import type { ClientSession, Db } from "mongodb";
 import { cols, type Cols } from "../collections";
 import { DomainError, NotFound } from "../errors";
 import type { PurchaseOrder } from "../schemas";
-import { normaliseBatchCode } from "./read";
-import { postMovements, type CommandCtx, type NewMovement } from "./write";
+import { BATCH_CODE, normaliseBatchCode } from "./read";
+import { lockBranches, postMovements, type CommandCtx, type NewMovement } from "./write";
 
 // Purchase orders (Milestone 4, docs/designs/milestone-4.md): create as SENT, receive in one or more
 // deliveries (each posts RECEIVED movements into named batches), cancel while nothing has arrived.
@@ -32,7 +32,7 @@ export async function createPurchaseOrder(c: Cols, s: ClientSession, ctx: Comman
     if (supplierOf.get(sku) !== input.supplierId) throw new DomainError("WRONG_SUPPLIER", `${sku} is not supplied by ${supplier.name}`, 400);
   }
   const order: PurchaseOrder = {
-    _id: `PO-${branch.code}-${now.toISOString().slice(0, 10).replaceAll("-", "")}-${createHash("sha1").update(ctx.commandId).digest("hex").slice(0, 6)}`,
+    _id: `PO-${branch.code}-${now.toISOString().slice(0, 10).replaceAll("-", "")}-${createHash("sha1").update(ctx.commandId).digest("hex").slice(0, 12)}`,
     supplierId: input.supplierId,
     branchId: input.branchId,
     status: "SENT",
@@ -54,6 +54,7 @@ export async function receivePurchaseOrder(c: Cols, s: ClientSession, ctx: Comma
   const order = await c.purchaseOrders.findOne({ _id: input.orderId }, { session: s });
   if (!order) throw new NotFound(`Order ${input.orderId} not found`);
   if (order.status !== "SENT" && order.status !== "PARTIAL") throw new DomainError("ORDER_CLOSED", `Order is ${order.status.toLowerCase()}`, 409);
+  await lockBranches(c, s, [order.branchId]); // conflicts with a recall committing at the same time (it locks all branches)
   const arriving = input.lines.filter((l) => l.qty > 0);
   if (!arriving.length) throw new DomainError("NOTHING_RECEIVED", "Enter a quantity for at least one line", 400);
   if (new Set(arriving.map((l) => l.sku)).size !== arriving.length) throw new DomainError("DUPLICATE_LINE", "Each product can appear once per delivery", 400);
@@ -70,15 +71,17 @@ export async function receivePurchaseOrder(c: Cols, s: ClientSession, ctx: Comma
     }
     const batchCode = normaliseBatchCode(a.batchCode);
     if (!batchCode || batchCode === "UNBATCHED") throw new DomainError("BATCH_CODE_REQUIRED", `Enter the batch code on the label for ${a.sku}`, 400);
-    const batchId = `${order.supplierId}:${batchCode}:${a.sku}`;
-    const existing = await c.batches.findOne({ _id: batchId }, { session: s });
-    if (existing?.status === "RECALLED") throw new DomainError("BATCH_RECALLED", `Batch ${batchCode} is recalled; it cannot be received`, 409);
-    if (!existing) {
-      await c.batches.insertOne(
-        { _id: batchId, supplierId: order.supplierId, batchCode, sku: a.sku, parentSku: parentOf.get(a.sku) ?? a.sku, receivedAt: now, status: "ACTIVE", createdOrigin: ctx.origin },
-        { session: s },
-      );
+    if (!BATCH_CODE.test(batchCode)) throw new DomainError("BATCH_CODE_INVALID", `Batch codes use letters, digits, spaces and . _ / - only (${a.sku})`, 400);
+    // A recall covers the code across every SKU (sizes, colours), so any recalled batch with it refuses.
+    if (await c.batches.findOne({ batchCode, status: "RECALLED" }, { session: s, projection: { _id: 1 } })) {
+      throw new DomainError("BATCH_RECALLED", `Batch ${batchCode} is recalled; it cannot be received`, 409);
     }
+    const batchId = `${order.supplierId}:${batchCode}:${a.sku}`;
+    await c.batches.updateOne(
+      { _id: batchId },
+      { $setOnInsert: { supplierId: order.supplierId, batchCode, sku: a.sku, parentSku: parentOf.get(a.sku) ?? a.sku, receivedAt: now, status: "ACTIVE", createdOrigin: ctx.origin } },
+      { session: s, upsert: true },
+    );
     line.received += a.qty;
     movements.push({ type: "RECEIVED", branchId: order.branchId, sku: a.sku, batchId, qty: a.qty, refType: "delivery", refId: order._id, attributed: false });
   }

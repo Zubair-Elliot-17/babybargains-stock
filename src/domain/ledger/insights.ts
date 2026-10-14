@@ -84,6 +84,8 @@ export async function analytics(db: Db, opts: { branchId?: string; category?: Pr
   const now = opts.now ?? new Date();
   const byBranch = opts.branchId ? { branchId: opts.branchId } : {};
   const monthStart = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - 11, 1));
+  const categorySkus = opts.category ? await c.products.distinct("_id", { category: opts.category }) : null;
+  const bySku = categorySkus ? { sku: { $in: categorySkus } } : {};
   const [products, branches, suppliers, rows, policies, soldRecently, months, movers, orders] = await Promise.all([
     c.products.find({}, { projection: { name: 1, category: 1, price: 1 } }).toArray(),
     c.branches.find({}, { projection: { name: 1 } }).toArray(),
@@ -106,12 +108,12 @@ export async function analytics(db: Db, opts: { branchId?: string; category?: Pr
       },
     ]).toArray(),
     c.movements.aggregate<{ _id: string; units: number }>([
-      { $match: { type: "SOLD", at: { $gte: new Date(now.getTime() - MOVER_DAYS * DAY) }, ...byBranch } },
+      { $match: { type: "SOLD", at: { $gte: new Date(now.getTime() - MOVER_DAYS * DAY) }, ...byBranch, ...bySku } },
       { $group: { _id: "$sku", units: { $sum: { $multiply: ["$qty", -1] } } } },
-      { $sort: { units: -1 } },
-      { $limit: 50 }, // filtered by category below, then cut to 10
+      { $sort: { units: -1, _id: 1 } },
+      { $limit: 10 },
     ]).toArray(),
-    c.purchaseOrders.find(byBranch).toArray(),
+    c.purchaseOrders.find({ ...byBranch, sentAt: { $gte: new Date(now.getTime() - 365 * DAY) } }).toArray(), // a year of orders
   ]);
   const product = new Map(products.map((p) => [p._id, p]));
   const inCategory = (sku: string) => !opts.category || product.get(sku)?.category === opts.category;
@@ -159,7 +161,7 @@ export async function analytics(db: Db, opts: { branchId?: string; category?: Pr
     deadStockValuePence: dead.reduce((n, d) => n + d.valuePence, 0),
     overdueOrders: overdue,
     salesByMonth: [...monthTotals].map(([month, t]) => ({ month, ...t })),
-    topMovers: movers.filter((m) => inCategory(m._id)).slice(0, 10).map((m) => ({ sku: m._id, name: product.get(m._id)?.name ?? m._id, units: m.units })),
+    topMovers: movers.map((m) => ({ sku: m._id, name: product.get(m._id)?.name ?? m._id, units: m.units })),
     orders: {
       open: orders.filter((o) => o.status === "SENT" || o.status === "PARTIAL").length,
       avgLeadDays: received.length ? received.reduce((n, o) => n + (o.receivedAt!.getTime() - o.sentAt.getTime()), 0) / received.length / DAY : null,

@@ -6,7 +6,7 @@ import { postCommand } from "@/lib/postCommand";
 import styles from "./count.module.css";
 
 type SaleProduct = { sku: string; name: string; price: number };
-type Line = { sku: string; name: string; price: number; qty: number; short?: number };
+type Line = { sku: string; name: string; price: number; qty: number; short?: boolean };
 
 // Till-style basket (design D23): search, quantity, add; one sale posts every line FIFO or none.
 export function SaleScreen({ products }: { products: SaleProduct[] }) {
@@ -17,6 +17,7 @@ export function SaleScreen({ products }: { products: SaleProduct[] }) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
+  const [locked, setLocked] = useState(false); // outcome unknown: only an identical resend is allowed
   const total = basket.reduce((n, l) => n + l.qty * l.price, 0);
 
   const matches = useMemo(() => {
@@ -26,7 +27,8 @@ export function SaleScreen({ products }: { products: SaleProduct[] }) {
   }, [query, products]);
 
   function add(p: SaleProduct) {
-    setBasket((b) => (b.some((l) => l.sku === p.sku) ? b.map((l) => (l.sku === p.sku ? { ...l, qty: Math.min(999, l.qty + 1), short: undefined } : l)) : [...b, { ...p, qty: 1 }]));
+    if (locked) return;
+    setBasket((b) => (b.some((l) => l.sku === p.sku) ? b.map((l) => (l.sku === p.sku ? { ...l, qty: Math.min(999, l.qty + 1), short: false } : l)) : [...b, { ...p, qty: 1 }]));
     setQuery("");
     setNotice(null);
     setError(null);
@@ -34,19 +36,19 @@ export function SaleScreen({ products }: { products: SaleProduct[] }) {
   }
 
   const setQty = (sku: string, qty: number) =>
-    setBasket((b) => (qty <= 0 ? b.filter((l) => l.sku !== sku) : b.map((l) => (l.sku === sku ? { ...l, qty: Math.min(999, qty), short: undefined } : l))));
+    !locked && setBasket((b) => (qty <= 0 ? b.filter((l) => l.sku !== sku) : b.map((l) => (l.sku === sku ? { ...l, qty: Math.min(999, qty), short: false } : l))));
 
   async function record() {
     setBusy(true);
     setError(null);
     const r = await postCommand<{ total: number }>("/api/sales", { lines: basket.map((l) => ({ sku: l.sku, qty: l.qty })) }, id);
     setBusy(false);
+    setLocked("error" in r && !!r.unknown);
     if ("error" in r) {
-      // Short stock refuses the whole sale; mark every short line with what the system holds.
+      // Short stock refuses the whole sale; mark every short line (no quantities: the count stays blind).
       if (r.code === "INSUFFICIENT_STOCK" && Array.isArray(r.details)) {
-        const short = new Map((r.details as { sku: string; available: number }[]).map((d) => [d.sku, d.available]));
-        setBasket((b) => b.map((l) => ({ ...l, short: short.get(l.sku) })));
-        return setError("Not enough stock on record for the lines marked below. Lower them or count the shelf.");
+        const short = new Set((r.details as { sku: string }[]).map((d) => d.sku));
+        setBasket((b) => b.map((l) => ({ ...l, short: short.has(l.sku) })));
       }
       return setError(r.error);
     }
@@ -60,7 +62,7 @@ export function SaleScreen({ products }: { products: SaleProduct[] }) {
       <h1 className="sr-only">Record sale</h1>
       <div className={styles.searchBar}>
         <label htmlFor="sale-search" className="sr-only">Scan or search product</label>
-        <input id="sale-search" ref={searchRef} className="input" placeholder="Scan or search product" value={query} onChange={(e) => setQuery(e.target.value)} autoComplete="off" />
+        <input id="sale-search" ref={searchRef} className="input" placeholder="Scan or search product" value={query} onChange={(e) => setQuery(e.target.value)} autoComplete="off" disabled={locked} />
       </div>
       {matches.length > 0 && (
         <ul className={styles.results} role="listbox" aria-label="Matching products">
@@ -86,12 +88,12 @@ export function SaleScreen({ products }: { products: SaleProduct[] }) {
               <li key={l.sku} className={styles.saleLine}>
                 <span>
                   {l.name}
-                  {l.short !== undefined && <span className={styles.saleShort}> · System shows only {l.short}</span>}
+                  {l.short && <span className={styles.saleShort}> · Not enough on record</span>}
                 </span>
                 <span className={styles.stepper}>
-                  <button className={styles.step} onClick={() => setQty(l.sku, l.qty - 1)} aria-label={`One fewer ${l.name}`}>−</button>
+                  <button className={styles.step} disabled={locked} onClick={() => setQty(l.sku, l.qty - 1)} aria-label={`One fewer ${l.name}`}>−</button>
                   <span aria-label={`Quantity of ${l.name}`}>{l.qty}</span>
-                  <button className={styles.step} onClick={() => setQty(l.sku, l.qty + 1)} aria-label={`One more ${l.name}`}>+</button>
+                  <button className={styles.step} disabled={locked} onClick={() => setQty(l.sku, l.qty + 1)} aria-label={`One more ${l.name}`}>+</button>
                 </span>
                 <span className="num">{money(l.qty * l.price)}</span>
               </li>
@@ -104,7 +106,7 @@ export function SaleScreen({ products }: { products: SaleProduct[] }) {
       <footer className={styles.footer}>
         <span>{money(total)}</span>
         <button className="btn btn-primary" disabled={busy || basket.length === 0} onClick={record}>
-          {busy ? "Recording…" : `Record sale ${money(total)}`}
+          {busy ? "Recording…" : locked ? `Send again ${money(total)}` : `Record sale ${money(total)}`}
         </button>
       </footer>
     </div>

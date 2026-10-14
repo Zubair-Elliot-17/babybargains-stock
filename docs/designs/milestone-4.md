@@ -7,7 +7,9 @@ Milestone 4 and design D7/D23).
 ## Screens
 1. **Record sale (clerk, `/sale`)**: till-style basket reusing the count search + stepper. Lines carry the
    price; the button reads "Record sale £184.97". Posts `recordSale` (FIFO, already built and reset-safe).
-   Short stock refuses the whole sale and shows "System shows only N" on the line. One commandId per basket
+   Short stock refuses the whole sale and marks each short line "Not enough on record". Changed from the
+   plan's "System shows only N" after the security review: the number would let a clerk read system stock
+   and defeat the blind count. One commandId per basket
    attempt, so a resend never records twice.
 2. **Stock (manager, `/stock`)**: on-hand by product for one branch or all, search, low-stock first, with
    reorder point and status (Low / OK).
@@ -29,3 +31,11 @@ Milestone 4 and design D7/D23).
 - Draft orders, editing a sent order, supplier JSON delivery-note import and catalogue import UI: a receive
   form does the job; imports stay a TODO.
 - Charts beyond one bar chart; CSV export.
+
+## Review outcome (2026-10-14)
+Reviewer + security auditor, no P1. Fixed: lost-reply resend could record twice (forms lock while the outcome
+is unknown; `postCommand` keeps the id only then), blind-count leak through the sale refusal, batch-code
+allowlist (lookalike codes), recalled code refused across SKUs, receive takes the branch lock, stale receive
+form after a partial delivery, top movers with a category filter, sale page session check, category param,
+order banner, 12-hex order ids, analytics reads one year of orders, concurrent batch creation upserts.
+Left as is: fill rate counts cancelled orders as unfilled (labelled on the page); per-IP rate limits (TODO).

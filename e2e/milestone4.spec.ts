@@ -24,7 +24,7 @@ async function inStockAtLeeds(): Promise<string> {
 
 // Milestone 4: Record sale (clerk), Orders, Stock and Analytics (manager).
 
-test("@phone clerk records a sale and sees short stock marked on the line", async ({ page }) => {
+test("@phone clerk records a sale and sees short lines marked without system quantities", async ({ page }) => {
   await page.goto("/login");
   await page.getByLabel("Branch").selectOption({ label: "Leeds Kirkgate" });
   await page.getByRole("button", { name: "Start counting" }).click();
@@ -39,12 +39,12 @@ test("@phone clerk records a sale and sees short stock marked on the line", asyn
 
   // Short stock refuses the whole sale (server response mocked): the line says what the system holds.
   await page.route("**/api/sales", (route) =>
-    route.fulfill({ status: 409, json: { error: { code: "INSUFFICIENT_STOCK", message: "x", details: [{ sku: "PRAM-ROAMCITYPRAM-GRAPHITE", available: 0, requested: 1, branchId: "BR-LEE" }] } } }),
+    route.fulfill({ status: 409, json: { error: { code: "INSUFFICIENT_STOCK", message: "x", details: [{ sku: "PRAM-ROAMCITYPRAM-GRAPHITE" }] } } }),
   );
   await search.fill("Roam City Pram · Graphite");
   await page.getByRole("option").first().click(); // second unit of the same line, or a new line
   await page.getByRole("button", { name: /^Record sale £/ }).click();
-  await expect(page.getByText("System shows only 0")).toBeVisible();
+  await expect(page.getByText("Not enough on record")).toBeVisible();
   await page.unrouteAll();
 
   // Real sale: drop the short line, sell a product Leeds holds.

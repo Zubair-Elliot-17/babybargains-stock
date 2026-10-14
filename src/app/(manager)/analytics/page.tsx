@@ -20,7 +20,7 @@ export default async function AnalyticsPage({ searchParams }: { searchParams: Pr
   const db = await getDb();
   const branches = await cols(db).branches.find({}, { projection: { name: 1 } }).sort({ name: 1 }).toArray();
   const branchId = branches.some((b) => b._id === params.branch) ? params.branch : undefined;
-  const category = params.category && params.category in CATEGORIES ? (params.category as Product["category"]) : undefined;
+  const category = params.category && Object.hasOwn(CATEGORIES, params.category) ? (params.category as Product["category"]) : undefined;
   const a = await analytics(db, { branchId, category });
   const peak = Math.max(1, ...a.salesByMonth.map((m) => m.pence));
   const year = a.salesByMonth.reduce((n, m) => n + m.pence, 0);

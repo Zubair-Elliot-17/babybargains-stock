@@ -34,7 +34,7 @@ export default async function OrdersPage({ searchParams }: { searchParams: Promi
   return (
     <>
       <h1>Orders{open ? ` · ${open} open` : ""}</h1>
-      {params.created && <p className="banner" role="status">Order {params.created} sent.</p>}
+      {orders.some((o) => o._id === params.created) && <p className="banner" role="status">Order {params.created} sent.</p>}
 
       <section className={styles.section} aria-labelledby="new-order">
         <h2 id="new-order">New order</h2>
@@ -96,7 +96,7 @@ export default async function OrdersPage({ searchParams }: { searchParams: Promi
                       <td>{when(o.sentAt)} UTC</td>
                       <td className="num">{received} of {ordered}</td>
                       <td>{STATUS[o.status]}</td>
-                      <td><OrderActions order={o} /></td>
+                      <td><OrderActions key={`${o._id}:${received}:${o.status}`} order={o} /></td>
                     </tr>
                   );
                 })}

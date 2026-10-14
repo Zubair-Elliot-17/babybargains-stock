@@ -109,7 +109,7 @@ export async function runCommand<T>(
 // Commands that read "is a stocktake open here?" and commands that open or close one touch no shared
 // document otherwise, so two such transactions could both commit (write skew). Writing a per-branch
 // lock doc makes them conflict; withTransaction retries the loser, which then sees the other's result.
-async function lockBranches(c: Cols, s: ClientSession, branchIds: string[]) {
+export async function lockBranches(c: Cols, s: ClientSession, branchIds: string[]) {
   await c.branchLocks.bulkWrite(
     branchIds.map((_id) => ({ updateOne: { filter: { _id }, update: { $inc: { rev: 1 } }, upsert: true } })),
     { session: s },

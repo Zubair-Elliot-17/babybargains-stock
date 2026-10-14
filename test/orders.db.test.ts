@@ -67,6 +67,26 @@ describe("purchase orders", () => {
     expect((await cols(t.db).purchaseOrders.findOne({ _id: po._id }))?.status).toBe("SENT");
   });
 
+  it("refuses lookalike codes with invisible characters, and a code recalled on a sibling SKU", async () => {
+    const po = (await create([{ sku: COT, qty: 2 }])).result;
+    await expect(receive(po._id, [{ sku: COT, qty: 1, batchCode: "B-1\u200b" }])).rejects.toMatchObject({ code: "BATCH_CODE_INVALID" });
+    await expect(receive(po._id, [{ sku: COT, qty: 1, batchCode: "B-1\u001d" }])).rejects.toMatchObject({ code: "BATCH_CODE_INVALID" });
+    // The same lot code recalled on another SKU (another size or colour) still refuses.
+    await cols(t.db).batches.insertOne({ _id: "SUP-OAK:B-50:OTHER", supplierId: "SUP-OAK", batchCode: "B-50", sku: "OTHER", parentSku: "COT-T", receivedAt: new Date(), status: "RECALLED" });
+    await expect(receive(po._id, [{ sku: COT, qty: 1, batchCode: "b-50" }])).rejects.toMatchObject({ code: "BATCH_RECALLED" });
+  });
+
+  it("two deliveries racing for the last units: one lands, the other is refused", async () => {
+    const po = (await create([{ sku: COT, qty: 2 }])).result;
+    const results = await Promise.allSettled([
+      receive(po._id, [{ sku: COT, qty: 2, batchCode: "B-NEW" }]),
+      receive(po._id, [{ sku: COT, qty: 2, batchCode: "B-NEW" }]),
+    ]);
+    expect(results.map((r) => r.status).sort()).toEqual(["fulfilled", "rejected"]);
+    expect((results.find((r) => r.status === "rejected") as PromiseRejectedResult).reason).toMatchObject({ code: "ORDER_CLOSED" });
+    expect(await onHand(`SUP-OAK:B-NEW:${COT}`)).toBe(2);
+  });
+
   it("cancels only while nothing has arrived", async () => {
     const a = (await create([{ sku: COT, qty: 2 }])).result;
     expect((await run((c, s, k) => cancelPurchaseOrder(c, s, k, { orderId: a._id }))).result.status).toBe("CANCELLED");

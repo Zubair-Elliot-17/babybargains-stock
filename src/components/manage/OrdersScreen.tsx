@@ -18,6 +18,7 @@ export function NewOrder(props: { branchId: string; supplierId: string; suggesti
     props.suggestions.map((s) => ({ sku: s.sku, name: s.name, qty: s.qty, include: true, note: `${s.onHand} on hand, reorder at ${s.reorderPoint}` })),
   );
   const [busy, setBusy] = useState(false);
+  const [locked, setLocked] = useState(false); // outcome unknown: only an identical resend is allowed
   const [error, setError] = useState<string | null>(null);
   const extra = props.catalogue.filter((p) => !lines.some((l) => l.sku === p.sku));
   const chosen = lines.filter((l) => l.include && l.qty > 0);
@@ -28,6 +29,7 @@ export function NewOrder(props: { branchId: string; supplierId: string; suggesti
     setError(null);
     const r = await postCommand<{ _id: string }>("/api/orders", { branchId: props.branchId, supplierId: props.supplierId, lines: chosen.map((l) => ({ sku: l.sku, qty: l.qty })) }, id);
     setBusy(false);
+    setLocked("error" in r && !!r.unknown);
     if ("error" in r) return setError(r.error);
     router.push(`/orders?created=${encodeURIComponent(r.result._id)}`);
     router.refresh();
@@ -48,10 +50,10 @@ export function NewOrder(props: { branchId: string; supplierId: string; suggesti
           <tbody>
             {lines.map((l) => (
               <tr key={l.sku}>
-                <td><input type="checkbox" aria-label={`Order ${l.name}`} checked={l.include} onChange={(e) => set(l.sku, { include: e.target.checked })} /></td>
+                <td><input type="checkbox" disabled={locked} aria-label={`Order ${l.name}`} checked={l.include} onChange={(e) => set(l.sku, { include: e.target.checked })} /></td>
                 <th scope="row">{l.name}{l.note && <span className={styles.meta}> · {l.note}</span>}</th>
                 <td className="num">
-                  <input className={`input ${styles.lineInput}`} inputMode="numeric" aria-label={`Quantity of ${l.name}`} value={l.qty}
+                  <input className={`input ${styles.lineInput}`} inputMode="numeric" disabled={locked} aria-label={`Quantity of ${l.name}`} value={l.qty}
                     onChange={(e) => set(l.sku, { qty: Math.min(9999, Number(e.target.value.replace(/\D/g, "")) || 0) })} />
                 </td>
               </tr>
@@ -60,7 +62,7 @@ export function NewOrder(props: { branchId: string; supplierId: string; suggesti
         </table>
       )}
       <div className={styles.filters}>
-        {extra.length > 0 && (
+        {extra.length > 0 && !locked && (
           <label>
             Add a product
             <select value="" onChange={(e) => {
@@ -73,7 +75,7 @@ export function NewOrder(props: { branchId: string; supplierId: string; suggesti
           </label>
         )}
         <button className="btn btn-primary" onClick={create} disabled={busy || chosen.length === 0}>
-          {busy ? "Sending…" : `Send order · ${chosen.reduce((n, l) => n + l.qty, 0)} units`}
+          {busy ? "Sending…" : `${locked ? "Send again" : "Send order"} · ${chosen.reduce((n, l) => n + l.qty, 0)} units`}
         </button>
       </div>
       {error && <p className="banner banner-error" role="alert">{error}</p>}
@@ -86,6 +88,7 @@ export function OrderActions({ order }: { order: OrderRow }) {
   const router = useRouter();
   const id = useRef(crypto.randomUUID());
   const [open, setOpen] = useState(false);
+  const [locked, setLocked] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const today = new Date().toISOString().slice(0, 10).replaceAll("-", "");
@@ -99,6 +102,7 @@ export function OrderActions({ order }: { order: OrderRow }) {
     setError(null);
     const r = await postCommand(`/api/orders/${order._id}/${path}`, body, id);
     setBusy(false);
+    setLocked("error" in r && !!r.unknown);
     if ("error" in r) return setError(r.error);
     setOpen(false);
     router.refresh();
@@ -111,7 +115,7 @@ export function OrderActions({ order }: { order: OrderRow }) {
         <div className={styles.filters} style={{ margin: 0 }}>
           <button className="btn" onClick={() => setOpen(true)}>Receive delivery</button>
           {order.status === "SENT" && (
-            <button className="btn" disabled={busy} onClick={() => confirm(`Cancel order ${order._id}?`) && send("cancel", {})}>Cancel order</button>
+            <button className="btn" disabled={busy} onClick={() => (locked || confirm(`Cancel order ${order._id}?`) ) && send("cancel", {})}>{locked ? "Send cancel again" : "Cancel order"}</button>
           )}
         </div>
       ) : (
@@ -128,18 +132,18 @@ export function OrderActions({ order }: { order: OrderRow }) {
                   <tr key={l.sku}>
                     <th scope="row">{name}</th>
                     <td className="num">
-                      <input className={`input ${styles.lineInput}`} inputMode="numeric" aria-label={`Units of ${name} arrived`} value={l.qty}
+                      <input className={`input ${styles.lineInput}`} inputMode="numeric" disabled={locked} aria-label={`Units of ${name} arrived`} value={l.qty}
                         onChange={(e) => patch({ qty: Number(e.target.value.replace(/\D/g, "")) || 0 })} />
                     </td>
-                    <td><input className="input mono" aria-label={`Batch code for ${name}`} value={l.batchCode} maxLength={40} onChange={(e) => patch({ batchCode: e.target.value })} /></td>
+                    <td><input className="input mono" disabled={locked} aria-label={`Batch code for ${name}`} value={l.batchCode} maxLength={40} onChange={(e) => patch({ batchCode: e.target.value })} /></td>
                   </tr>
                 );
               })}
             </tbody>
           </table>
           <div className={styles.filters}>
-            <button className="btn btn-primary" type="submit" disabled={busy}>{busy ? "Saving…" : "Record delivery"}</button>
-            <button className="btn" type="button" onClick={() => setOpen(false)}>Close</button>
+            <button className="btn btn-primary" type="submit" disabled={busy}>{busy ? "Saving…" : locked ? "Send again" : "Record delivery"}</button>
+            {!locked && <button className="btn" type="button" onClick={() => setOpen(false)}>Close</button>}
           </div>
         </form>
       )}
