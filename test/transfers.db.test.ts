@@ -4,6 +4,7 @@ import { DomainError } from "@/domain/errors";
 import { checkLedgerInvariants, listTransferSuggestions, loadTransferInputs, projectionDiff } from "@/domain/ledger/read";
 import { acceptTransferSuggestion, openStocktake, quarantineBatch, receiveStock, receiveTransfer, recordSale, saveCountLine, submitStocktake, transferStock } from "@/domain/ledger/write";
 import { IN_TRANSIT } from "@/domain/ledger/transfers";
+import { suggestOrderLines } from "@/domain/ledger/orders";
 import { migrate, resetDemo } from "@/seed/apply";
 import { freshDb } from "./helpers";
 import { COT, NEW, OLD, TOY, TOYB, buildWorld, ctx, runner } from "./world";
@@ -116,6 +117,19 @@ describe("accepting a suggestion", () => {
     expect((await listTransferSuggestions(t.db)).suggestions.map((s) => s.sku)).toEqual([TOY]);
   });
 
+  it("purchase-order suggestions count stock already on its way", async () => {
+    const cotLine = async () => (await suggestOrderLines(t.db, "BR-B", "SUP-OAK")).find((l) => l.sku === COT);
+    expect(await cotLine()).toMatchObject({ onHand: 0, qty: 4 }); // below reorder point 2: top up to 4
+    await accept(3);
+    expect(await cotLine()).toBeUndefined(); // 3 on the way covers it
+  });
+
+  it("the ledger check catches a transfer whose stock and status disagree", async () => {
+    const { result } = await accept(3);
+    await cols(t.db).transfers.updateOne({ _id: result.transferId }, { $set: { status: "RECEIVED" } }); // stock left on the road
+    expect((await checkLedgerInvariants(t.db)).violations).toEqual([`IN-TRANSIT holds 3 of ${OLD}, open transfers 0`]);
+  });
+
   it("a recall pulls units on the road; receiving then brings in none of them", async () => {
     const { result } = await accept(3);
     await run((c, s, k) => quarantineBatch(c, s, k, { batchCode: "B-1" }));
@@ -132,7 +146,7 @@ describe("accepting a suggestion", () => {
     await expect(run((c, s, k) => receiveTransfer(c, s, k, { transferId: result.transferId, branchId: "BR-B" }))).rejects.toMatchObject({ code: "STOCKTAKE_OPEN" });
     await run((c, s, k) => submitStocktake(c, s, k, { stocktakeId: st._id, sid: "clerk", uncounted: "leave" }));
     await cols(t.db).ops.insertOne({ _id: "status", anchorAt: new Date(), seededAt: new Date() } as never);
-    await resetDemo(t.db);
+    expect((await resetDemo(t.db)).invariants.violations).toEqual([]);
     expect(await cols(t.db).transfers.countDocuments()).toBe(0);
     expect(await onHand(IN_TRANSIT._id, OLD)).toBe(0);
   });

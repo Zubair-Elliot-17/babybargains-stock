@@ -47,6 +47,7 @@ function Incoming({ row }: { row: InTransitRow }) {
     <li>
       <span>
         <strong>{row.productName}</strong> × {row.units}
+        {row.recalledUnits > 0 && <span className={styles.hint}>{row.recalledUnits} more were recalled on the way: if they arrive, don&apos;t shelve them.</span>}
         <span className={styles.hint}> from {row.fromName}, sent {time(row.dispatchedAt)} UTC</span>
       </span>
       {!done && <button className="btn" type="button" disabled={busy} onClick={() => void receive()} aria-label={`Received ${row.units} ${row.productName} from ${row.fromName}`}>

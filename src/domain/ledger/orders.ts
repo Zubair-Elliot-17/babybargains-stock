@@ -3,7 +3,7 @@ import type { ClientSession, Db } from "mongodb";
 import { cols, type Cols } from "../collections";
 import { DomainError, NotFound } from "../errors";
 import type { PurchaseOrder } from "../schemas";
-import { BATCH_CODE, normaliseBatchCode } from "./read";
+import { BATCH_CODE, incomingUnits, normaliseBatchCode } from "./read";
 import { UNBATCHED } from "./stocktake";
 import { lockBranches, postMovements, type CommandCtx, type NewMovement } from "./write";
 
@@ -132,7 +132,7 @@ export async function suggestOrderLines(db: Db, branchId: string, supplierId: st
   const products = await c.products.find({ supplierId }, { projection: { name: 1 } }).sort({ name: 1 }).toArray();
   const skus = products.map((p) => p._id);
   const recalled = await c.batches.distinct("_id", { sku: { $in: skus }, status: "RECALLED" });
-  const [policies, stock] = await Promise.all([
+  const [policies, stock, onTheWay] = await Promise.all([
     c.stockPolicies.find({ branchId, sku: { $in: skus } }).toArray(),
     c.inventory
       .aggregate<{ _id: string; onHand: number }>([
@@ -140,13 +140,15 @@ export async function suggestOrderLines(db: Db, branchId: string, supplierId: st
         { $group: { _id: "$sku", onHand: { $sum: "$onHand" } } },
       ])
       .toArray(),
+    incomingUnits(c, { toBranchId: branchId, sku: { $in: skus } }, recalled),
   ]);
   const rp = new Map(policies.map((p) => [p.sku, p.reorderPoint]));
   const onHand = new Map(stock.map((r) => [r._id, r.onHand]));
+  const incoming = new Map(onTheWay.map((r) => [r._id.sku, r.units]));
   return products.flatMap((p) => {
     const point = rp.get(p._id) ?? 0;
-    const have = onHand.get(p._id) ?? 0;
-    return point > 0 && have < point ? [{ sku: p._id, name: p.name, onHand: have, reorderPoint: point, qty: 2 * point - have }] : [];
+    const have = (onHand.get(p._id) ?? 0) + (incoming.get(p._id) ?? 0); // stock on its way from another branch counts
+    return point > 0 && have < point ? [{ sku: p._id, name: p.name, onHand: onHand.get(p._id) ?? 0, reorderPoint: point, qty: 2 * point - have }] : [];
   });
 }
 

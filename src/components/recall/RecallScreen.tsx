@@ -1,6 +1,7 @@
 "use client";
 
 import { useRouter } from "next/navigation";
+import { IN_TRANSIT } from "@/domain/ledger/transfers";
 import { useEffect, useMemo, useState } from "react";
 import { DAY, foldMovements, startOfDay, timelineEvents, type CompactMovement, type EventKind } from "@/domain/ledger/fold";
 import { AnimatedNumber } from "./AnimatedNumber";
@@ -115,7 +116,7 @@ export function RecallScreen({ data }: { data: RecallData }) {
           )}
           {!recalled && isToday && (
             <span className={styles.actionHint}>
-              Pulls {count(state.totals.onHand, "unit")} from {count(state.branches.filter((b) => b.onHand > 0).length, "branch", "branches")}
+              Pulls {count(state.totals.onHand, "unit")} from {count(state.branches.filter((b) => b.onHand > 0 && b.branchId !== IN_TRANSIT._id).length, "branch", "branches")}
             </span>
           )}
         </div>
@@ -234,7 +235,7 @@ export function RecallScreen({ data }: { data: RecallData }) {
         <QuarantineDialog
           batchCode={data.batchCode}
           units={state.totals.onHand}
-          branches={state.branches.filter((b) => b.onHand > 0).length}
+          branches={state.branches.filter((b) => b.onHand > 0 && b.branchId !== IN_TRANSIT._id).length}
           branchNames={data.branches}
           onClose={(changed) => {
             setDialogOpen(false);

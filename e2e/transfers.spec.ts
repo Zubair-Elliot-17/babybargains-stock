@@ -82,7 +82,7 @@ test("manager reviews the top suggestion and accepts it", async ({ page }) => {
   await expect(page.locator("tbody button:focus")).toHaveCount(1);
 
   // It's on the road until a clerk at the receiving branch confirms it.
-  const onRoad = page.getByRole("region", { name: /^In transit · \d+ units$/ }).getByRole("row", { name: new RegExp(top.from) }).filter({ hasText: top.to });
+  const onRoad = page.getByRole("region", { name: /^In transit · \d+ units?$/ }).getByRole("row", { name: new RegExp(top.from) }).filter({ hasText: top.to });
   await expect(onRoad.first()).toBeVisible();
   await page.getByRole("button", { name: "Sign out" }).click();
   await page.goto("/login");

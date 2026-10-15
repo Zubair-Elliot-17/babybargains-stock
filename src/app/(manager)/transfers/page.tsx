@@ -71,7 +71,7 @@ export default async function TransfersPage({ searchParams }: { searchParams: Pr
       />
       {inTransit.length > 0 && (
         <section className={styles.inTransit} aria-labelledby="in-transit">
-          <h2 id="in-transit">In transit · {inTransit.reduce((n, r) => n + r.units, 0)} units</h2>
+          <h2 id="in-transit">In transit · {count(inTransit.reduce((n, r) => n + r.units, 0), "unit")}</h2>
           <table className="cards">
             <thead>
               <tr><th scope="col">Product</th><th scope="col">From</th><th scope="col">To</th><th scope="col" className="num">Units</th><th scope="col">Dispatched</th></tr>
@@ -82,7 +82,7 @@ export default async function TransfersPage({ searchParams }: { searchParams: Pr
                   <th scope="row">{r.productName}</th>
                   <td data-label="From">{r.fromName}</td>
                   <td data-label="To">{r.toName}</td>
-                  <td className="num" data-label="Units">{r.units}</td>
+                  <td className="num" data-label="Units">{r.units}{r.recalledUnits ? ` (+${r.recalledUnits} recalled)` : ""}</td>
                   <td data-label="Dispatched">{when(r.dispatchedAt)} UTC</td>
                 </tr>
               ))}

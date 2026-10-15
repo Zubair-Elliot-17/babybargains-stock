@@ -298,11 +298,12 @@ export async function receiveTransfer(c: Cols, s: ClientSession, ctx: CommandCtx
   }
   const units = arriving.reduce((n, l) => n + l.qty, 0);
   const recalledUnits = transfer.lines.reduce((n, l) => n + l.qty, 0) - units;
-  await c.transfers.updateOne(
-    { _id: transfer._id },
+  const done = await c.transfers.updateOne(
+    { _id: transfer._id, status: "IN_TRANSIT" },
     { $set: { status: "RECEIVED", receivedAt: now, ...(recalledUnits ? { recalledUnits } : {}) } },
     { session: s },
   );
+  if (!done.modifiedCount) throw new DomainError("TRANSFER_RECEIVED", "This transfer is already received", 409); // belt and braces: the lock already serialises
   return { transferId: transfer._id, units, recalledUnits };
 }
 
@@ -378,7 +379,7 @@ export async function quarantineBatch(
     recalledAt: now,
     pullList,
     units: pullList.reduce((n, r) => n + r.units, 0),
-    branches: new Set(pullList.map((r) => r.branchId)).size,
+    branches: new Set(pullList.map((r) => r.branchId).filter((b) => b !== IN_TRANSIT._id)).size, // the road isn't a branch
   };
 }
 

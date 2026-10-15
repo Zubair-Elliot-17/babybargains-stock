@@ -181,6 +181,19 @@ export async function checkLedgerInvariants(db: Db, maxViolations = 20): Promise
   }
   for (const [k, q] of soldBy) push(`SOLD ${q} without sale lines for ${k}`);
 
+  // 5. Stock at IN-TRANSIT is exactly the open transfers' lines (recalled batches: pulled, so zero).
+  const [onRoad, openLines] = await Promise.all([
+    c.inventory.find({ branchId: IN_TRANSIT._id, onHand: { $ne: 0 } }, { projection: { batchId: 1, onHand: 1 } }).toArray(),
+    c.transfers.aggregate<{ _id: string; qty: number }>([{ $match: { status: "IN_TRANSIT" } }, { $unwind: "$lines" }, { $group: { _id: "$lines.batchId", qty: { $sum: "$lines.qty" } } }]).toArray(),
+  ]);
+  const recalledIds = new Set(recalled.map((b) => b._id));
+  const expected = new Map(openLines.filter((l) => !recalledIds.has(l._id)).map((l) => [l._id, l.qty]));
+  for (const r of onRoad) {
+    if (expected.get(r.batchId) !== r.onHand) push(`IN-TRANSIT holds ${r.onHand} of ${r.batchId}, open transfers ${expected.get(r.batchId) ?? 0}`);
+    expected.delete(r.batchId);
+  }
+  for (const [batchId, qty] of expected) push(`open transfers carry ${qty} of ${batchId}, IN-TRANSIT holds none`);
+
   return { ok: violations.length === 0, violations, checked };
 }
 
@@ -406,17 +419,7 @@ export async function loadTransferInputs(
       )
       .toArray(),
     opts.openBranchIds ?? c.stocktakes.distinct("branchId", activeStocktakes(now), { session }),
-    c.transfers
-      .aggregate<{ _id: { branchId: string; sku: string }; units: number }>(
-        [
-          { $match: { status: "IN_TRANSIT", ...bySku } },
-          { $unwind: "$lines" },
-          { $match: { "lines.batchId": { $nin: recalled } } },
-          { $group: { _id: { branchId: "$toBranchId", sku: "$sku" }, units: { $sum: "$lines.qty" } } },
-        ],
-        { session },
-      )
-      .toArray(),
+    incomingUnits(c, bySku, recalled, session),
   ]);
   const key = (x: { branchId: string; sku: string }) => `${x.branchId}|${x.sku}`;
   const onHand = new Map(stock.filter((r) => r._id.branchId !== IN_TRANSIT._id).map((r) => [key(r._id), r.onHand]));
@@ -435,6 +438,21 @@ export async function loadTransferInputs(
     });
   }
   return [...out.values()].filter((s) => s.branches.length);
+}
+
+// Units dispatched to each branch and not yet received, per SKU; recalled batches won't arrive.
+export function incomingUnits(c: Cols, match: Record<string, unknown>, recalled: string[], session?: ClientSession) {
+  return c.transfers
+    .aggregate<{ _id: { branchId: string; sku: string }; units: number }>(
+      [
+        { $match: { status: "IN_TRANSIT", ...match } },
+        { $unwind: "$lines" },
+        { $match: { "lines.batchId": { $nin: recalled } } },
+        { $group: { _id: { branchId: "$toBranchId", sku: "$sku" }, units: { $sum: "$lines.qty" } } },
+      ],
+      { session },
+    )
+    .toArray();
 }
 
 export interface TransferRow extends TransferSuggestion {
@@ -509,7 +527,8 @@ export interface InTransitRow {
   _id: string;
   sku: string;
   productName: string;
-  units: number;
+  units: number; // still to arrive: recalled batches excluded
+  recalledUnits: number;
   fromName: string;
   toName: string;
   dispatchedAt: Date;
@@ -520,17 +539,20 @@ export async function transfersInTransit(db: Db, toBranchId?: string): Promise<I
   const c = cols(db);
   const rows = await c.transfers.find({ status: "IN_TRANSIT", ...(toBranchId ? { toBranchId } : {}) }).sort({ dispatchedAt: -1 }).limit(50).toArray();
   if (!rows.length) return [];
-  const [branches, products] = await Promise.all([
+  const [branches, products, recalledIds] = await Promise.all([
     c.branches.find({}, { projection: { name: 1 } }).toArray(),
     c.products.find({ _id: { $in: [...new Set(rows.map((r) => r.sku))] } }, { projection: { name: 1 } }).toArray(),
+    c.batches.distinct("_id", { _id: { $in: rows.flatMap((r) => r.lines.map((l) => l.batchId)) }, status: "RECALLED" }),
   ]);
+  const recalled = new Set(recalledIds);
   const branch = new Map(branches.map((b) => [b._id, b.name]));
   const product = new Map(products.map((p) => [p._id, p.name]));
   return rows.map((r) => ({
     _id: r._id,
     sku: r.sku,
     productName: product.get(r.sku) ?? r.sku,
-    units: r.lines.reduce((n, l) => n + l.qty, 0),
+    units: r.lines.reduce((n, l) => n + (recalled.has(l.batchId) ? 0 : l.qty), 0),
+    recalledUnits: r.lines.reduce((n, l) => n + (recalled.has(l.batchId) ? l.qty : 0), 0),
     fromName: branch.get(r.fromBranchId) ?? r.fromBranchId,
     toName: branch.get(r.toBranchId) ?? r.toBranchId,
     dispatchedAt: r.dispatchedAt,
