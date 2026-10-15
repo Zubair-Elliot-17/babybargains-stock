@@ -105,7 +105,7 @@ export default async function OrdersPage({ searchParams }: { searchParams: Promi
           </div>
         )}
       </section>
-      <p className={styles.meta}><Link href="/analytics">Analytics</Link> shows overdue orders, lead time and fill rate.</p>
+      <p className={styles.meta}><Link href="/analytics">Analytics</Link> shows overdue orders, lead time and fill rate. <Link href="/orders/price-list">Supplier price lists</Link> update product names and prices.</p>
     </>
   );
 }

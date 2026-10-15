@@ -1,5 +1,6 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { cols } from "@/domain/collections";
+import { applyPriceList } from "@/domain/ledger/catalogue";
 import { cancelPurchaseOrder, createPurchaseOrder, listPurchaseOrders, receivePurchaseOrder, suggestOrderLines } from "@/domain/ledger/orders";
 import { checkLedgerInvariants } from "@/domain/ledger/read";
 import { receiveStock } from "@/domain/ledger/write";
@@ -131,6 +132,36 @@ describe("purchase orders", () => {
     ]);
     expect(await suggestOrderLines(t.db, "BR-A", "SUP-W")).toEqual([{ sku: TOY, name: "Test Toy", onHand: 1, reorderPoint: 4, qty: 7 }]);
     expect(await suggestOrderLines(t.db, "BR-A", "SUP-OAK")).toEqual([{ sku: COT, name: "Test Cot · Oak", onHand: 0, reorderPoint: 2, qty: 4 }]);
+  });
+
+  it("applies a price list once, to that supplier's products only, and the nightly reset undoes it", async () => {
+    const apply = (ref: string, items: { sku: string; name: string; price: number }[], supplierId = "SUP-OAK") =>
+      run((c, s, k) => applyPriceList(c, s, k, { supplierId, list: { ref, items } }));
+    const { result } = await apply("PL-1", [{ sku: COT, name: "Test Cot · Oak", price: 10999 }, { sku: TOY, name: "Renamed toy", price: 1 }]);
+    expect(result).toEqual({ ref: "PL-1", changed: 1, unchanged: 0, unknown: 1 }); // TOY is another supplier's
+    await expect(apply("PL-1", [{ sku: COT, name: "x", price: 1 }])).rejects.toMatchObject({ code: "PRICE_LIST_ALREADY_APPLIED", status: 409 });
+    await apply("PL-2", [{ sku: COT, name: "Test Cot · Oak (2027)", price: 11999 }]);
+    const p = cols(t.db).products;
+    expect(await p.findOne({ _id: COT })).toMatchObject({ name: "Test Cot · Oak (2027)", price: 11999, seedName: "Test Cot · Oak", seedPrice: 10000 });
+    await expect(apply("PL-3", [{ sku: COT, name: "Test Cot · Oak", price: 24000 }])).rejects.toMatchObject({ code: "PRICE_OUT_OF_RANGE" }); // > double
+    expect(await p.findOne({ _id: TOY })).toMatchObject({ name: "Test Toy", price: 500 });
+    await cols(t.db).ops.insertOne({ _id: "status", anchorAt: new Date(), seededAt: new Date() } as never);
+    await resetDemo(t.db);
+    expect(await p.findOne({ _id: COT })).toEqual(expect.objectContaining({ name: "Test Cot · Oak", price: 10000 })); // both lists unwound
+    expect(await p.findOne({ _id: COT })).not.toHaveProperty("seedName");
+    expect(await cols(t.db).catalogueImports.countDocuments()).toBe(0);
+    // A list applied after (or during) a reset keeps the seed values again, so the next reset undoes it.
+    await apply("PL-4", [{ sku: COT, name: "Late list", price: 10500 }]);
+    await resetDemo(t.db);
+    expect(await p.findOne({ _id: COT })).toMatchObject({ name: "Test Cot · Oak", price: 10000 });
+  });
+
+  it("two price lists on the same product at once: the second sees the first's result", async () => {
+    const apply = (ref: string, price: number) => run((c, s, k) => applyPriceList(c, s, k, { supplierId: "SUP-OAK", list: { ref, items: [{ sku: COT, name: "Test Cot · Oak", price }] } }));
+    await Promise.all([apply("PL-A", 11000), apply("PL-B", 12000)]);
+    const imports = await cols(t.db).catalogueImports.find().sort({ appliedAt: 1 }).toArray();
+    expect(imports.map((i) => i.changes[0].before.price)).toEqual([10000, imports[0].changes[0].after.price]);
+    expect(await cols(t.db).products.findOne({ _id: COT })).toMatchObject({ seedPrice: 10000 });
   });
 
   it("lists orders with names, and the nightly reset removes visitor orders", async () => {

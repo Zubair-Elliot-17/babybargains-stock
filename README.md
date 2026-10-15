@@ -108,6 +108,14 @@ Orders/imports and analytics are Milestone 4.
   fills the receive form, which the manager checks and records as usual. The order keeps each note's
   reference, so the same note can't be received twice. **Try a sample note** makes one in the
   supplier's format.
+- **Supplier price lists** (Orders → Supplier price lists): the same adapter pattern
+  (`src/domain/suppliers/catalogue.ts`) reads a supplier's price list, previews which names and prices
+  change, and applies it once per list reference. Prices are checked to the penny (no `129.999`, no
+  other currencies). Products the list mentions that we don't stock are listed, not created, because a
+  product needs category details a price list doesn't carry. Names allow letters, digits, punctuation
+  and spaces only (no hidden or text-reversing characters). Demo guards: a price may move between half
+  and double, five lists per hour per visitor IP, and a product's first change keeps its seeded name
+  and price on the product, so the nightly reset restores them even if a list lands mid-reset.
 - **Stock (manager):** sellable on-hand per product for a branch or all branches, low stock first.
 - **Analytics (manager):** exceptions first (low stock, dead stock with no sale in 90 days, orders over
   a week late), then 12 months of sales by branch and category, top movers, supplier lead time and fill
