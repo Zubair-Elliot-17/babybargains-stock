@@ -44,7 +44,7 @@ Deferred during plan review. Each has the context needed to pick it up later.
 - **What:** generate and approve mockups for Recall and Count before more UI work.
 - **Depends on:** an OpenAI API key for the gstack designer.
 
-## Supplier catalogue import (P3)
-- **What:** a catalogue import with a diff preview (new products, price and name changes), applied idempotently.
-- **Why:** the original plan's adapter pattern; delivery notes already use it (`src/domain/suppliers/deliveryNotes.ts`).
-- **Context:** products are seeded; a visitor-applied catalogue change must be undone by the nightly reset (`origin`).
+## New products from a supplier price list (P3)
+- **What:** let a price list add products it mentions that we don't stock, with a form for the category details (dimensions, safety standard, age range…) a price list doesn't carry.
+- **Why:** price lists today only update names and prices of existing products; unknown SKUs are listed, not created.
+- **Context:** `diffPriceList` in `src/domain/suppliers/catalogue.ts` already returns `unknown`; products are a discriminated union by category in `src/domain/schemas.ts`.

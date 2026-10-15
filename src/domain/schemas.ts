@@ -210,6 +210,17 @@ export const PurchaseOrder = z.object({
 });
 export type PurchaseOrder = z.infer<typeof PurchaseOrder>;
 
+// A supplier price list applied by a manager: before/after per product, so the nightly reset can undo it.
+export const CatalogueImport = z.object({
+  _id: z.string().min(1).max(130), // `${supplierId}:${ref}`
+  supplierId: Id,
+  ref: z.string().min(1).max(60),
+  appliedAt: z.date(),
+  changes: z.array(z.object({ sku: Id, before: z.object({ name: z.string().min(1).max(120), price: Pence }), after: z.object({ name: z.string().min(1).max(120), price: Pence }) })).max(500),
+  origin: Origin,
+});
+export type CatalogueImport = z.infer<typeof CatalogueImport>;
+
 // Validated collections; the migrate script applies these as $jsonSchema validators.
 export const validatedCollections = {
   branches: Branch,
@@ -222,4 +233,5 @@ export const validatedCollections = {
   stocktakes: Stocktake,
   stocktakeLines: StocktakeLine,
   purchaseOrders: PurchaseOrder,
+  catalogueImports: CatalogueImport,
 } as const;

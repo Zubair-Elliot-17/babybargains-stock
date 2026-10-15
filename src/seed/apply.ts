@@ -93,6 +93,12 @@ export async function resetDemo(db: Db, now = new Date()): Promise<ResetReport> 
   removed.stocktakeLines = (await c.stocktakeLines.deleteMany({ origin: "visitor" })).deletedCount;
   removed.batches = (await c.batches.deleteMany({ createdOrigin: "visitor" })).deletedCount;
   removed.purchaseOrders = (await c.purchaseOrders.deleteMany({ origin: "visitor" })).deletedCount;
+  // Visitor price lists: put names and prices back, newest first, so stacked lists unwind to the seed.
+  const imports = await c.catalogueImports.find({ origin: "visitor" }).sort({ appliedAt: -1, _id: -1 }).toArray();
+  for (const imp of imports) {
+    for (const ch of imp.changes) await c.products.updateOne({ _id: ch.sku }, { $set: { name: ch.before.name, price: ch.before.price } });
+  }
+  removed.catalogueImports = (await c.catalogueImports.deleteMany({ origin: "visitor" })).deletedCount;
   // A visitor approving the seeded stocktake: its adjustments were visitor movements (already removed).
   await c.stocktakes.updateMany({ approvedOrigin: "visitor" }, { $set: { status: "SUBMITTED" }, $unset: { approvedAt: "", approvedOrigin: "" } });
   const restored = await c.batches.updateMany(

@@ -1,5 +1,6 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { cols } from "@/domain/collections";
+import { applyPriceList } from "@/domain/ledger/catalogue";
 import { cancelPurchaseOrder, createPurchaseOrder, listPurchaseOrders, receivePurchaseOrder, suggestOrderLines } from "@/domain/ledger/orders";
 import { checkLedgerInvariants } from "@/domain/ledger/read";
 import { receiveStock } from "@/domain/ledger/write";
@@ -131,6 +132,22 @@ describe("purchase orders", () => {
     ]);
     expect(await suggestOrderLines(t.db, "BR-A", "SUP-W")).toEqual([{ sku: TOY, name: "Test Toy", onHand: 1, reorderPoint: 4, qty: 7 }]);
     expect(await suggestOrderLines(t.db, "BR-A", "SUP-OAK")).toEqual([{ sku: COT, name: "Test Cot · Oak", onHand: 0, reorderPoint: 2, qty: 4 }]);
+  });
+
+  it("applies a price list once, to that supplier's products only, and the nightly reset undoes it", async () => {
+    const apply = (ref: string, items: { sku: string; name: string; price: number }[], supplierId = "SUP-OAK") =>
+      run((c, s, k) => applyPriceList(c, s, k, { supplierId, list: { ref, items } }));
+    const { result } = await apply("PL-1", [{ sku: COT, name: "Test Cot · Oak", price: 10999 }, { sku: TOY, name: "Renamed toy", price: 1 }]);
+    expect(result).toEqual({ ref: "PL-1", changed: 1, unchanged: 0, unknown: 1 }); // TOY is another supplier's
+    await expect(apply("PL-1", [{ sku: COT, name: "x", price: 1 }])).rejects.toMatchObject({ code: "PRICE_LIST_ALREADY_APPLIED", status: 409 });
+    await apply("PL-2", [{ sku: COT, name: "Test Cot · Oak (2027)", price: 11999 }]);
+    const p = cols(t.db).products;
+    expect(await p.findOne({ _id: COT })).toMatchObject({ name: "Test Cot · Oak (2027)", price: 11999 });
+    expect(await p.findOne({ _id: TOY })).toMatchObject({ name: "Test Toy", price: 500 });
+    await cols(t.db).ops.insertOne({ _id: "status", anchorAt: new Date(), seededAt: new Date() } as never);
+    await resetDemo(t.db);
+    expect(await p.findOne({ _id: COT })).toMatchObject({ name: "Test Cot · Oak", price: 10000 }); // both lists unwound
+    expect(await cols(t.db).catalogueImports.countDocuments()).toBe(0);
   });
 
   it("lists orders with names, and the nightly reset removes visitor orders", async () => {
