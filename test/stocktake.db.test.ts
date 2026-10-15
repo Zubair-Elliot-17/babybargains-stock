@@ -2,7 +2,7 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { cols } from "@/domain/collections";
 import { DomainError } from "@/domain/errors";
 import { checkLedgerInvariants, computeStocktakePlan, findRecall, projectionDiff } from "@/domain/ledger/read";
-import { approveStocktake, openStocktake, quarantineBatch, receiveStock, recordSale, saveCountLine, submitStocktake } from "@/domain/ledger/write";
+import { approveStocktake, joinStocktake, openStocktake, quarantineBatch, receiveStock, recordSale, saveCountLine, stocktakeHeartbeat, submitStocktake, TEAM_MAX, TEAM_SILENT_MS } from "@/domain/ledger/write";
 import { migrate } from "@/seed/apply";
 import { freshDb } from "./helpers";
 import { COT, NEW, OLD, TOY, TOYB, buildWorld, ctx, runner } from "./world";
@@ -28,6 +28,69 @@ const open = (sid = "clerk-1") => run((c, s, k) => openStocktake(c, s, k, { bran
 const count = (stocktakeId: string, sku: string, counted: number, batchId?: string, mode: "add" | "replace" = "replace", sid = "clerk-1") =>
   run((c, s, k) => saveCountLine(c, s, k, { stocktakeId, lineId: lineId(), sid, sku, batchId, counted, mode }));
 const onHand = async (batchId: string) => (await cols(t.db).inventory.findOne({ branchId: "BR-A", batchId }))?.onHand ?? 0;
+
+describe("team stocktakes", () => {
+  const PHONE = (n: number) => `00000000-0000-4000-8000-${String(n).padStart(12, "0")}`;
+  const join = (stocktakeId: string, sid: string, device: string, branchId = "BR-A") =>
+    run((c, s, k) => joinStocktake(c, s, k, { stocktakeId, branchId, sid, clerkLabel: `Clerk ${sid}`, device }));
+  const countOn = (stocktakeId: string, sid: string, deviceId: string, counted: number, mode: "add" | "replace" = "replace") =>
+    run((c, s, k) => saveCountLine(c, s, k, { stocktakeId, lineId: lineId(), sid, sku: TOY, counted, mode, deviceId }));
+  const beat = (stocktakeId: string, sid: string, device: string, pending: number, done = false, now?: Date) =>
+    run((c, s, k) => stocktakeHeartbeat(c, s, k, { stocktakeId, sid, device, pending, done }), now ? { now } : {});
+  const submit = (stocktakeId: string, sid = "clerk-1", withoutTeam = false, now?: Date) =>
+    run((c, s, k) => submitStocktake(c, s, k, { stocktakeId, sid, uncounted: "leave", withoutTeam }), now ? { now } : {});
+
+  it("a teammate joins from their phone; counts from each phone add up, a phone's replace resets only its own", async () => {
+    const st = (await open()).result;
+    expect((await join(st._id, "clerk-2", PHONE(2))).result).toEqual({ stocktakeId: st._id, lead: false });
+    await countOn(st._id, "clerk-1", PHONE(1), 3);
+    const { result } = await countOn(st._id, "clerk-2", PHONE(2), 2);
+    expect(result.counted).toBe(2); // this phone's own running count
+    await countOn(st._id, "clerk-1", PHONE(1), 1); // the lead recounts their aisle
+    await expect(countOn(st._id, "clerk-3", PHONE(3), 9)).rejects.toMatchObject({ code: "STOCKTAKE_BUSY" }); // not on the team
+    await expect(join(st._id, "clerk-4", PHONE(4), "BR-B")).rejects.toMatchObject({ status: 404 }); // another branch
+    const plan = await computeStocktakePlan(cols(t.db), st._id);
+    expect(plan.counts.get(`${TOY}|`)?.counted).toBe(3);
+  });
+
+  it("rejoining from the same phone takes the seat with the new session; a team holds 10 phones", async () => {
+    const st = (await open()).result;
+    await join(st._id, "clerk-2", PHONE(2));
+    await join(st._id, "clerk-2b", PHONE(2)); // re-login on the same phone
+    await expect(countOn(st._id, "clerk-2", PHONE(2), 1)).rejects.toMatchObject({ code: "STOCKTAKE_BUSY" });
+    await countOn(st._id, "clerk-2b", PHONE(2), 1);
+    expect((await cols(t.db).stocktakes.findOne({ _id: st._id }))?.participants).toHaveLength(1);
+    for (let i = 3; i <= TEAM_MAX + 1; i++) await join(st._id, `clerk-${i}`, PHONE(i));
+    await expect(join(st._id, "clerk-x", PHONE(99))).rejects.toMatchObject({ code: "TEAM_FULL" });
+  });
+
+  it("only the lead submits, and not while a teammate has counts waiting or has gone quiet, unless told to", async () => {
+    const st = (await open()).result;
+    await join(st._id, "clerk-2", PHONE(2));
+    await expect(submit(st._id, "clerk-2")).rejects.toMatchObject({ code: "STOCKTAKE_BUSY" }); // teammates don't submit
+    const lead = await beat(st._id, "clerk-1", PHONE(1), 0);
+    expect(lead.result).toMatchObject({ lead: true, team: [{ clerkLabel: "Clerk clerk-2", pending: 0, done: false, waiting: false }] });
+
+    await beat(st._id, "clerk-2", PHONE(2), 3);
+    await expect(submit(st._id)).rejects.toMatchObject({ code: "TEAM_PENDING", details: { waiting: [{ clerkLabel: "Clerk clerk-2", pending: 3 }] } });
+    await beat(st._id, "clerk-2", PHONE(2), 3, true); // "done" doesn't count while counts are still queued
+    await expect(submit(st._id)).rejects.toMatchObject({ code: "TEAM_PENDING" });
+    await beat(st._id, "clerk-2", PHONE(2), 0);
+    // A teammate silent for 2 minutes may be in a dead spot with counts.
+    await expect(submit(st._id, "clerk-1", false, new Date(Date.now() + TEAM_SILENT_MS + 1000))).rejects.toMatchObject({ code: "TEAM_PENDING" });
+    await beat(st._id, "clerk-2", PHONE(2), 0, true); // done: never blocks, however quiet
+    await expect(submit(st._id, "clerk-1", false, new Date(Date.now() + 10 * TEAM_SILENT_MS))).resolves.toBeDefined();
+  });
+
+  it("the lead can submit without a waiting teammate; the teammate's late count is refused", async () => {
+    const st = (await open()).result;
+    await join(st._id, "clerk-2", PHONE(2));
+    await beat(st._id, "clerk-2", PHONE(2), 2);
+    await submit(st._id, "clerk-1", true);
+    await expect(countOn(st._id, "clerk-2", PHONE(2), 1)).rejects.toMatchObject({ code: "STOCKTAKE_CLOSED" });
+    await expect(beat(st._id, "clerk-2", PHONE(2), 2)).rejects.toMatchObject({ code: "STOCKTAKE_CLOSED" });
+  });
+});
 
 describe("stocktake lifecycle", () => {
   it("resumes the clerk's open stocktake and refuses a second clerk while active", async () => {

@@ -41,6 +41,7 @@ export interface QueueDeps {
   random: () => number;
   sleep: (ms: number, wake: AbortSignal) => Promise<void>;
   lock: ((name: string, fn: () => Promise<void>) => Promise<void>) | null; // null → no other tabs to coordinate
+  device?: string; // this phone's id: team stocktakes fold counts per phone
 }
 
 const PREFIX = "bb-q:";
@@ -152,7 +153,7 @@ export function createCountQueue(stocktakeId: string, deps: QueueDeps) {
     }
     return post(
       `/api/stocktakes/${stocktakeId}/lines`,
-      { commandId: item.lineId, sku: item.sku, batchId: item.batchId, counted: item.counted, mode: item.mode, capturedAt },
+      { commandId: item.lineId, sku: item.sku, batchId: item.batchId, counted: item.counted, mode: item.mode, capturedAt, deviceId: deps.device },
       { "x-sent-at": new Date().toISOString() },
     );
   }
@@ -358,6 +359,22 @@ export function clearQueued(storage: Store | null, stocktakeId: string) {
   if (storage) createCountQueue(stocktakeId, { ...browserDeps(), storage, lock: null }).clear();
 }
 
+// This phone's id, kept in browser storage (a fresh one per page load if storage is blocked).
+let memDevice: string | undefined;
+export function deviceId(storage: Store | null): string {
+  const KEY = "bb-device";
+  try {
+    const id = storage?.getItem(KEY);
+    if (id) return id;
+    const fresh = crypto.randomUUID();
+    storage?.setItem(KEY, fresh);
+    if (storage) return fresh;
+  } catch {
+    // blocked storage: fall through
+  }
+  return (memDevice ??= crypto.randomUUID());
+}
+
 export function browserStorage(): Storage | null {
   try {
     const probe = "bb-probe";
@@ -376,9 +393,11 @@ export function browserDeps(): QueueDeps {
   } catch {
     // blocked storage
   }
+  const storage = browserStorage();
   return {
+    device: deviceId(storage),
     fetch: (...a) => fetch(...a),
-    storage: browserStorage(),
+    storage,
     session,
     random: Math.random,
     sleep: (ms, wake) =>

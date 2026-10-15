@@ -34,7 +34,7 @@ export default async function ReviewPage({ params }: { params: Promise<{ id: str
       stocktakeId={st._id}
       branchName={branch?.name ?? st.branchId}
       status={st.status}
-      clerkLabel={st.clerkLabel}
+      clerkLabel={[st.clerkLabel, ...(st.participants ?? []).map((p) => p.clerkLabel)].join(", ")}
       submittedAt={st.submittedAt?.toISOString() ?? null}
       approvedAt={st.approvedAt?.toISOString() ?? null}
       lines={lines}

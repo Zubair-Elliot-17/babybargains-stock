@@ -1,6 +1,6 @@
 # Team stocktakes
 
-Status: building (2026-10-15). TODOS.md "Team stocktakes". Builds on the offline count queue (docs/designs/offline-count-queue.md).
+Status: built (2026-10-15). TODOS.md "Team stocktakes". Builds on the offline count queue (docs/designs/offline-count-queue.md).
 
 ## Problem
 One phone owns a branch stocktake; anyone else gets "being counted on another device". Real stocktake days split aisles

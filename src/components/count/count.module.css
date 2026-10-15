@@ -533,3 +533,18 @@
 .incoming .hint {
   display: block;
 }
+
+.team {
+  padding: 0 var(--space-4);
+}
+
+.team h2 {
+  font-size: var(--text-meta);
+  color: var(--color-ink-muted);
+  margin: 0 0 var(--space-1);
+}
+
+.team ul {
+  margin: 0;
+  padding-left: var(--space-4);
+}

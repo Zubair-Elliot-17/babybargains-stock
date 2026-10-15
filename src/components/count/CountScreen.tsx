@@ -6,10 +6,11 @@ import { createPortal } from "react-dom";
 import type { ClerkProduct, CountView } from "@/domain/ledger/read";
 import { countKey, foldCounts } from "@/domain/ledger/stocktake";
 import { count as plural } from "@/lib/plural";
-import { browserDeps, createCountQueue, type QueueSnapshot, type SentResult } from "./countQueue";
+import { browserDeps, browserStorage, createCountQueue, deviceId, type QueueSnapshot, type SentResult } from "./countQueue";
 import { SAVE_COPY_EVENT } from "./OfflineCopy";
 import { Scanner } from "./Scanner";
 import { SyncBadge, syncAnnouncement } from "./SyncBadge";
+import { TeamStatus, useTeam, waitingText, type Member } from "./Team";
 import styles from "./count.module.css";
 
 type Entry = CountView["entries"][number];
@@ -29,6 +30,8 @@ export function CountScreen(props: {
   products: ClerkProduct[];
   initialEntries: Entry[];
   batches: Record<string, BatchChoice[]>;
+  lead: boolean; // the phone that opened it submits; teammates say when they're done
+  leadLabel: string;
 }) {
   const [queue] = useState(() => createCountQueue(props.stocktakeId, browserDeps()));
   const snap = useSyncExternalStore(queue.subscribe, queue.snapshot, () => EMPTY);
@@ -42,13 +45,16 @@ export function CountScreen(props: {
   const [saving, setSaving] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
   const [showSync, setShowSync] = useState(false); // footer status appears after the first save that wasn't sent at once
-  const [sheet, setSheet] = useState<null | { kind: "repeat"; prev: number } | { kind: "unseen"; savedAt: string } | { kind: "submit"; uncounted: number } | { kind: "discard"; lineId: string; label: string }>(null);
+  const [sheet, setSheet] = useState<null | { kind: "repeat"; prev: number } | { kind: "unseen"; savedAt: string } | { kind: "submit"; uncounted: number } | { kind: "team"; waiting: Member[]; uncounted: "zero" | "leave" } | { kind: "discard"; lineId: string; label: string }>(null);
   const [submitted, setSubmitted] = useState<null | { productsCounted: number; submittedAt: string }>(null);
   const [scanning, setScanning] = useState(false);
   const searchRef = useRef<HTMLInputElement>(null);
   // Camera scanning only where the browser supports BarcodeDetector (false during SSR, no hydration mismatch).
   const canScan = useSyncExternalStore(noop, () => "BarcodeDetector" in window, () => false);
   const demoSlot = useSyncExternalStore(noop, () => document.getElementById("demo-slot"), () => null); // in the clerk layout's demo strip
+  const device = useSyncExternalStore(noop, () => deviceId(browserStorage()), () => null);
+  const [done, setDone] = useState(false);
+  const { team, closed } = useTeam(props.stocktakeId, device, snap.items.length, snap.deadSpot, done);
 
   const bySku = useMemo(() => new Map(props.products.map((p) => [p.sku, p])), [props.products]);
   const codeOf = (sku: string, id?: string) => (id ? props.batches[sku]?.find((b) => b.batchId === id)?.batchCode : undefined);
@@ -56,13 +62,15 @@ export function CountScreen(props: {
   // Queued lines count straight away; the server copy wins once it holds a line (dedupe by lineId).
   const failedLines = snap.items.filter((i) => i.state === "failed");
   const entries = useMemo(() => {
+    // A phone sees and folds only its own counts (teammates' counts add to the stocktake, not to this screen).
+    const mine = sent.filter((e) => !e.deviceId || e.deviceId === device);
     const held = new Set(sent.map((e) => e._id));
     const queued = snap.items
       .filter((i) => i.state === "pending" && !held.has(i.lineId))
       .map((i): Entry => ({ _id: i.lineId, sku: i.sku, batchId: i.batchId, batchCode: codeOf(i.sku, i.batchId), counted: i.counted, mode: i.mode, countedAt: i.capturedAt }));
-    return [...sent, ...queued].sort((a, b) => a.countedAt.localeCompare(b.countedAt) || a._id.localeCompare(b._id));
+    return [...mine, ...queued].sort((a, b) => a.countedAt.localeCompare(b.countedAt) || a._id.localeCompare(b._id));
     // eslint-disable-next-line react-hooks/exhaustive-deps -- codeOf only reads props.batches
-  }, [sent, snap.items, props.batches]);
+  }, [sent, snap.items, props.batches, device]);
   const waiting = useMemo(() => new Set(snap.items.map((i) => i.lineId)), [snap.items]);
   const counts = useMemo(
     () => foldCounts(entries.map((e) => ({ sku: e.sku, batchId: e.batchId, counted: e.counted, mode: e.mode, countedAt: new Date(e.countedAt) }))),
@@ -181,16 +189,17 @@ export function CountScreen(props: {
     searchRef.current?.focus();
   }
 
-  async function submit(uncountedMode: "zero" | "leave") {
+  async function submit(uncountedMode: "zero" | "leave", withoutTeam = false) {
     setSheet(null);
     setSaving(true);
     try {
       const res = await fetch(`/api/stocktakes/${props.stocktakeId}/submit`, {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ commandId: crypto.randomUUID(), uncounted: uncountedMode }),
+        body: JSON.stringify({ commandId: crypto.randomUUID(), uncounted: uncountedMode, withoutTeam }),
       });
       const body = await res.json().catch(() => null);
+      if (body?.error?.code === "TEAM_PENDING") return setSheet({ kind: "team", waiting: body.error.details.waiting, uncounted: uncountedMode });
       if (!res.ok) return setNotice(body?.error?.message ?? "Couldn't submit. Retry");
       setSubmitted({ productsCounted: body.result.productsCounted, submittedAt: body.result.submittedAt });
     } catch {
@@ -198,6 +207,16 @@ export function CountScreen(props: {
     } finally {
       setSaving(false);
     }
+  }
+
+  if (closed && !props.lead) {
+    return (
+      <div className={styles.home}>
+        <h1>Stocktake submitted</h1>
+        <p className={styles.hint}>{props.leadLabel} sent it to the manager. Any counts still on this phone are listed on your home screen.</p>
+        <Link className={`btn btn-primary ${styles.bigButton}`} href="/count">Done</Link>
+      </div>
+    );
   }
 
   if (submitted) {
@@ -370,20 +389,29 @@ export function CountScreen(props: {
         </section>
       )}
 
+      {props.lead && <TeamStatus team={team} />}
       <footer className={styles.footer}>
         <div className={styles.footerStack}>
           {showSync && <SyncBadge snap={snap} id="sync-status" />}
           {blocked && <p id="submit-reason" className={`${styles.sync} ${styles.syncWarn}`}>{blocked}</p>}
           <span aria-live="polite">{countedSkus.size} of {productCount} products counted</span>
         </div>
-        <button
-          className="btn btn-primary"
-          disabled={saving || Boolean(blocked)}
-          aria-describedby={blocked ? "submit-reason" : undefined}
-          onClick={() => (uncounted.length ? setSheet({ kind: "submit", uncounted: uncounted.length }) : submit("leave"))}
-        >
-          {saving ? "Saving…" : "Submit stocktake"}
-        </button>
+        {props.lead ? (
+          <button
+            className="btn btn-primary"
+            disabled={saving || Boolean(blocked)}
+            aria-describedby={blocked ? "submit-reason" : undefined}
+            onClick={() => (uncounted.length ? setSheet({ kind: "submit", uncounted: uncounted.length }) : submit("leave"))}
+          >
+            {saving ? "Saving…" : "Submit stocktake"}
+          </button>
+        ) : done ? (
+          <span className={styles.hint} role="status">Done. {props.leadLabel} submits once everyone&apos;s counts are in.</span>
+        ) : (
+          <button className="btn btn-primary" disabled={snap.items.length > 0} aria-describedby={snap.items.length ? "sync-status" : undefined} onClick={() => setDone(true)}>
+            I&apos;m done counting
+          </button>
+        )}
         {snap.status === "closed" && (
           <button className="btn" onClick={() => setSheet({ kind: "discard", lineId: "*", label: `${snap.items.length} counts kept on this phone` })}>Clear</button>
         )}
@@ -435,6 +463,13 @@ export function CountScreen(props: {
           <button className={`btn ${styles.bigButton}`} onClick={() => submit("leave")}>Leave out and submit</button>
           <button className={`btn ${styles.bigButton}`} onClick={() => submit("zero")}>Count as zero and submit</button>
           <button className={`btn btn-primary ${styles.bigButton}`} onClick={() => { setSheet(null); setTab("uncounted"); }}>Keep counting</button>
+        </Sheet>
+      )}
+      {sheet?.kind === "team" && (
+        <Sheet title="Your team may still have counts" onClose={() => setSheet(null)}>
+          <p className={styles.hint}>Waiting for {waitingText(sheet.waiting)}. Counts they send after you submit are kept on their phone for the manager.</p>
+          <button className={`btn btn-primary ${styles.bigButton}`} onClick={() => setSheet(null)}>Wait for them</button>
+          <button className={`btn ${styles.bigButton}`} onClick={() => submit(sheet.uncounted, true)}>Submit without them</button>
         </Sheet>
       )}
       {scanning && <Scanner onResult={onScan} onClose={() => setScanning(false)} />}

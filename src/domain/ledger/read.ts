@@ -321,7 +321,8 @@ export async function listStocktakes(db: Db, limit = 50): Promise<StocktakeSumma
     .toArray();
   const countedBy = new Map(counted.map((x) => [x._id, x.skus.length]));
   return stocktakes.map((s) => ({
-    _id: s._id, branchId: s.branchId, branchName: names.get(s.branchId) ?? s.branchId, status: s.status, clerkLabel: s.clerkLabel,
+    _id: s._id, branchId: s.branchId, branchName: names.get(s.branchId) ?? s.branchId, status: s.status,
+    clerkLabel: s.participants?.length ? `${s.clerkLabel} + ${s.participants.length}` : s.clerkLabel, // team: lead + teammates
     openedAt: s.openedAt, submittedAt: s.submittedAt, approvedAt: s.approvedAt, productsCounted: countedBy.get(s._id) ?? 0,
   }));
 }
