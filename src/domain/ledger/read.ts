@@ -341,7 +341,7 @@ export interface CountView {
   stocktake: Stocktake;
   branchName: string;
   products: ClerkProduct[];
-  entries: { _id: string; sku: string; batchId?: string; batchCode?: string; counted: number; mode: "add" | "replace"; countedAt: string }[];
+  entries: { _id: string; sku: string; batchId?: string; batchCode?: string; counted: number; mode: "add" | "replace"; countedAt: string; deviceId?: string }[];
 }
 
 // Clerk count screen data. Never includes system quantities (blind count).
@@ -362,7 +362,7 @@ export async function countView(db: Db, stocktakeId: string): Promise<CountView 
     products: products.map((p) => ({ sku: p._id, name: p.name, category: p.category, batchTracked: p.batchTracked })),
     entries: entries.map((e) => ({
       _id: e._id, sku: e.sku, batchId: e.batchId, batchCode: e.batchId ? codes.get(e.batchId) : undefined,
-      counted: e.counted, mode: e.mode, countedAt: e.countedAt.toISOString(),
+      counted: e.counted, mode: e.mode, countedAt: e.countedAt.toISOString(), deviceId: e.deviceId,
     })),
   };
 }

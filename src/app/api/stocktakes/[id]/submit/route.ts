@@ -9,7 +9,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
     name: "submitStocktake",
     role: "clerk",
     actionClass: "general",
-    input: z.object({ commandId: CommandId, uncounted: z.enum(["zero", "leave"]) }),
-    run: (c, s, ctx, input, session) => submitStocktake(c, s, ctx, { stocktakeId: id, sid: session.sid, uncounted: input.uncounted }),
+    input: z.object({ commandId: CommandId, uncounted: z.enum(["zero", "leave"]), withoutTeam: z.boolean().optional() }),
+    run: (c, s, ctx, input, session) => submitStocktake(c, s, ctx, { stocktakeId: id, sid: session.sid, uncounted: input.uncounted, withoutTeam: input.withoutTeam }),
   });
 }
