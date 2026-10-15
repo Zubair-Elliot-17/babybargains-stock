@@ -41,7 +41,6 @@ export interface QueueDeps {
   random: () => number;
   sleep: (ms: number, wake: AbortSignal) => Promise<void>;
   lock: ((name: string, fn: () => Promise<void>) => Promise<void>) | null; // null → no other tabs to coordinate
-  device?: string; // this phone's id: team stocktakes fold counts per phone
 }
 
 const PREFIX = "bb-q:";
@@ -153,7 +152,7 @@ export function createCountQueue(stocktakeId: string, deps: QueueDeps) {
     }
     return post(
       `/api/stocktakes/${stocktakeId}/lines`,
-      { commandId: item.lineId, sku: item.sku, batchId: item.batchId, counted: item.counted, mode: item.mode, capturedAt, deviceId: deps.device },
+      { commandId: item.lineId, sku: item.sku, batchId: item.batchId, counted: item.counted, mode: item.mode, capturedAt },
       { "x-sent-at": new Date().toISOString() },
     );
   }
@@ -375,6 +374,10 @@ export function deviceId(storage: Store | null): string {
   return (memDevice ??= crypto.randomUUID());
 }
 
+// This phone's id, read once per page (team stocktakes: join and heartbeat).
+let mine: string | undefined;
+export const myDevice = () => (mine ??= deviceId(browserStorage()));
+
 export function browserStorage(): Storage | null {
   try {
     const probe = "bb-probe";
@@ -393,11 +396,9 @@ export function browserDeps(): QueueDeps {
   } catch {
     // blocked storage
   }
-  const storage = browserStorage();
   return {
-    device: deviceId(storage),
     fetch: (...a) => fetch(...a),
-    storage,
+    storage: browserStorage(),
     session,
     random: Math.random,
     sleep: (ms, wake) =>

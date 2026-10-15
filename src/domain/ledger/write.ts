@@ -460,7 +460,8 @@ export async function joinStocktake(c: Cols, s: ClientSession, ctx: CommandCtx, 
   if (st.status !== "OPEN") throw new DomainError("STOCKTAKE_CLOSED", "This stocktake is already submitted", 409);
   if (st.openedBy === input.sid) return { stocktakeId: st._id, lead: true };
   const participants = [...(st.participants ?? [])];
-  const seat = participants.find((p) => p.device === input.device);
+  // One seat per session; the same phone after a re-login takes its seat back (its device id never leaves it).
+  const seat = participants.find((p) => p.sid === input.sid) ?? participants.find((p) => p.device === input.device);
   if (seat) Object.assign(seat, { sid: input.sid, clerkLabel: input.clerkLabel, seenAt: now, done: false });
   else if (participants.length >= TEAM_MAX) throw new DomainError("TEAM_FULL", `A stocktake can have ${TEAM_MAX} phones`, 409);
   else participants.push({ device: input.device, sid: input.sid, clerkLabel: input.clerkLabel, joinedAt: now, pending: 0, seenAt: now, done: false });
@@ -490,8 +491,11 @@ export async function stocktakeHeartbeat(c: Cols, s: ClientSession, ctx: Command
     );
     if (!res.matchedCount) throw new DomainError("STOCKTAKE_BUSY", "This phone isn't part of this stocktake", 409);
   }
-  const fresh = (await c.stocktakes.findOne({ _id: st._id }, { session: s }))!;
-  return { lead, leadLabel: st.clerkLabel, team: teamOf(fresh, now) };
+  const [fresh, countedSkus] = await Promise.all([
+    c.stocktakes.findOne({ _id: st._id }, { session: s }),
+    c.stocktakeLines.distinct("sku", { stocktakeId: st._id }, { session: s }), // anyone's: drives "not counted yet"
+  ]);
+  return { lead, leadLabel: st.clerkLabel, team: teamOf(fresh!, now), countedSkus };
 }
 
 export interface CountLineInput {
@@ -504,8 +508,11 @@ export interface CountLineInput {
   mode: "add" | "replace";
   capturedAt?: Date; // phone time the count was entered (queued offline)
   sentAt?: Date; // phone time the request left; serverNow − sentAt corrects the phone's clock
-  deviceId?: string; // the counting phone (team stocktakes fold per phone)
 }
+
+// Which phone group a session's lines fold in: the lead seat has none (one group, whoever holds it, so a
+// takeover continues the same counts); a teammate's seat its phone. Decided here, never by the client.
+const seatOf = (st: Stocktake, sid: string) => (st.openedBy === sid ? undefined : st.participants?.find((p) => p.sid === sid)?.device);
 
 // countedAt drives expected stock, so a count queued offline keeps its capture time: corrected for clock skew,
 // clamped to [openedAt, now], and never earlier than a stored line for the same item (keeps capture order).
@@ -535,18 +542,19 @@ export async function saveCountLine(c: Cols, s: ClientSession, ctx: CommandCtx, 
     if (!batch || batch.sku !== input.sku) throw new DomainError("BATCH_MISMATCH", "That batch label belongs to a different product", 400);
   }
   const countedAt = await countTime(c, s, st, input, now);
+  const deviceId = seatOf(st, input.sid);
   await c.stocktakeLines.insertOne(
     {
       _id: input.lineId, stocktakeId: input.stocktakeId, sku: input.sku, counted: input.counted, mode: input.mode,
       countedAt, receivedAt: now, clerkId: input.sid, origin: ctx.origin,
       ...(input.batchId ? { batchId: input.batchId } : {}), // undefined would be stored as null and fail validation
-      ...(input.deviceId ? { deviceId: input.deviceId } : {}),
+      ...(deviceId ? { deviceId } : {}),
     },
     { session: s },
   );
   await c.stocktakes.updateOne({ _id: input.stocktakeId }, { $set: { lastActivityAt: now } }, { session: s });
   const entries = await c.stocktakeLines
-    .find({ stocktakeId: input.stocktakeId, sku: input.sku, batchId: input.batchId ?? { $exists: false }, deviceId: input.deviceId ?? { $exists: false } }, { session: s })
+    .find({ stocktakeId: input.stocktakeId, sku: input.sku, batchId: input.batchId ?? { $exists: false }, deviceId: deviceId ?? { $exists: false } }, { session: s })
     .sort({ countedAt: 1, _id: 1 })
     .toArray();
   const effective = foldCounts(entries).get(countKey(input.sku, input.batchId)); // this phone's running count

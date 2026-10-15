@@ -6,7 +6,7 @@ import { createPortal } from "react-dom";
 import type { ClerkProduct, CountView } from "@/domain/ledger/read";
 import { countKey, foldCounts } from "@/domain/ledger/stocktake";
 import { count as plural } from "@/lib/plural";
-import { browserDeps, browserStorage, createCountQueue, deviceId, type QueueSnapshot, type SentResult } from "./countQueue";
+import { browserDeps, createCountQueue, myDevice, type QueueSnapshot, type SentResult } from "./countQueue";
 import { SAVE_COPY_EVENT } from "./OfflineCopy";
 import { Scanner } from "./Scanner";
 import { SyncBadge, syncAnnouncement } from "./SyncBadge";
@@ -28,7 +28,8 @@ export function CountScreen(props: {
   branchName: string;
   openedAt: string;
   products: ClerkProduct[];
-  initialEntries: Entry[];
+  initialEntries: Entry[]; // this phone's seat only
+  countedByTeam: string[]; // SKUs anyone on the team has counted
   batches: Record<string, BatchChoice[]>;
   lead: boolean; // the phone that opened it submits; teammates say when they're done
   leadLabel: string;
@@ -52,9 +53,9 @@ export function CountScreen(props: {
   // Camera scanning only where the browser supports BarcodeDetector (false during SSR, no hydration mismatch).
   const canScan = useSyncExternalStore(noop, () => "BarcodeDetector" in window, () => false);
   const demoSlot = useSyncExternalStore(noop, () => document.getElementById("demo-slot"), () => null); // in the clerk layout's demo strip
-  const device = useSyncExternalStore(noop, () => deviceId(browserStorage()), () => null);
+  const device = useSyncExternalStore(noop, myDevice, () => null);
   const [done, setDone] = useState(false);
-  const { team, closed } = useTeam(props.stocktakeId, device, snap.items.length, snap.deadSpot, done);
+  const { team, closed, countedSkus: teamSkus } = useTeam(props.stocktakeId, device, snap.items.length, snap.deadSpot, done, props.lead);
 
   const bySku = useMemo(() => new Map(props.products.map((p) => [p.sku, p])), [props.products]);
   const codeOf = (sku: string, id?: string) => (id ? props.batches[sku]?.find((b) => b.batchId === id)?.batchCode : undefined);
@@ -62,21 +63,20 @@ export function CountScreen(props: {
   // Queued lines count straight away; the server copy wins once it holds a line (dedupe by lineId).
   const failedLines = snap.items.filter((i) => i.state === "failed");
   const entries = useMemo(() => {
-    // A phone sees and folds only its own counts (teammates' counts add to the stocktake, not to this screen).
-    const mine = sent.filter((e) => !e.deviceId || e.deviceId === device);
     const held = new Set(sent.map((e) => e._id));
     const queued = snap.items
       .filter((i) => i.state === "pending" && !held.has(i.lineId))
       .map((i): Entry => ({ _id: i.lineId, sku: i.sku, batchId: i.batchId, batchCode: codeOf(i.sku, i.batchId), counted: i.counted, mode: i.mode, countedAt: i.capturedAt }));
-    return [...mine, ...queued].sort((a, b) => a.countedAt.localeCompare(b.countedAt) || a._id.localeCompare(b._id));
+    return [...sent, ...queued].sort((a, b) => a.countedAt.localeCompare(b.countedAt) || a._id.localeCompare(b._id));
     // eslint-disable-next-line react-hooks/exhaustive-deps -- codeOf only reads props.batches
-  }, [sent, snap.items, props.batches, device]);
+  }, [sent, snap.items, props.batches]);
   const waiting = useMemo(() => new Set(snap.items.map((i) => i.lineId)), [snap.items]);
   const counts = useMemo(
     () => foldCounts(entries.map((e) => ({ sku: e.sku, batchId: e.batchId, counted: e.counted, mode: e.mode, countedAt: new Date(e.countedAt) }))),
     [entries],
   );
-  const countedSkus = useMemo(() => new Set([...counts.values()].map((c) => c.sku)), [counts]);
+  // Counted by anyone: teammates' products aren't "not counted yet" (this screen folds only its own counts).
+  const countedSkus = useMemo(() => new Set([...counts.values()].map((c) => c.sku).concat(teamSkus ?? props.countedByTeam)), [counts, teamSkus, props.countedByTeam]);
   const uncounted = props.products.filter((p) => !countedSkus.has(p.sku));
 
   const matches = useMemo(() => {
@@ -213,8 +213,8 @@ export function CountScreen(props: {
     return (
       <div className={styles.home}>
         <h1>Stocktake submitted</h1>
-        <p className={styles.hint}>{props.leadLabel} sent it to the manager. Any counts still on this phone are listed on your home screen.</p>
-        <Link className={`btn btn-primary ${styles.bigButton}`} href="/count">Done</Link>
+        <p className={styles.hint}>{props.leadLabel} sent it to the manager. Any counts still on this phone are listed next.</p>
+        <button className={`btn btn-primary ${styles.bigButton}`} onClick={() => location.reload()}>Show what&apos;s left on this phone</button>
       </div>
     );
   }

@@ -1,7 +1,7 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { cols } from "@/domain/collections";
 import { DomainError } from "@/domain/errors";
-import { checkLedgerInvariants, computeStocktakePlan, findRecall, projectionDiff } from "@/domain/ledger/read";
+import { checkLedgerInvariants, computeStocktakePlan, countView, findRecall, projectionDiff } from "@/domain/ledger/read";
 import { approveStocktake, joinStocktake, openStocktake, quarantineBatch, receiveStock, recordSale, saveCountLine, stocktakeHeartbeat, submitStocktake, TEAM_MAX, TEAM_SILENT_MS } from "@/domain/ledger/write";
 import { migrate } from "@/seed/apply";
 import { freshDb } from "./helpers";
@@ -33,8 +33,9 @@ describe("team stocktakes", () => {
   const PHONE = (n: number) => `00000000-0000-4000-8000-${String(n).padStart(12, "0")}`;
   const join = (stocktakeId: string, sid: string, device: string, branchId = "BR-A") =>
     run((c, s, k) => joinStocktake(c, s, k, { stocktakeId, branchId, sid, clerkLabel: `Clerk ${sid}`, device }));
-  const countOn = (stocktakeId: string, sid: string, deviceId: string, counted: number, mode: "add" | "replace" = "replace") =>
-    run((c, s, k) => saveCountLine(c, s, k, { stocktakeId, lineId: lineId(), sid, sku: TOY, counted, mode, deviceId }));
+  // The server picks the phone group from the session's seat; the device argument just names the caller's phone.
+  const countOn = (stocktakeId: string, sid: string, _device: string, counted: number, mode: "add" | "replace" = "replace") =>
+    run((c, s, k) => saveCountLine(c, s, k, { stocktakeId, lineId: lineId(), sid, sku: TOY, counted, mode }));
   const beat = (stocktakeId: string, sid: string, device: string, pending: number, done = false, now?: Date) =>
     run((c, s, k) => stocktakeHeartbeat(c, s, k, { stocktakeId, sid, device, pending, done }), now ? { now } : {});
   const submit = (stocktakeId: string, sid = "clerk-1", withoutTeam = false, now?: Date) =>
@@ -51,11 +52,34 @@ describe("team stocktakes", () => {
     await expect(join(st._id, "clerk-4", PHONE(4), "BR-B")).rejects.toMatchObject({ status: 404 }); // another branch
     const plan = await computeStocktakePlan(cols(t.db), st._id);
     expect(plan.counts.get(`${TOY}|`)?.counted).toBe(3);
+    // Lines are tagged by the server: the lead seat's carry no phone id, a teammate's carry their seat's.
+    const lines = await cols(t.db).stocktakeLines.find({ stocktakeId: st._id }).sort({ countedAt: 1 }).toArray();
+    expect(lines.map((l) => l.deviceId)).toEqual([undefined, PHONE(2), undefined]);
+    // Each screen gets only its own seat's lines, with no phone ids, plus what anyone counted.
+    const mate = (await countView(t.db, st._id, "clerk-2"))!;
+    expect(mate.entries.map((e) => e.counted)).toEqual([2]);
+    expect(JSON.stringify(mate.entries)).not.toContain(PHONE(2));
+    expect(mate.countedSkus).toEqual([TOY]);
+    expect((await countView(t.db, st._id, "clerk-1"))!.entries.map((e) => e.counted)).toEqual([3, 1]);
+  });
+
+  it("a takeover continues the lead seat's counts, so a recount replaces them instead of adding", async () => {
+    const st = (await open()).result;
+    await countOn(st._id, "clerk-1", PHONE(1), 4);
+    await cols(t.db).stocktakeLines.insertOne({ _id: "legacy", stocktakeId: st._id, sku: COT, batchId: OLD, counted: 1, mode: "replace", countedAt: new Date(), clerkId: "clerk-1", origin: "visitor" }); // a line from before team counting
+    await cols(t.db).stocktakes.updateOne({ _id: st._id }, { $set: { lastActivityAt: new Date(Date.now() - 3 * 3_600_000) } });
+    await open("clerk-9"); // takes over the idle stocktake
+    await countOn(st._id, "clerk-9", PHONE(9), 2);
+    await run((c, s, k) => saveCountLine(c, s, k, { stocktakeId: st._id, lineId: lineId(), sid: "clerk-9", sku: COT, batchId: OLD, counted: 2, mode: "replace" }));
+    const plan = await computeStocktakePlan(cols(t.db), st._id);
+    expect([plan.counts.get(`${TOY}|`)?.counted, plan.counts.get(`${COT}|${OLD}`)?.counted]).toEqual([2, 2]);
   });
 
   it("rejoining from the same phone takes the seat with the new session; a team holds 10 phones", async () => {
     const st = (await open()).result;
     await join(st._id, "clerk-2", PHONE(2));
+    await join(st._id, "clerk-2", PHONE(5)); // one seat per session, whatever device id it sends
+    expect((await cols(t.db).stocktakes.findOne({ _id: st._id }))?.participants?.map((p) => p.device)).toEqual([PHONE(2)]);
     await join(st._id, "clerk-2b", PHONE(2)); // re-login on the same phone
     await expect(countOn(st._id, "clerk-2", PHONE(2), 1)).rejects.toMatchObject({ code: "STOCKTAKE_BUSY" });
     await countOn(st._id, "clerk-2b", PHONE(2), 1);

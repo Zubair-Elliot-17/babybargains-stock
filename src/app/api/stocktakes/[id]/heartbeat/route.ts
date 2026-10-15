@@ -10,7 +10,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
     target: id,
     name: "stocktakeHeartbeat",
     role: "clerk",
-    actionClass: "count",
+    actionClass: "heartbeat",
     input: z.object({ commandId: CommandId, deviceId: DeviceId, pending: z.number().int().min(0).max(10_000), done: z.boolean() }),
     run: (c, s, ctx, input, session) =>
       stocktakeHeartbeat(c, s, ctx, { stocktakeId: id, sid: session.sid, device: input.deviceId, pending: input.pending, done: input.done }),

@@ -1,6 +1,5 @@
 import { z } from "zod";
 import { saveCountLine } from "@/domain/ledger/write";
-import { DeviceId } from "@/domain/schemas";
 import { CommandId, handleCommand } from "@/lib/command";
 
 // One count entry; commandId doubles as the line id so retries never double count.
@@ -12,7 +11,6 @@ const Input = z.object({
   counted: z.number().int().min(0).max(9999),
   mode: z.enum(["add", "replace"]),
   capturedAt: z.iso.datetime().optional(),
-  deviceId: DeviceId.optional(),
 });
 
 export async function POST(req: Request, { params }: { params: Promise<{ id: string }> }) {
@@ -29,7 +27,6 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
         stocktakeId: id, lineId: input.commandId, sid: session.sid, sku: input.sku, batchId: input.batchId, counted: input.counted, mode: input.mode,
         capturedAt: input.capturedAt ? new Date(input.capturedAt) : undefined,
         sentAt: input.capturedAt && sent.success ? new Date(sent.data) : undefined,
-        deviceId: input.deviceId,
       }),
   });
 }

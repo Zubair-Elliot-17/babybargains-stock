@@ -342,18 +342,23 @@ export interface CountView {
   stocktake: Stocktake;
   branchName: string;
   products: ClerkProduct[];
-  entries: { _id: string; sku: string; batchId?: string; batchCode?: string; counted: number; mode: "add" | "replace"; countedAt: string; deviceId?: string }[];
+  entries: { _id: string; sku: string; batchId?: string; batchCode?: string; counted: number; mode: "add" | "replace"; countedAt: string }[];
+  countedSkus: string[]; // by anyone on the team
 }
 
-// Clerk count screen data. Never includes system quantities (blind count).
-export async function countView(db: Db, stocktakeId: string): Promise<CountView | null> {
+// Clerk count screen data. Never includes system quantities (blind count). Entries are the viewing session's
+// seat only: the lead seat's lines have no device id, a teammate's carry their phone's, and phone ids never
+// reach a browser.
+export async function countView(db: Db, stocktakeId: string, sid: string): Promise<CountView | null> {
   const c = cols(db);
   const stocktake = await c.stocktakes.findOne({ _id: stocktakeId });
   if (!stocktake) return null;
-  const [branch, products, entries] = await Promise.all([
+  const seat = stocktake.openedBy === sid ? undefined : stocktake.participants?.find((p) => p.sid === sid)?.device;
+  const [branch, products, entries, countedSkus] = await Promise.all([
     c.branches.findOne({ _id: stocktake.branchId }),
     c.products.find({}, { projection: { name: 1, category: 1, batchTracked: 1 } }).sort({ category: 1, name: 1 }).toArray(),
-    c.stocktakeLines.find({ stocktakeId }).sort({ countedAt: 1, _id: 1 }).toArray(),
+    c.stocktakeLines.find({ stocktakeId, deviceId: seat ?? { $exists: false } }).sort({ countedAt: 1, _id: 1 }).toArray(),
+    c.stocktakeLines.distinct("sku", { stocktakeId }),
   ]);
   const batchIds = [...new Set(entries.flatMap((e) => (e.batchId ? [e.batchId] : [])))];
   const codes = new Map((await c.batches.find({ _id: { $in: batchIds } }, { projection: { batchCode: 1 } }).toArray()).map((b) => [b._id, b.batchCode]));
@@ -363,8 +368,9 @@ export async function countView(db: Db, stocktakeId: string): Promise<CountView 
     products: products.map((p) => ({ sku: p._id, name: p.name, category: p.category, batchTracked: p.batchTracked })),
     entries: entries.map((e) => ({
       _id: e._id, sku: e.sku, batchId: e.batchId, batchCode: e.batchId ? codes.get(e.batchId) : undefined,
-      counted: e.counted, mode: e.mode, countedAt: e.countedAt.toISOString(), deviceId: e.deviceId,
+      counted: e.counted, mode: e.mode, countedAt: e.countedAt.toISOString(),
     })),
+    countedSkus,
   };
 }
 

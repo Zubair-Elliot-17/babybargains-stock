@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useState, useSyncExternalStore } from "react";
-import { browserStorage, deviceId, getResumeKey, setResumeKey, sweepOld } from "./countQueue";
+import { browserStorage, getResumeKey, myDevice, setResumeKey, sweepOld } from "./countQueue";
 import styles from "./count.module.css";
 
 // openId: the branch's OPEN stocktake held by another session. This phone may hold its resume key (re-login).
@@ -56,7 +56,7 @@ export function StartStocktake({ resumeId, openId, leadLabel }: { resumeId: stri
       const res = await fetch(`/api/stocktakes/${openId}/join`, {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ commandId: crypto.randomUUID(), deviceId: deviceId(browserStorage()) }),
+        body: JSON.stringify({ commandId: crypto.randomUUID(), deviceId: myDevice() }),
       });
       const body = await res.json().catch(() => null);
       if (res.ok) return router.push(`/count/${openId}`);
@@ -70,19 +70,23 @@ export function StartStocktake({ resumeId, openId, leadLabel }: { resumeId: stri
 
   return (
     <div className={styles.startBox}>
-      {openId && !hasKey ? (
+      {resumeId ? (
+        <Link className={`btn btn-primary ${styles.bigButton}`} href={`/count/${resumeId}`}>Resume stocktake</Link>
+      ) : (
+        (!openId || hasKey) && (
+          // With a key this phone held the lead seat before a re-login; it may be out of date after a takeover.
+          <button className={`btn btn-primary ${styles.bigButton}`} onClick={start} disabled={busy}>
+            {busy ? "Starting…" : hasKey ? "Resume stocktake" : "Start stocktake"}
+          </button>
+        )
+      )}
+      {openId && (
         <>
-          <button className={`btn btn-primary ${styles.bigButton}`} onClick={join} disabled={busy}>
+          <button className={`btn ${hasKey ? "" : "btn-primary"} ${styles.bigButton}`} onClick={join} disabled={busy}>
             {busy ? "Joining…" : `Join ${leadLabel}'s stocktake`}
           </button>
           <p className={styles.hint}>{leadLabel} is counting this branch. Join to count other aisles: your counts add to theirs.</p>
         </>
-      ) : resumeId ? (
-        <Link className={`btn btn-primary ${styles.bigButton}`} href={`/count/${resumeId}`}>Resume stocktake</Link>
-      ) : (
-        <button className={`btn btn-primary ${styles.bigButton}`} onClick={start} disabled={busy}>
-          {busy ? "Starting…" : hasKey ? "Resume stocktake" : "Start stocktake"}
-        </button>
       )}
       {error && <p className="banner banner-error" role="alert">{error}</p>}
     </div>

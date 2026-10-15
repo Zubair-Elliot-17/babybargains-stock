@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { TeamMember } from "@/domain/ledger/write";
 import { count } from "@/lib/plural";
 import styles from "./count.module.css";
@@ -10,36 +10,47 @@ const HEARTBEAT_MS = 30_000;
 const time = (iso: string) => new Date(iso).toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" });
 
 // Team stocktakes (docs/designs/team-stocktakes.md): report this phone's queued counts and read the team's
-// status. Silent in the dead-spot demo, as a real dead spot would be. closed: the lead has submitted.
-export function useTeam(stocktakeId: string, device: string | null, pending: number, deadSpot: boolean, done: boolean) {
+// status. Beats every 30 s, and at once when a teammate's phone starts or stops holding counts, or says it's
+// done (not on every save: heartbeats have their own small budget). Silent in the dead-spot demo, as a real
+// dead spot would be. closed: the lead has submitted.
+export function useTeam(stocktakeId: string, device: string | null, pending: number, deadSpot: boolean, done: boolean, lead: boolean) {
   const [team, setTeam] = useState<Member[]>([]);
+  const [countedSkus, setCountedSkus] = useState<string[] | null>(null);
   const [closed, setClosed] = useState(false);
+  const pendingNow = useRef(pending);
+  useEffect(() => {
+    pendingNow.current = pending;
+  }, [pending]);
+  const holding = !lead && pending > 0; // the lead's own queue is checked on its own screen
+
   useEffect(() => {
     if (!device || deadSpot || closed) return;
-    let stop = false;
+    const abort = new AbortController(); // an older beat must not land after a newer one
     const beat = async () => {
       try {
         const res = await fetch(`/api/stocktakes/${stocktakeId}/heartbeat`, {
           method: "POST",
           headers: { "content-type": "application/json" },
-          body: JSON.stringify({ commandId: crypto.randomUUID(), deviceId: device, pending, done }),
+          body: JSON.stringify({ commandId: crypto.randomUUID(), deviceId: device, pending: pendingNow.current, done }),
+          signal: abort.signal,
         });
         const body = await res.json().catch(() => null);
-        if (stop) return;
-        if (res.ok) setTeam(body.result.team);
-        else if (body?.error?.code === "STOCKTAKE_CLOSED") setClosed(true);
+        if (res.ok) {
+          setTeam(body.result.team);
+          setCountedSkus(body.result.countedSkus);
+        } else if (body?.error?.code === "STOCKTAKE_CLOSED") setClosed(true);
       } catch {
-        // no signal: the next beat tries again
+        // no signal (or superseded): the next beat tries again
       }
     };
     void beat();
     const t = setInterval(() => void beat(), HEARTBEAT_MS);
     return () => {
-      stop = true;
+      abort.abort();
       clearInterval(t);
     };
-  }, [stocktakeId, device, pending, deadSpot, done, closed]);
-  return { team, closed };
+  }, [stocktakeId, device, holding, deadSpot, done, closed]);
+  return { team, closed, countedSkus };
 }
 
 const state = (m: Member) =>
