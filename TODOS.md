@@ -9,13 +9,6 @@ Deferred during plan review. Each has the context needed to pick it up later.
   dismiss button; make row-header product names read as primary text (`--text-table`, `--color-ink`).
 - **Why:** fine at demo size (~45 ms on FULL), but cost grows with history and catalogue size.
 
-## Team stocktakes (P3)
-- **What:** several clerks join one branch stocktake, with a per-clerk sync heartbeat gating Submit.
-- **Why:** real stocktake days split aisles across staff.
-- **Cons:** the most complex flow and the flakiest E2E test.
-- **Context:** `stocktakeLines` will already store `clerkId`; add `stocktakeParticipants` and a join UI.
-- **Depends on:** Milestone 2.
-
 ## Stockout-adjusted velocity for transfers (P3)
 - **What:** estimate demand on days a branch was out of stock instead of counting only recorded sales.
 - **Why:** a branch that sold out looks slower than it is, so it is under-refilled and can look like

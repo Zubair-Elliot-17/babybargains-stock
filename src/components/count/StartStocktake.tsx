@@ -3,11 +3,11 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useState, useSyncExternalStore } from "react";
-import { browserStorage, getResumeKey, setResumeKey, sweepOld } from "./countQueue";
+import { browserStorage, getResumeKey, myDevice, setResumeKey, sweepOld } from "./countQueue";
 import styles from "./count.module.css";
 
 // openId: the branch's OPEN stocktake held by another session. This phone may hold its resume key (re-login).
-export function StartStocktake({ resumeId, openId }: { resumeId: string | null; openId: string | null }) {
+export function StartStocktake({ resumeId, openId, leadLabel }: { resumeId: string | null; openId: string | null; leadLabel: string }) {
   const router = useRouter();
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -48,14 +48,45 @@ export function StartStocktake({ resumeId, openId }: { resumeId: string | null; 
     }
   }
 
+  // Team stocktakes: count alongside the clerk who opened it, from this phone.
+  async function join() {
+    setBusy(true);
+    setError(null);
+    try {
+      const res = await fetch(`/api/stocktakes/${openId}/join`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ commandId: crypto.randomUUID(), deviceId: myDevice() }),
+      });
+      const body = await res.json().catch(() => null);
+      if (res.ok) return router.push(`/count/${openId}`);
+      setError(body?.error?.message ?? "Couldn't join. Retry");
+    } catch {
+      setError("Couldn't reach the server. Retry");
+    } finally {
+      setBusy(false);
+    }
+  }
+
   return (
     <div className={styles.startBox}>
       {resumeId ? (
         <Link className={`btn btn-primary ${styles.bigButton}`} href={`/count/${resumeId}`}>Resume stocktake</Link>
       ) : (
-        <button className={`btn btn-primary ${styles.bigButton}`} onClick={start} disabled={busy}>
-          {busy ? "Starting…" : hasKey ? "Resume stocktake" : "Start stocktake"}
-        </button>
+        (!openId || hasKey) && (
+          // With a key this phone held the lead seat before a re-login; it may be out of date after a takeover.
+          <button className={`btn btn-primary ${styles.bigButton}`} onClick={start} disabled={busy}>
+            {busy ? "Starting…" : hasKey ? "Resume stocktake" : "Start stocktake"}
+          </button>
+        )
+      )}
+      {openId && (
+        <>
+          <button className={`btn ${hasKey ? "" : "btn-primary"} ${styles.bigButton}`} onClick={join} disabled={busy}>
+            {busy ? "Joining…" : `Join ${leadLabel}'s stocktake`}
+          </button>
+          <p className={styles.hint}>{leadLabel} is counting this branch. Join to count other aisles: your counts add to theirs.</p>
+        </>
       )}
       {error && <p className="banner banner-error" role="alert">{error}</p>}
     </div>

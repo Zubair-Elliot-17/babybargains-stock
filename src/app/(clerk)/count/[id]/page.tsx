@@ -15,7 +15,7 @@ export default async function CountPage({ params }: { params: Promise<{ id: stri
   const { id } = await params;
   const session = (await currentSession())!;
   const db = await getDb();
-  const view = await countView(db, id);
+  const view = await countView(db, id, session.sid);
   if (!view || view.stocktake.branchId !== session.branchId) notFound();
   const st = view.stocktake;
 
@@ -31,7 +31,9 @@ export default async function CountPage({ params }: { params: Promise<{ id: stri
       </div>
     );
   }
-  if (st.openedBy !== session.sid) redirect("/count"); // the home page resumes it with this phone's key
+  const lead = st.openedBy === session.sid;
+  // The home page resumes it with this phone's key, or lets a teammate join.
+  if (!lead && !st.participants?.some((p) => p.sid === session.sid)) redirect("/count");
 
   return (
     <CountScreen
@@ -40,7 +42,10 @@ export default async function CountPage({ params }: { params: Promise<{ id: stri
       openedAt={st.openedAt.toISOString()}
       products={view.products}
       initialEntries={view.entries}
+      countedByTeam={view.countedSkus}
       batches={await branchBatchChoices(db, st.branchId)}
+      lead={lead}
+      leadLabel={st.clerkLabel}
     />
   );
 }

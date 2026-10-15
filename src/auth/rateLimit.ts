@@ -3,7 +3,7 @@ import { cols } from "@/domain/collections";
 import { RateLimited } from "@/domain/errors";
 
 // Per-session hourly budgets by action class (count lines need far more than other writes).
-export const BUDGETS = { general: 60, count: 600, quarantine: 1, catalogue: 10 } as const;
+export const BUDGETS = { general: 60, count: 600, quarantine: 1, catalogue: 10, heartbeat: 300 } as const; // heartbeat: team stocktakes, own budget so counts never wait on it
 export type ActionClass = keyof typeof BUDGETS;
 // Per-client-IP hourly budgets, so minting new demo sessions can't reset these limits.
 export const IP_BUDGETS: Partial<Record<ActionClass, number>> = { quarantine: 3, catalogue: 5 }; // catalogue: renames the shared demo

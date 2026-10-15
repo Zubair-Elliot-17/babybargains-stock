@@ -13,7 +13,7 @@ export function syncText(snap: QueueSnapshot): { text: string; tone: "ok" | "war
       case "signin": return snap.message && snap.message !== "Sign in to continue" ? `${snap.message}. ${n} kept` : `Sign in to send ${n}`;
       case "closed": return `Stocktake already submitted: ${n} not sent. Show them to your manager`;
       case "busy": return `Being counted on another device: ${n} kept on this phone`;
-      case "nokey": return `Can't resume on this phone yet: ${n} kept. Wait 2 hours idle or ask a manager`;
+      case "nokey": return `Can't resume on this phone yet: ${n} kept. Join the team from Count, wait 2 hours idle, or ask a manager`;
       case "server": return `Server problem, ${n} kept, retrying`;
       case "waiting": return `${n} waiting for signal`;
       case "sending": return pending ? `Sending ${n}…` : "";

@@ -4,6 +4,7 @@ import { z } from "zod";
 
 export const Id = z.string().min(1).max(120);
 export const Pence = z.number().int().min(0);
+export const DeviceId = z.string().regex(/^[0-9a-f-]{36}$/); // a phone's random UUID (browser storage)
 
 export const MovementType = z.enum([
   "RECEIVED",
@@ -179,6 +180,21 @@ export const Stocktake = z.object({
   approvedAt: z.date().optional(),
   approvedOrigin: Origin.optional(),
   resumeNonce: z.string().max(64).optional(), // the current resume key is HMAC(id:nonce); rotated on every open
+  // Team counting (docs/designs/team-stocktakes.md): phones that joined the lead's stocktake.
+  participants: z
+    .array(
+      z.object({
+        device: DeviceId,
+        sid: Id, // the phone's current session
+        clerkLabel: z.string().max(40),
+        joinedAt: z.date(),
+        pending: z.number().int().min(0), // counts queued on the phone at its last report
+        seenAt: z.date(),
+        done: z.boolean(),
+      }),
+    )
+    .max(10)
+    .optional(),
   origin: Origin,
 });
 export type Stocktake = z.infer<typeof Stocktake>;
@@ -194,6 +210,7 @@ export const StocktakeLine = z.object({
   countedAt: z.date(),
   receivedAt: z.date().optional(), // server arrival; differs from countedAt for counts queued offline
   clerkId: Id,
+  deviceId: DeviceId.optional(), // the phone that counted it; replace only resets that phone's count
   origin: Origin,
 });
 export type StocktakeLine = z.infer<typeof StocktakeLine>;

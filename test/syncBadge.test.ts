@@ -15,7 +15,7 @@ describe("sync status text", () => {
     [snap({ items: [item()], status: "signin", message: "Not allowed for this role" }), "Not allowed for this role. 1 count kept", "warn"],
     [snap({ items: [item()], status: "closed" }), "Stocktake already submitted: 1 count not sent. Show them to your manager", "warn"],
     [snap({ items: [item()], status: "busy" }), "Being counted on another device: 1 count kept on this phone", "warn"],
-    [snap({ items: [item()], status: "nokey" }), "Can't resume on this phone yet: 1 count kept. Wait 2 hours idle or ask a manager", "warn"],
+    [snap({ items: [item()], status: "nokey" }), "Can't resume on this phone yet: 1 count kept. Join the team from Count, wait 2 hours idle, or ask a manager", "warn"],
     [snap({ items: [item("failed"), item("failed")] }), "2 not saved, see above", "warn"],
     [snap({ items: [item()], status: "waiting", deadSpot: true }), "Dead-spot demo on · 1 count waiting for signal", "warn"],
     [snap({ deadSpot: true }), "Dead-spot demo on · All counts saved", "ok"],

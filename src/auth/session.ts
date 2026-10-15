@@ -84,3 +84,6 @@ export const cookieOptions = {
   path: "/",
   maxAge: TTL_MS / 1000,
 };
+
+// Clerks have no accounts: a label from the session id (a re-login is a new label).
+export const clerkLabel = (sid: string) => `Clerk ${sid.slice(0, 4).toUpperCase()}`;
