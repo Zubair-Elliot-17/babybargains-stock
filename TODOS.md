@@ -36,8 +36,3 @@ Deferred during plan review. Each has the context needed to pick it up later.
 ## Hero-screen mockups (P3)
 - **What:** generate and approve mockups for Recall and Count before more UI work.
 - **Depends on:** an OpenAI API key for the gstack designer.
-
-## New products from a supplier price list (P3)
-- **What:** let a price list add products it mentions that we don't stock, with a form for the category details (dimensions, safety standard, age range…) a price list doesn't carry.
-- **Why:** price lists today only update names and prices of existing products; unknown SKUs are listed, not created.
-- **Context:** `diffPriceList` in `src/domain/suppliers/catalogue.ts` already returns `unknown`; products are a discriminated union by category in `src/domain/schemas.ts`.

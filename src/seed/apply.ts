@@ -97,6 +97,7 @@ export async function resetDemo(db: Db, now = new Date()): Promise<ResetReport> 
   // Visitor price lists: each changed product kept its seeded name and price (seedName/seedPrice). A list
   // applied during the reset sets them again and is undone the next night.
   removed.catalogueImports = (await c.catalogueImports.deleteMany({ origin: "visitor" })).deletedCount;
+  removed.products = (await c.products.deleteMany({ createdOrigin: "visitor" })).deletedCount;
   await c.products.updateMany({ seedName: { $exists: true } }, [{ $set: { name: "$seedName", price: "$seedPrice" } }, { $unset: ["seedName", "seedPrice"] }]);
   // A visitor approving the seeded stocktake: its adjustments were visitor movements (already removed).
   await c.stocktakes.updateMany({ approvedOrigin: "visitor" }, { $set: { status: "SUBMITTED" }, $unset: { approvedAt: "", approvedOrigin: "" } });

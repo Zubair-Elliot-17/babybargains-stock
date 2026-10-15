@@ -25,7 +25,7 @@ export default async function PriceListPage({ searchParams }: { searchParams: Pr
     <>
       <p><Link href="/orders">← Orders</Link></p>
       <h1>Supplier price lists</h1>
-      <p className={styles.meta}>A supplier&apos;s price list updates the names and prices of its products. Preview it, then apply it. Demo changes are undone at the nightly reset.</p>
+      <p className={styles.meta}>A supplier&apos;s price list updates the names and prices of its products and can add products we don&apos;t stock yet. Preview it, then apply it. Demo changes are undone at the nightly reset.</p>
       <form className={styles.filters} method="get">
         <label>
           Supplier
@@ -50,7 +50,7 @@ export default async function PriceListPage({ searchParams }: { searchParams: Pr
               <h2 id="applied">Applied price lists</h2>
               <ul>
                 {applied.map((a) => (
-                  <li key={a._id}><span className="mono">{a.ref}</span> · {when(a.appliedAt)} UTC · {a.changes.length} product{a.changes.length === 1 ? "" : "s"} changed</li>
+                  <li key={a._id}><span className="mono">{a.ref}</span> · {when(a.appliedAt)} UTC · {a.changes.length} product{a.changes.length === 1 ? "" : "s"} changed{a.added?.length ? `, ${a.added.length} added` : ""}</li>
                 ))}
               </ul>
             </section>

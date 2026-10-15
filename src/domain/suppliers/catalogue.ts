@@ -2,8 +2,8 @@ import { z } from "zod";
 import { NoteRef } from "./deliveryNotes";
 
 // One adapter per supplier price-list format (suppliers.adapter), like deliveryNotes.ts. A price list
-// updates names and prices of the supplier's products; it can't add products (those need category
-// details a price list doesn't carry), so unknown SKUs are listed, not created.
+// updates names and prices of the supplier's products; a product it mentions that we don't stock can be
+// added once the manager fills in the category details a price list doesn't carry (NewProduct).
 
 export interface PriceList {
   ref: string; // the supplier's own reference; the same list can't be applied twice
@@ -20,6 +20,7 @@ const Sku = z.string().trim().min(1).max(80);
 // screen), no combining marks (they stack over neighbouring rows). The price-list route uses the same.
 export const ProductName = z.string().transform((s) => s.normalize("NFC").trim()).pipe(z.string().min(1).max(120).regex(/^[\p{L}\p{N}\p{P}\p{S} ]+$/u, "letters, digits, spaces and punctuation only"));
 const Name = ProductName;
+const printable = (max: number) => z.string().transform((s) => s.normalize("NFC").trim()).pipe(z.string().min(1).max(max).regex(/^[\p{L}\p{N}\p{P}\p{S} ]+$/u, "letters, digits, spaces and punctuation only"));
 export const Pence = z.number().int().min(1).max(10_000_000);
 const PoundsNumber = z.number().positive().max(100_000).refine((n) => Math.abs(n * 100 - Math.round(n * 100)) < 1e-6, "at most 2 decimals").transform((n) => Math.round(n * 100)).pipe(Pence);
 const PoundsString = z.string().trim().regex(/^\d{1,6}(\.\d{1,2})?$/, "a price like 129.99").transform((s) => Math.round(Number(s) * 100)).pipe(Pence);
@@ -84,6 +85,23 @@ export const CATALOGUE_ADAPTERS: Record<string, Adapter> = {
     example: (ps, ref) => ({ id: `WT-PL-${ref}`, toys: ps.map((p) => ({ item: { sku: p.sku, name: p.name }, price: { amount: p.price, currency: "GBP" } })) }),
   },
 };
+
+// What the manager adds for a price-list SKU we don't stock; name, price and supplier come from the list.
+// Bounds keep the public demo's catalogue plausible; they mirror schemas.ts Product attributes.
+export const NewSku = z.string().regex(/^[A-Za-z0-9._-]{1,40}$/, "letters, digits, . _ - only (40 max)");
+const Cm = z.number().positive().max(500);
+export const NewProduct = z.object({ sku: NewSku, batchTracked: z.boolean() }).and(
+  z.discriminatedUnion("category", [
+    z.object({ category: z.literal("cot"), attributes: z.object({ widthCm: Cm, lengthCm: Cm, finish: printable(30), safetyStandard: printable(40) }) }),
+    z.object({ category: z.literal("pram"), attributes: z.object({ weightKg: z.number().positive().max(100), foldable: z.boolean(), safetyStandard: printable(40) }) }),
+    z.object({ category: z.literal("monitor"), attributes: z.object({ rangeM: z.number().int().positive().max(10_000), video: z.boolean(), warrantyMonths: z.number().int().positive().max(120) }) }),
+    z.object({ category: z.literal("clothing"), attributes: z.object({ size: printable(20), colour: printable(30), material: printable(40) }) }),
+    z.object({ category: z.literal("toy"), attributes: z.object({ ageMonthsMin: z.number().int().min(0).max(216), material: printable(40) }) }),
+  ]),
+);
+export type NewProduct = z.infer<typeof NewProduct>;
+export const MAX_NEW_PRODUCTS = 20; // demo guard per list
+export const BATCH_TRACKED_BY_DEFAULT: Record<NewProduct["category"], boolean> = { cot: true, pram: true, monitor: true, clothing: false, toy: false };
 
 export interface CatalogueChange {
   sku: string;
