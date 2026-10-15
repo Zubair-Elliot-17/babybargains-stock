@@ -16,9 +16,12 @@ interface Adapter {
 }
 
 const Sku = z.string().trim().min(1).max(80);
-const Name = z.string().trim().min(1).max(120);
-const Pence = z.number().int().min(1).max(10_000_000);
-const PoundsNumber = z.number().positive().max(100_000).refine((n) => Math.abs(n * 100 - Math.round(n * 100)) < 1e-6, "at most 2 decimals").transform((n) => Math.round(n * 100));
+// Printable names only: no control, zero-width or bidi characters (they'd hide or reorder text on every
+// screen), no combining marks (they stack over neighbouring rows). The price-list route uses the same.
+export const ProductName = z.string().transform((s) => s.normalize("NFC").trim()).pipe(z.string().min(1).max(120).regex(/^[\p{L}\p{N}\p{P}\p{S} ]+$/u, "letters, digits, spaces and punctuation only"));
+const Name = ProductName;
+export const Pence = z.number().int().min(1).max(10_000_000);
+const PoundsNumber = z.number().positive().max(100_000).refine((n) => Math.abs(n * 100 - Math.round(n * 100)) < 1e-6, "at most 2 decimals").transform((n) => Math.round(n * 100)).pipe(Pence);
 const PoundsString = z.string().trim().regex(/^\d{1,6}(\.\d{1,2})?$/, "a price like 129.99").transform((s) => Math.round(Number(s) * 100)).pipe(Pence);
 const List = <T extends z.ZodType>(item: T) => z.array(item).min(1).max(500);
 
@@ -88,20 +91,29 @@ export interface CatalogueChange {
   after: { name: string; price: number };
 }
 
+// Demo guard: a list may move a price to between half and double what it is now (a public demo can't
+// let visitors set £0.01 or £100k prices across the catalogue). shortcut: drop for a real deployment.
+const PRICE_RANGE = [0.5, 2] as const;
+
 // What applying the list would change for this supplier's products, and what it can't apply.
 export function diffPriceList(list: PriceList, products: { sku: string; name: string; price: number }[]) {
   const bySku = new Map(products.map((p) => [p.sku, p]));
   const changes: CatalogueChange[] = [];
   const unknown: string[] = [];
+  const outOfRange: string[] = [];
   let unchanged = 0;
   for (const i of list.items) {
     const p = bySku.get(i.sku);
     if (!p) unknown.push(i.sku);
     else if (p.name === i.name && p.price === i.price) unchanged++;
-    else changes.push({ sku: i.sku, before: { name: p.name, price: p.price }, after: { name: i.name, price: i.price } });
+    else {
+      if (i.price < p.price * PRICE_RANGE[0] || i.price > p.price * PRICE_RANGE[1]) outOfRange.push(i.sku);
+      changes.push({ sku: i.sku, before: { name: p.name, price: p.price }, after: { name: i.name, price: i.price } });
+    }
   }
-  return { changes, unchanged, unknown };
+  return { changes, unchanged, unknown, outOfRange };
 }
+export const PRICE_RANGE_TEXT = "between half and double the current price";
 
 // Text of a price-list file -> the list, or what is wrong with it.
 export function readPriceList(adapterId: string, text: string): { list: PriceList } | { error: string } {

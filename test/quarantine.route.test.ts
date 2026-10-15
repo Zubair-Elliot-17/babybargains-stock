@@ -59,3 +59,16 @@ it("checks the IP cap before the session's, so a refused recall leaves the sessi
   expect((await recall("B-404", ip)).status).toBe(429); // IP refused
   expect((await recall("B-404", "198.51.100.10")).status).toBe(404); // same session, new IP: its recall is still there
 });
+
+it("caps price lists per client IP: they rename the shared demo", async () => {
+  const { POST: applyList } = await import("@/app/api/price-lists/route");
+  const send = (ip: string) => {
+    token = createSession("manager").token; // a new session each time
+    const body = { commandId: randomUUID(), supplierId: "SUP-NONE", ref: `PL-${randomUUID().slice(0, 8)}`, items: [{ sku: "X", name: "X", price: 100 }] };
+    return applyList(new Request("http://x/api/price-lists", { method: "POST", headers: { "x-real-ip": ip }, body: JSON.stringify(body) })).then((r) => r.status);
+  };
+  const ip = "192.0.2.44";
+  for (let i = 0; i < 5; i++) expect(await send(ip)).toBe(404); // unknown supplier still spends budget
+  expect(await send(ip)).toBe(429);
+  expect(await send("192.0.2.45")).toBe(404);
+});

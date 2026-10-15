@@ -1,7 +1,7 @@
 import type { ClientSession } from "mongodb";
 import type { Cols } from "../collections";
 import { DomainError, NotFound } from "../errors";
-import { diffPriceList, type PriceList } from "../suppliers/catalogue";
+import { diffPriceList, PRICE_RANGE_TEXT, type PriceList } from "../suppliers/catalogue";
 import type { CommandCtx } from "./write";
 
 // Applies a supplier price list to that supplier's products (names and prices only), once per list ref.
@@ -17,10 +17,18 @@ export async function applyPriceList(c: Cols, s: ClientSession, ctx: CommandCtx,
   const products = await c.products
     .find({ supplierId: supplier._id, _id: { $in: input.list.items.map((i) => i.sku) } }, { session: s, projection: { name: 1, price: 1 } })
     .toArray();
-  const { changes, unchanged, unknown } = diffPriceList(input.list, products.map((p) => ({ sku: p._id, name: p.name, price: p.price })));
+  const { changes, unchanged, unknown, outOfRange } = diffPriceList(input.list, products.map((p) => ({ sku: p._id, name: p.name, price: p.price })));
+  if (outOfRange.length) throw new DomainError("PRICE_OUT_OF_RANGE", `Demo limit: prices can move ${PRICE_RANGE_TEXT} (${outOfRange.slice(0, 3).join(", ")})`, 400);
   if (changes.length) {
+    // The first change keeps the seeded name and price on the product; the nightly reset restores them
+    // from there, so it doesn't depend on unwinding imports in order (or racing one applied mid-reset).
     await c.products.bulkWrite(
-      changes.map((ch) => ({ updateOne: { filter: { _id: ch.sku }, update: { $set: { name: ch.after.name, price: ch.after.price } } } })),
+      changes.map((ch) => ({
+        updateOne: {
+          filter: { _id: ch.sku },
+          update: [{ $set: { seedName: { $ifNull: ["$seedName", "$name"] }, seedPrice: { $ifNull: ["$seedPrice", "$price"] }, name: ch.after.name, price: ch.after.price } }],
+        },
+      })),
       { session: s },
     );
   }

@@ -40,6 +40,8 @@ const ProductCore = {
   supplierId: Id,
   price: Pence,
   batchTracked: z.boolean(),
+  seedName: z.string().min(1).max(120).optional(), // set by a visitor's first price list; the nightly reset restores it
+  seedPrice: Pence.optional(),
 };
 
 export const Product = z.discriminatedUnion("category", [
@@ -212,7 +214,7 @@ export type PurchaseOrder = z.infer<typeof PurchaseOrder>;
 
 // A supplier price list applied by a manager: before/after per product, so the nightly reset can undo it.
 export const CatalogueImport = z.object({
-  _id: z.string().min(1).max(130), // `${supplierId}:${ref}`
+  _id: z.string().min(1).max(181), // `${supplierId}:${ref}`
   supplierId: Id,
   ref: z.string().min(1).max(60),
   appliedAt: z.date(),

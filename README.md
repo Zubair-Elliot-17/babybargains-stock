@@ -112,8 +112,10 @@ Orders/imports and analytics are Milestone 4.
   (`src/domain/suppliers/catalogue.ts`) reads a supplier's price list, previews which names and prices
   change, and applies it once per list reference. Prices are checked to the penny (no `129.999`, no
   other currencies). Products the list mentions that we don't stock are listed, not created, because a
-  product needs category details a price list doesn't carry. Each applied list keeps before/after
-  values, so the nightly reset puts the seeded catalogue back.
+  product needs category details a price list doesn't carry. Names allow letters, digits, punctuation
+  and spaces only (no hidden or text-reversing characters). Demo guards: a price may move between half
+  and double, five lists per hour per visitor IP, and a product's first change keeps its seeded name
+  and price on the product, so the nightly reset restores them even if a list lands mid-reset.
 - **Stock (manager):** sellable on-hand per product for a branch or all branches, low stock first.
 - **Analytics (manager):** exceptions first (low stock, dead stock with no sale in 90 days, orders over
   a week late), then 12 months of sales by branch and category, top movers, supplier lead time and fill

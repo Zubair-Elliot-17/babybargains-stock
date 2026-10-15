@@ -2,7 +2,7 @@
 
 import { useRouter } from "next/navigation";
 import { useRef, useState } from "react";
-import { diffPriceList, readPriceList, samplePriceList, type PriceList } from "@/domain/suppliers/catalogue";
+import { diffPriceList, PRICE_RANGE_TEXT, readPriceList, samplePriceList, type PriceList } from "@/domain/suppliers/catalogue";
 import { money } from "@/lib/format";
 import { count } from "@/lib/plural";
 import { postCommand } from "@/lib/postCommand";
@@ -60,7 +60,7 @@ export function PriceListImport(props: { supplierId: string; supplierName: strin
   return (
     <section className={styles.section} aria-labelledby="price-list">
       <h2 id="price-list">{props.supplierName}</h2>
-      {!locked && (
+      {!locked && !busy && (
         <div className={styles.filters}>
           <label>
             Price list file
@@ -96,16 +96,23 @@ export function PriceListImport(props: { supplierId: string; supplierName: strin
               </tbody>
             </table>
           )}
+          {diff.outOfRange.length > 0 && (
+            <p className="banner banner-error" role="alert">
+              Demo limit: prices can move {PRICE_RANGE_TEXT}. Outside it: <span className="mono">{diff.outOfRange.join(", ")}</span>.
+            </p>
+          )}
           {diff.unknown.length > 0 && <p className={styles.meta}>Not in our catalogue: <span className="mono">{diff.unknown.join(", ")}</span></p>}
           <details>
             <summary>Show the price list</summary>
             <pre className={`mono ${styles.note}`}>{list.text}</pre>
           </details>
           <div className={styles.filters}>
-            <button className="btn btn-primary" type="button" disabled={busy || !diff.changes.length} onClick={() => void apply()}>
+            <button className="btn btn-primary" type="button" disabled={busy || !diff.changes.length || diff.outOfRange.length > 0} onClick={() => void apply()}>
               {busy ? "Applying…" : locked ? "Send again" : diff.changes.length ? `Apply ${count(diff.changes.length, "change")}` : "Nothing to change"}
             </button>
-            {!locked && <button className="btn" type="button" onClick={() => setList(null)}>Discard</button>}
+            {!locked && !busy && (
+              <button className="btn" type="button" onClick={() => { setList(null); setError(null); }}>Discard</button>
+            )}
           </div>
         </>
       )}
