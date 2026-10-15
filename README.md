@@ -141,6 +141,12 @@ it off and watch the counts send one by one.
 - **Re-login resumes at once** with a rotating per-stocktake resume key (HMAC of a nonce, so the database
   never holds a usable key), still under the clerk's role and branch.
 - Submit stays disabled, with the reason shown, until every queued count is sent or dealt with.
+- **Team stocktakes.** Other clerks at the branch tap **Join** and count other aisles from their own
+  phones. Counts fold per phone (a phone's "replace" resets only its own count) and add up, so two people
+  counting the same product in different places don't overwrite each other. Each phone reports how many
+  counts it still has queued; the lead's Submit waits until every teammate is done or has reported nothing
+  waiting in the last 2 minutes (a dead spot can't report), and can submit without them
+  ([design](docs/designs/team-stocktakes.md)).
 - **The count page opens with no signal.** A small service worker (`public/sw.js`, no dependency) keeps
   a copy of each `/count` page the clerk opens (the page asks for it, since the app moves between pages
   client-side) and refreshes it after counts send. Reloads try the network first and wait up to 4 s

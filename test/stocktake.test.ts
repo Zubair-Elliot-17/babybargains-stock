@@ -21,6 +21,16 @@ describe("foldCounts", () => {
     expect(m.get("C|B2")).toMatchObject({ counted: 1 });
   });
 
+  it("each phone keeps its own running count; the stocktake sums the phones", () => {
+    const m = foldCounts([
+      { sku: "A", counted: 3, mode: "replace", countedAt: t(1), deviceId: "lead" },
+      { sku: "A", counted: 2, mode: "replace", countedAt: t(2), deviceId: "mate" }, // another aisle, not an overwrite
+      { sku: "A", counted: 4, mode: "replace", countedAt: t(3), deviceId: "lead" }, // the lead recounts their aisle
+      { sku: "A", counted: 1, mode: "add", countedAt: t(4), deviceId: "mate" },
+    ]);
+    expect(m.get("A|")).toMatchObject({ counted: 7, countedAt: t(4) });
+  });
+
   it("an add with no earlier entry is just the count", () => {
     expect(foldCounts([{ sku: "A", counted: 2, mode: "add", countedAt: t(1) }]).get("A|")?.counted).toBe(2);
   });

@@ -18,6 +18,7 @@ export interface CountEntry {
   counted: number;
   mode: "add" | "replace";
   countedAt: Date;
+  deviceId?: string; // team stocktakes: each phone keeps its own running count
 }
 
 export interface EffectiveCount {
@@ -30,14 +31,21 @@ export interface EffectiveCount {
 
 export const countKey = (sku: string, batchId?: string) => `${sku}|${batchId ?? ""}`;
 
-// Entries must be in countedAt order; replace resets the running count, add sums.
+// Entries must be in countedAt order; replace resets the running count, add sums. Each phone (deviceId) folds
+// its own entries, and the stocktake's count is the sum: teammates counting other aisles add up.
 export function foldCounts(entries: CountEntry[]): Map<string, EffectiveCount> {
-  const out = new Map<string, EffectiveCount>();
+  const perPhone = new Map<string, EffectiveCount>();
   for (const e of entries) {
     const key = countKey(e.sku, e.batchId);
-    const prev = out.get(key);
+    const pk = `${e.deviceId ?? ""}|${key}`;
+    const prev = perPhone.get(pk);
     const counted = e.mode === "add" && prev ? prev.counted + e.counted : e.counted;
-    out.set(key, { key, sku: e.sku, batchId: e.batchId, counted, countedAt: e.countedAt });
+    perPhone.set(pk, { key, sku: e.sku, batchId: e.batchId, counted, countedAt: e.countedAt });
+  }
+  const out = new Map<string, EffectiveCount>();
+  for (const c of perPhone.values()) {
+    const prev = out.get(c.key);
+    out.set(c.key, prev ? { ...prev, counted: prev.counted + c.counted, countedAt: c.countedAt > prev.countedAt ? c.countedAt : prev.countedAt } : c);
   }
   return out;
 }

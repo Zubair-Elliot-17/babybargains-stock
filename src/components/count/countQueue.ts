@@ -358,6 +358,26 @@ export function clearQueued(storage: Store | null, stocktakeId: string) {
   if (storage) createCountQueue(stocktakeId, { ...browserDeps(), storage, lock: null }).clear();
 }
 
+// This phone's id, kept in browser storage (a fresh one per page load if storage is blocked).
+let memDevice: string | undefined;
+export function deviceId(storage: Store | null): string {
+  const KEY = "bb-device";
+  try {
+    const id = storage?.getItem(KEY);
+    if (id) return id;
+    const fresh = crypto.randomUUID();
+    storage?.setItem(KEY, fresh);
+    if (storage) return fresh;
+  } catch {
+    // blocked storage: fall through
+  }
+  return (memDevice ??= crypto.randomUUID());
+}
+
+// This phone's id, read once per page (team stocktakes: join and heartbeat).
+let mine: string | undefined;
+export const myDevice = () => (mine ??= deviceId(browserStorage()));
+
 export function browserStorage(): Storage | null {
   try {
     const probe = "bb-probe";

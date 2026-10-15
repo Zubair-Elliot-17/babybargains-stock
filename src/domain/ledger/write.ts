@@ -438,12 +438,64 @@ export async function openStocktake(c: Cols, s: ClientSession, ctx: CommandCtx, 
   return doc;
 }
 
-async function ownedOpen(c: Cols, s: ClientSession, stocktakeId: string, sid: string): Promise<Stocktake> {
+// The OPEN stocktake this session may count in: the lead's, or one its phone joined. lead: only the lead (submit).
+async function ownedOpen(c: Cols, s: ClientSession, stocktakeId: string, sid: string, who: "lead" | "team" = "team"): Promise<Stocktake> {
   const st = await c.stocktakes.findOne({ _id: stocktakeId }, { session: s });
   if (!st) throw new NotFound(`Stocktake ${stocktakeId} not found`);
   if (st.status !== "OPEN") throw new DomainError("STOCKTAKE_CLOSED", `Stocktake was ${st.status.toLowerCase()} at ${st.submittedAt?.toISOString() ?? ""}`, 409, { status: st.status, submittedAt: st.submittedAt });
-  if (st.openedBy !== sid) throw new DomainError("STOCKTAKE_BUSY", "This stocktake is being counted on another device", 409);
+  const member = st.openedBy === sid || (who === "team" && st.participants?.some((p) => p.sid === sid));
+  if (!member) throw new DomainError("STOCKTAKE_BUSY", "This stocktake is being counted on another device", 409);
   return st;
+}
+
+export const TEAM_MAX = 10;
+export const TEAM_SILENT_MS = 2 * 60_000; // a teammate not heard from this long may be in a dead spot with counts
+
+// A clerk at the branch joins the lead's OPEN stocktake from their phone (device). Rejoining from the same
+// phone after a re-login takes the seat back with the new session.
+export async function joinStocktake(c: Cols, s: ClientSession, ctx: CommandCtx, input: { stocktakeId: string; branchId: string; sid: string; clerkLabel: string; device: string }) {
+  const now = ctx.now ?? new Date();
+  const st = await c.stocktakes.findOne({ _id: input.stocktakeId }, { session: s });
+  if (!st || st.branchId !== input.branchId) throw new NotFound("No stocktake at this branch with that id");
+  if (st.status !== "OPEN") throw new DomainError("STOCKTAKE_CLOSED", "This stocktake is already submitted", 409);
+  if (st.openedBy === input.sid) return { stocktakeId: st._id, lead: true };
+  const participants = [...(st.participants ?? [])];
+  // One seat per session; the same phone after a re-login takes its seat back (its device id never leaves it).
+  const seat = participants.find((p) => p.sid === input.sid) ?? participants.find((p) => p.device === input.device);
+  if (seat) Object.assign(seat, { sid: input.sid, clerkLabel: input.clerkLabel, seenAt: now, done: false });
+  else if (participants.length >= TEAM_MAX) throw new DomainError("TEAM_FULL", `A stocktake can have ${TEAM_MAX} phones`, 409);
+  else participants.push({ device: input.device, sid: input.sid, clerkLabel: input.clerkLabel, joinedAt: now, pending: 0, seenAt: now, done: false });
+  await c.stocktakes.updateOne({ _id: st._id, status: "OPEN" }, { $set: { participants, lastActivityAt: now } }, { session: s });
+  return { stocktakeId: st._id, lead: false };
+}
+
+export interface TeamMember { clerkLabel: string; pending: number; seenAt: Date; done: boolean; waiting: boolean }
+
+const teamOf = (st: Stocktake, now: Date): TeamMember[] =>
+  (st.participants ?? []).map((p) => ({
+    clerkLabel: p.clerkLabel, pending: p.pending, seenAt: p.seenAt, done: p.done,
+    waiting: !p.done && (p.pending > 0 || now.getTime() - p.seenAt.getTime() > TEAM_SILENT_MS),
+  }));
+
+// Each count screen reports how many counts it still has queued; the answer is the team's status.
+export async function stocktakeHeartbeat(c: Cols, s: ClientSession, ctx: CommandCtx, input: { stocktakeId: string; sid: string; device: string; pending: number; done: boolean }) {
+  const now = ctx.now ?? new Date();
+  const st = await ownedOpen(c, s, input.stocktakeId, input.sid);
+  const lead = st.openedBy === input.sid;
+  if (!lead) {
+    const done = input.done && input.pending === 0; // "I'm done" only counts once everything is sent
+    const res = await c.stocktakes.updateOne(
+      { _id: st._id, participants: { $elemMatch: { device: input.device, sid: input.sid } } },
+      { $set: { "participants.$.pending": input.pending, "participants.$.seenAt": now, "participants.$.done": done } },
+      { session: s },
+    );
+    if (!res.matchedCount) throw new DomainError("STOCKTAKE_BUSY", "This phone isn't part of this stocktake", 409);
+  }
+  const [fresh, countedSkus] = await Promise.all([
+    c.stocktakes.findOne({ _id: st._id }, { session: s }),
+    c.stocktakeLines.distinct("sku", { stocktakeId: st._id }, { session: s }), // anyone's: drives "not counted yet"
+  ]);
+  return { lead, leadLabel: st.clerkLabel, team: teamOf(fresh!, now), countedSkus };
 }
 
 export interface CountLineInput {
@@ -457,6 +509,10 @@ export interface CountLineInput {
   capturedAt?: Date; // phone time the count was entered (queued offline)
   sentAt?: Date; // phone time the request left; serverNow − sentAt corrects the phone's clock
 }
+
+// Which phone group a session's lines fold in: the lead seat has none (one group, whoever holds it, so a
+// takeover continues the same counts); a teammate's seat its phone. Decided here, never by the client.
+const seatOf = (st: Stocktake, sid: string) => (st.openedBy === sid ? undefined : st.participants?.find((p) => p.sid === sid)?.device);
 
 // countedAt drives expected stock, so a count queued offline keeps its capture time: corrected for clock skew,
 // clamped to [openedAt, now], and never earlier than a stored line for the same item (keeps capture order).
@@ -486,20 +542,22 @@ export async function saveCountLine(c: Cols, s: ClientSession, ctx: CommandCtx, 
     if (!batch || batch.sku !== input.sku) throw new DomainError("BATCH_MISMATCH", "That batch label belongs to a different product", 400);
   }
   const countedAt = await countTime(c, s, st, input, now);
+  const deviceId = seatOf(st, input.sid);
   await c.stocktakeLines.insertOne(
     {
       _id: input.lineId, stocktakeId: input.stocktakeId, sku: input.sku, counted: input.counted, mode: input.mode,
       countedAt, receivedAt: now, clerkId: input.sid, origin: ctx.origin,
       ...(input.batchId ? { batchId: input.batchId } : {}), // undefined would be stored as null and fail validation
+      ...(deviceId ? { deviceId } : {}),
     },
     { session: s },
   );
   await c.stocktakes.updateOne({ _id: input.stocktakeId }, { $set: { lastActivityAt: now } }, { session: s });
   const entries = await c.stocktakeLines
-    .find({ stocktakeId: input.stocktakeId, sku: input.sku, batchId: input.batchId ?? { $exists: false } }, { session: s })
+    .find({ stocktakeId: input.stocktakeId, sku: input.sku, batchId: input.batchId ?? { $exists: false }, deviceId: deviceId ?? { $exists: false } }, { session: s })
     .sort({ countedAt: 1, _id: 1 })
     .toArray();
-  const effective = foldCounts(entries).get(countKey(input.sku, input.batchId));
+  const effective = foldCounts(entries).get(countKey(input.sku, input.batchId)); // this phone's running count
   return { lineId: input.lineId, counted: effective?.counted ?? input.counted, countedAt };
 }
 
@@ -507,13 +565,18 @@ export interface SubmitInput {
   stocktakeId: string;
   sid: string;
   uncounted: "zero" | "leave";
+  withoutTeam?: boolean; // submit even though a teammate may still have counts on their phone
 }
 
 // "zero" records every uncounted product as 0 at submit time; "leave" posts nothing for them.
 export async function submitStocktake(c: Cols, s: ClientSession, ctx: CommandCtx, input: SubmitInput) {
   const now = ctx.now ?? new Date();
-  const st = await ownedOpen(c, s, input.stocktakeId, input.sid);
+  const st = await ownedOpen(c, s, input.stocktakeId, input.sid, "lead");
   await lockBranches(c, s, [st.branchId]);
+  const waiting = teamOf(st, now).filter((m) => m.waiting);
+  if (waiting.length && !input.withoutTeam) {
+    throw new DomainError("TEAM_PENDING", `Waiting for ${waiting.map((m) => m.clerkLabel).join(", ")}`, 409, { waiting });
+  }
   let zeroed = 0;
   if (input.uncounted === "zero") {
     const counted = new Set(await c.stocktakeLines.distinct("sku", { stocktakeId: st._id }, { session: s }));

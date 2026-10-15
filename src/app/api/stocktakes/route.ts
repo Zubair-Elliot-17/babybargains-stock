@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { resumeKeyFor, resumeKeyMatches } from "@/auth/session";
+import { clerkLabel, resumeKeyFor, resumeKeyMatches } from "@/auth/session";
 import { Forbidden } from "@/domain/errors";
 import { openStocktake } from "@/domain/ledger/write";
 import type { Stocktake } from "@/domain/schemas";
@@ -24,10 +24,8 @@ export async function POST(req: Request) {
         resume: r ? { stocktakeId: r.stocktakeId, ok: (st) => resumeKeyMatches(st._id, st.resumeNonce, r.key) } : undefined,
       });
     },
-    present: ({ resumeNonce, ...st }: Stocktake) => ({ ...st, resumeKey: resumeNonce ? resumeKeyFor(st._id, resumeNonce) : undefined }),
+    // Teammates' sessions stay on the server.
+    present: ({ resumeNonce, ...st }: Stocktake) => ({ ...st, participants: undefined, resumeKey: resumeNonce ? resumeKeyFor(st._id, resumeNonce) : undefined }),
   });
 }
 
-function clerkLabel(sid: string) {
-  return `Clerk ${sid.slice(0, 4).toUpperCase()}`;
-}
