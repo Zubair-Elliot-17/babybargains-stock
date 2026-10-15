@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { SUPPLIERS, buildCatalogue } from "@/seed/catalogue";
-import { CATALOGUE_ADAPTERS, ProductName, diffPriceList, readPriceList, samplePriceList } from "@/domain/suppliers/catalogue";
+import { CATALOGUE_ADAPTERS, NewProduct, ProductName, diffPriceList, readPriceList, samplePriceList } from "@/domain/suppliers/catalogue";
+import { Product } from "@/domain/schemas";
 
 const products = [
   { sku: "COT-A", name: "Cot A", price: 12999 },
@@ -66,5 +67,17 @@ describe("price-list adapters", () => {
     expect(read("roam-v2", { catalogue: { id: "R-1", models: [{ sku: "P", name: "P", pricePence: 1 }, { sku: "P", name: "P2", pricePence: 2 }] } })).toEqual({ error: "P appears twice on the price list." });
     expect(readPriceList("roam-v2", "nope")).toEqual({ error: "Not this supplier's price-list format (not valid JSON)." });
     expect(read("nobody", {})).toEqual({ error: "This supplier has no price-list format yet." });
+  });
+
+  it("a new product's details pass the stored Product schema, and odd SKUs or text are refused", () => {
+    const cot = { sku: "LO-NEW.1_a", batchTracked: true, category: "cot", attributes: { widthCm: 64, lengthCm: 126, finish: " Oak ", safetyStandard: "BS EN 716-1:2017" } };
+    const r = NewProduct.parse(cot);
+    expect(r.category === "cot" && r.attributes.finish).toBe("Oak");
+    const { sku, ...rest } = r;
+    expect(Product.safeParse({ ...rest, _id: sku, parentSku: sku, name: "New cot", supplierId: "SUP-OAK", price: 9999, createdOrigin: "visitor" }).success).toBe(true);
+    for (const bad of ["has space", "a/b", "x".repeat(41), ""]) expect(NewProduct.safeParse({ ...cot, sku: bad }).success, bad).toBe(false);
+    expect(NewProduct.safeParse({ ...cot, attributes: { ...cot.attributes, finish: "\u202Eevil" } }).success).toBe(false);
+    expect(NewProduct.safeParse({ ...cot, attributes: { ...cot.attributes, widthCm: 0 } }).success).toBe(false);
+    expect(NewProduct.safeParse({ ...cot, category: "toy" }).success).toBe(false); // cot details on a toy
   });
 });

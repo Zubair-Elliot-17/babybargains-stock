@@ -138,7 +138,7 @@ describe("purchase orders", () => {
     const apply = (ref: string, items: { sku: string; name: string; price: number }[], supplierId = "SUP-OAK") =>
       run((c, s, k) => applyPriceList(c, s, k, { supplierId, list: { ref, items } }));
     const { result } = await apply("PL-1", [{ sku: COT, name: "Test Cot · Oak", price: 10999 }, { sku: TOY, name: "Renamed toy", price: 1 }]);
-    expect(result).toEqual({ ref: "PL-1", changed: 1, unchanged: 0, unknown: 1 }); // TOY is another supplier's
+    expect(result).toEqual({ ref: "PL-1", changed: 1, added: 0, unchanged: 0, unknown: 1 }); // TOY is another supplier's
     await expect(apply("PL-1", [{ sku: COT, name: "x", price: 1 }])).rejects.toMatchObject({ code: "PRICE_LIST_ALREADY_APPLIED", status: 409 });
     await apply("PL-2", [{ sku: COT, name: "Test Cot · Oak (2027)", price: 11999 }]);
     const p = cols(t.db).products;
@@ -154,6 +154,32 @@ describe("purchase orders", () => {
     await apply("PL-4", [{ sku: COT, name: "Late list", price: 10500 }]);
     await resetDemo(t.db);
     expect(await p.findOne({ _id: COT })).toMatchObject({ name: "Test Cot · Oak", price: 10000 });
+  });
+
+  it("adds listed products we don't stock, once, and the nightly reset removes them", async () => {
+    const toy = { sku: "NEW-1", batchTracked: false, category: "toy" as const, attributes: { ageMonthsMin: 6, material: "Wood" } };
+    const apply = (ref: string, items: { sku: string; name: string; price: number }[], add: (typeof toy)[]) =>
+      run((c, s, k) => applyPriceList(c, s, k, { supplierId: "SUP-OAK", list: { ref, items }, add }));
+    const items = [{ sku: COT, name: "Test Cot · Oak", price: 10000 }, { sku: "NEW-1", name: "Oak rattle", price: 1299 }, { sku: "NEW-2", name: "Oak blocks", price: 1999 }];
+    const { result } = await apply("PL-N", items, [toy]);
+    expect(result).toEqual({ ref: "PL-N", changed: 0, added: 1, unchanged: 1, unknown: 1 });
+    const p = cols(t.db).products;
+    expect(await p.findOne({ _id: "NEW-1" })).toMatchObject({ name: "Oak rattle", price: 1299, supplierId: "SUP-OAK", parentSku: "NEW-1", category: "toy", createdOrigin: "visitor" });
+    expect(await cols(t.db).catalogueImports.findOne({ ref: "PL-N" })).toMatchObject({ added: ["NEW-1"] });
+    // Not on the list, already stocked (here or by another supplier), or twice: refused.
+    await expect(apply("PL-X1", items, [{ ...toy, sku: "NEW-9" }])).rejects.toMatchObject({ code: "NOT_A_NEW_PRODUCT" });
+    await expect(apply("PL-X2", items, [{ ...toy, sku: COT }])).rejects.toMatchObject({ code: "NOT_A_NEW_PRODUCT" });
+    await expect(apply("PL-X3", items, [{ ...toy, sku: "NEW-2" }, { ...toy, sku: "NEW-2" }])).rejects.toMatchObject({ code: "NOT_A_NEW_PRODUCT" });
+    await expect(apply("PL-X4", [{ sku: TOY, name: "Test Toy", price: 500 }], [{ ...toy, sku: TOY }])).rejects.toMatchObject({ code: "SKU_TAKEN", status: 409 });
+    await expect(apply("PL-X5", items, Array.from({ length: 21 }, (_, i) => ({ ...toy, sku: `N${i}` })))).rejects.toMatchObject({ code: "TOO_MANY_NEW_PRODUCTS" });
+    // The new product can be ordered and received like any other.
+    const order = await create([{ sku: "NEW-1", qty: 3 }]);
+    await receive(order.result._id, [{ sku: "NEW-1", qty: 3, batchCode: "B1" }]);
+    await cols(t.db).ops.insertOne({ _id: "status", anchorAt: new Date(), seededAt: new Date() } as never);
+    await resetDemo(t.db);
+    expect(await p.findOne({ _id: "NEW-1" })).toBeNull();
+    expect(await cols(t.db).inventory.countDocuments({ sku: "NEW-1" })).toBe(0);
+    expect((await checkLedgerInvariants(t.db)).ok).toBe(true);
   });
 
   it("two price lists on the same product at once: the second sees the first's result", async () => {

@@ -43,7 +43,11 @@ const ProductCore = {
   batchTracked: z.boolean(),
   seedName: z.string().min(1).max(120).optional(), // set by a visitor's first price list; the nightly reset restores it
   seedPrice: Pence.optional(),
+  createdOrigin: Origin.optional(), // added by a visitor's price list; the nightly reset deletes it
 };
+
+export const ProductCategory = z.enum(["cot", "pram", "monitor", "clothing", "toy"]);
+export type ProductCategory = z.infer<typeof ProductCategory>;
 
 export const Product = z.discriminatedUnion("category", [
   z.object({
@@ -252,6 +256,7 @@ export const CatalogueImport = z.object({
   ref: z.string().min(1).max(60),
   appliedAt: z.date(),
   changes: z.array(z.object({ sku: Id, before: z.object({ name: z.string().min(1).max(120), price: Pence }), after: z.object({ name: z.string().min(1).max(120), price: Pence }) })).max(500),
+  added: z.array(Id).max(20).optional(), // products the list created
   origin: Origin,
 });
 export type CatalogueImport = z.infer<typeof CatalogueImport>;
