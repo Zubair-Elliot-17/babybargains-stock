@@ -2,8 +2,9 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { cols } from "@/domain/collections";
 import { DomainError } from "@/domain/errors";
 import { checkLedgerInvariants, listTransferSuggestions, loadTransferInputs, projectionDiff } from "@/domain/ledger/read";
-import { acceptTransferSuggestion, openStocktake, receiveStock, recordSale, saveCountLine, submitStocktake, transferStock } from "@/domain/ledger/write";
-import { migrate } from "@/seed/apply";
+import { acceptTransferSuggestion, openStocktake, quarantineBatch, receiveStock, receiveTransfer, recordSale, saveCountLine, submitStocktake, transferStock } from "@/domain/ledger/write";
+import { IN_TRANSIT } from "@/domain/ledger/transfers";
+import { migrate, resetDemo } from "@/seed/apply";
 import { freshDb } from "./helpers";
 import { COT, NEW, OLD, TOY, TOYB, buildWorld, ctx, runner } from "./world";
 
@@ -38,8 +39,8 @@ describe("transfer suggestions from the ledger", () => {
     const toy = inputs.find((s) => s.sku === TOY)!;
     expect(toy.pricePence).toBe(500);
     expect(toy.branches).toEqual(expect.arrayContaining([
-      { branchId: "BR-A", onHand: 20, soldInWindow: 0, policy: { reorderPoint: 2, overstockWeeks: 6 }, stocktakeOpen: false },
-      { branchId: "BR-B", onHand: 0, soldInWindow: 3, policy: { reorderPoint: 2, overstockWeeks: 6 }, stocktakeOpen: false },
+      { branchId: "BR-A", onHand: 20, incoming: 0, soldInWindow: 0, policy: { reorderPoint: 2, overstockWeeks: 6 }, stocktakeOpen: false },
+      { branchId: "BR-B", onHand: 0, incoming: 0, soldInWindow: 3, policy: { reorderPoint: 2, overstockWeeks: 6 }, stocktakeOpen: false },
     ]));
   });
 
@@ -92,15 +93,48 @@ describe("accepting a suggestion", () => {
     run((c, s, k) => acceptTransferSuggestion(c, s, k, { sku, fromBranchId: "BR-A", toBranchId: "BR-B", qty }), extra);
   const onHand = async (branchId: string, batchId: string) => (await cols(t.db).inventory.findOne({ branchId, batchId }))?.onHand ?? 0;
 
-  it("posts an instant FIFO transfer pair and the suggestion is gone afterwards", async () => {
+  it("dispatches FIFO into IN-TRANSIT; the recipient's confirmation puts it on their shelf", async () => {
     const { result } = await accept(3);
-    expect(result).toMatchObject({ moved: 3, allocations: [{ batchId: OLD, qty: 3 }] });
-    expect([await onHand("BR-A", OLD), await onHand("BR-B", OLD)]).toEqual([3, 3]);
-    const pair = await cols(t.db).movements.find({ refType: "transfer" }).toArray();
-    expect(pair.map((m) => [m.type, m.branchId, m.qty])).toEqual([["TRANSFER_OUT", "BR-A", -3], ["TRANSFER_IN", "BR-B", 3]]);
+    expect(result).toMatchObject({ moved: 3, allocations: [{ batchId: OLD, qty: 3 }], transferId: expect.any(String) });
+    expect([await onHand("BR-A", OLD), await onHand(IN_TRANSIT._id, OLD), await onHand("BR-B", OLD)]).toEqual([3, 3, 0]);
+    expect(await cols(t.db).transfers.findOne({ _id: result.transferId })).toMatchObject({ status: "IN_TRANSIT", toBranchId: "BR-B", lines: [{ batchId: OLD, qty: 3 }] });
+    // Units on the way count towards BR-B, so the shortfall isn't suggested twice.
+    expect((await listTransferSuggestions(t.db)).suggestions.map((s) => s.sku)).toEqual([TOY]);
+    expect((await checkLedgerInvariants(t.db)).violations).toEqual([]);
+
+    await expect(run((c, s, k) => receiveTransfer(c, s, k, { transferId: result.transferId, branchId: "BR-A" }))).rejects.toMatchObject({ status: 404 }); // not theirs
+    const got = (await run((c, s, k) => receiveTransfer(c, s, k, { transferId: result.transferId, branchId: "BR-B" }))).result;
+    expect(got).toEqual({ transferId: result.transferId, units: 3, recalledUnits: 0 });
+    expect([await onHand("BR-A", OLD), await onHand(IN_TRANSIT._id, OLD), await onHand("BR-B", OLD)]).toEqual([3, 0, 3]);
+    const moves = await cols(t.db).movements.find({ refType: "transfer" }).toArray();
+    expect(moves.map((m) => [m.type, m.branchId, m.qty])).toEqual([
+      ["TRANSFER_OUT", "BR-A", -3], ["TRANSFER_IN", IN_TRANSIT._id, 3], ["TRANSFER_OUT", IN_TRANSIT._id, -3], ["TRANSFER_IN", "BR-B", 3],
+    ]);
+    await expect(run((c, s, k) => receiveTransfer(c, s, k, { transferId: result.transferId, branchId: "BR-B" }))).rejects.toMatchObject({ code: "TRANSFER_RECEIVED" });
     expect((await checkLedgerInvariants(t.db)).violations).toEqual([]);
     expect(await projectionDiff(t.db)).toEqual([]);
     expect((await listTransferSuggestions(t.db)).suggestions.map((s) => s.sku)).toEqual([TOY]);
+  });
+
+  it("a recall pulls units on the road; receiving then brings in none of them", async () => {
+    const { result } = await accept(3);
+    await run((c, s, k) => quarantineBatch(c, s, k, { batchCode: "B-1" }));
+    expect(await onHand(IN_TRANSIT._id, OLD)).toBe(0);
+    const got = (await run((c, s, k) => receiveTransfer(c, s, k, { transferId: result.transferId, branchId: "BR-B" }))).result;
+    expect(got).toMatchObject({ units: 0, recalledUnits: 3 });
+    expect(await onHand("BR-B", OLD)).toBe(0);
+    expect((await checkLedgerInvariants(t.db)).violations).toEqual([]);
+  });
+
+  it("can't be received while the recipient is counting, and the nightly reset removes it", async () => {
+    const { result } = await accept(3);
+    const { result: st } = await run((c, s, k) => openStocktake(c, s, k, { branchId: "BR-B", sid: "clerk", clerkLabel: "Clerk" }));
+    await expect(run((c, s, k) => receiveTransfer(c, s, k, { transferId: result.transferId, branchId: "BR-B" }))).rejects.toMatchObject({ code: "STOCKTAKE_OPEN" });
+    await run((c, s, k) => submitStocktake(c, s, k, { stocktakeId: st._id, sid: "clerk", uncounted: "leave" }));
+    await cols(t.db).ops.insertOne({ _id: "status", anchorAt: new Date(), seededAt: new Date() } as never);
+    await resetDemo(t.db);
+    expect(await cols(t.db).transfers.countDocuments()).toBe(0);
+    expect(await onHand(IN_TRANSIT._id, OLD)).toBe(0);
   });
 
   it("is idempotent for a resent commandId", async () => {

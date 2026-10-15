@@ -11,7 +11,7 @@ let token = "";
 vi.mock("next/headers", () => ({ cookies: async () => ({ get: () => ({ value: token }) }) }));
 vi.mock("@/lib/db", () => ({ getDb: async () => ({}) }));
 const list = vi.fn<(db: unknown, opts: { to?: string }) => Promise<TransfersView>>();
-vi.mock("@/domain/ledger/read", () => ({ listTransferSuggestions: (db: unknown, opts: { to?: string }) => list(db, opts) }));
+vi.mock("@/domain/ledger/read", () => ({ listTransferSuggestions: (db: unknown, opts: { to?: string }) => list(db, opts), transfersInTransit: async () => [] }));
 
 const { default: TransfersPage } = await import("@/app/(manager)/transfers/page");
 // Component element types (e.g. next/link) are circular objects; keep only props and host tag names.

@@ -3,7 +3,7 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { DomainError } from "@/domain/errors";
 import { cols } from "@/domain/collections";
 import { checkLedgerInvariants, computeStocktakePlan, listTransferSuggestions, projectionDiff } from "@/domain/ledger/read";
-import { acceptTransferSuggestion, approveStocktake, openStocktake, quarantineBatch, receiveStock, recordSale, saveCountLine, submitStocktake, transferStock } from "@/domain/ledger/write";
+import { acceptTransferSuggestion, approveStocktake, openStocktake, quarantineBatch, receiveStock, receiveTransfer, recordSale, saveCountLine, submitStocktake, transferStock } from "@/domain/ledger/write";
 import { migrate } from "@/seed/apply";
 import { freshDb } from "./helpers";
 import { COT, NEW, OLD, TOY, TOYB, buildWorld, runner } from "./world";
@@ -26,6 +26,8 @@ const command = fc.oneof(
   fc.record({ kind: fc.constant("quarantine" as const), batchCode: fc.constantFrom("B-1", "B-2", "B-9") }),
   // Accept one of the current suggestions, sometimes asking for one unit more than suggested.
   fc.record({ kind: fc.constant("accept" as const), pick: fc.nat(), extra: fc.constantFrom(0, 0, 1) }),
+  // The receiving branch confirms one of the transfers on the road (or another branch tries to).
+  fc.record({ kind: fc.constant("arrive" as const), pick: fc.nat(), branchId: branch }),
 );
 
 describe("ledger properties", () => {
@@ -49,6 +51,10 @@ describe("ledger properties", () => {
               await run((c, ss, k) => transferStock(c, ss, k, { fromBranchId: x.from, toBranchId: to, sku: x.sku, qty: x.qty }));
             } else if (x.kind === "quarantine") {
               await run((c, ss, k) => quarantineBatch(c, ss, k, { batchCode: x.batchCode }));
+            } else if (x.kind === "arrive") {
+              const onRoad = await cols(t.db).transfers.find({ status: "IN_TRANSIT" }).toArray();
+              const tr = onRoad[x.pick % Math.max(1, onRoad.length)];
+              if (tr) await run((c, ss, k) => receiveTransfer(c, ss, k, { transferId: tr._id, branchId: x.branchId }));
             } else {
               const { suggestions } = await listTransferSuggestions(t.db);
               const s = suggestions[x.pick % Math.max(1, suggestions.length)];

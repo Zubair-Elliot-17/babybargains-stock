@@ -1,4 +1,5 @@
 import type { Db } from "mongodb";
+import { IN_TRANSIT } from "./transfers";
 import { cols } from "../collections";
 import type { Product } from "../schemas";
 import { DAY } from "./fold";
@@ -21,7 +22,7 @@ async function sellable(db: Db, branchId?: string): Promise<Row[]> {
   const recalled = await c.batches.distinct("_id", { status: "RECALLED" });
   return c.inventory
     .aggregate<Row>([
-      { $match: { ...(branchId ? { branchId } : {}), batchId: { $nin: recalled } } },
+      { $match: { branchId: branchId ?? { $ne: IN_TRANSIT._id }, batchId: { $nin: recalled } } }, // shelf stock: not goods on the road
       { $group: { _id: { branchId: "$branchId", sku: "$sku" }, onHand: { $sum: "$onHand" } } },
       { $project: { _id: 0, branchId: "$_id.branchId", sku: "$_id.sku", onHand: 1 } },
     ])

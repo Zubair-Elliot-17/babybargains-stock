@@ -6,7 +6,7 @@ import type { Batch, Branch, Product, Stocktake } from "../schemas";
 import { allocateFifo, type Lot } from "./allocate";
 import { DAY, type CompactMovement } from "./fold";
 import { activeStocktakes, countKey, foldCounts, LATE_MS, planLine, UNBATCHED, unbatchedBatchId, type EffectiveCount, type PlannedLine } from "./stocktake";
-import { VELOCITY_DAYS, suggestTransfers, type BranchStock, type SkuStock, type TransferSuggestion } from "./transfers";
+import { IN_TRANSIT, VELOCITY_DAYS, suggestTransfers, type BranchStock, type SkuStock, type TransferSuggestion } from "./transfers";
 
 export interface RecallView {
   batchCode: string;
@@ -74,7 +74,7 @@ export async function findRecall(db: Db, rawCode: string): Promise<RecallView | 
     })),
     products,
     supplierName: supplier?.name ?? batches[0].supplierId,
-    branches,
+    branches: movements.some((m) => m.branchId === IN_TRANSIT._id) ? [...branches, IN_TRANSIT] : branches, // goods on the road show as a location
     movements: movements.map((m) => ({ ...m, at: m.at.getTime() })),
     lastCountedAt: counts,
   };
@@ -387,7 +387,7 @@ export async function loadTransferInputs(
   const until = new Date(Math.floor(now.getTime() / DAY) * DAY);
   const since = new Date(until.getTime() - VELOCITY_DAYS * DAY);
   const recalled = await c.batches.distinct("_id", { ...bySku, status: "RECALLED" }, { session });
-  const [policies, products, stock, sold, open] = await Promise.all([
+  const [policies, products, stock, sold, open, onTheWay] = await Promise.all([
     c.stockPolicies.find(bySku, { session }).toArray(),
     c.products.find(opts.skus ? { _id: { $in: opts.skus } } : {}, { session, projection: { price: 1 } }).toArray(),
     c.inventory
@@ -406,9 +406,21 @@ export async function loadTransferInputs(
       )
       .toArray(),
     opts.openBranchIds ?? c.stocktakes.distinct("branchId", activeStocktakes(now), { session }),
+    c.transfers
+      .aggregate<{ _id: { branchId: string; sku: string }; units: number }>(
+        [
+          { $match: { status: "IN_TRANSIT", ...bySku } },
+          { $unwind: "$lines" },
+          { $match: { "lines.batchId": { $nin: recalled } } },
+          { $group: { _id: { branchId: "$toBranchId", sku: "$sku" }, units: { $sum: "$lines.qty" } } },
+        ],
+        { session },
+      )
+      .toArray(),
   ]);
   const key = (x: { branchId: string; sku: string }) => `${x.branchId}|${x.sku}`;
-  const onHand = new Map(stock.map((r) => [key(r._id), r.onHand]));
+  const onHand = new Map(stock.filter((r) => r._id.branchId !== IN_TRANSIT._id).map((r) => [key(r._id), r.onHand]));
+  const incoming = new Map(onTheWay.map((r) => [key(r._id), r.units]));
   const soldInWindow = new Map(sold.map((r) => [key(r._id), r.units]));
   const openBranches = new Set(open);
   const out = new Map(products.map((p) => [p._id, { sku: p._id, pricePence: p.price, branches: [] as BranchStock[] }]));
@@ -416,6 +428,7 @@ export async function loadTransferInputs(
     out.get(p.sku)?.branches.push({
       branchId: p.branchId,
       onHand: onHand.get(key(p)) ?? 0,
+      incoming: incoming.get(key(p)) ?? 0,
       soldInWindow: soldInWindow.get(key(p)) ?? 0,
       policy: { reorderPoint: p.reorderPoint, overstockWeeks: p.overstockWeeks },
       stocktakeOpen: openBranches.has(p.branchId),
@@ -490,4 +503,36 @@ export async function listTransferSuggestions(db: Db, opts: { now?: Date; to?: s
     };
   });
   return { suggestions, branches, blocked: branches.filter((b) => open.includes(b._id)) };
+}
+
+export interface InTransitRow {
+  _id: string;
+  sku: string;
+  productName: string;
+  units: number;
+  fromName: string;
+  toName: string;
+  dispatchedAt: Date;
+}
+
+// Dispatched transfers not yet received, newest first; one branch's incoming when toBranchId is given.
+export async function transfersInTransit(db: Db, toBranchId?: string): Promise<InTransitRow[]> {
+  const c = cols(db);
+  const rows = await c.transfers.find({ status: "IN_TRANSIT", ...(toBranchId ? { toBranchId } : {}) }).sort({ dispatchedAt: -1 }).limit(50).toArray();
+  if (!rows.length) return [];
+  const [branches, products] = await Promise.all([
+    c.branches.find({}, { projection: { name: 1 } }).toArray(),
+    c.products.find({ _id: { $in: [...new Set(rows.map((r) => r.sku))] } }, { projection: { name: 1 } }).toArray(),
+  ]);
+  const branch = new Map(branches.map((b) => [b._id, b.name]));
+  const product = new Map(products.map((p) => [p._id, p.name]));
+  return rows.map((r) => ({
+    _id: r._id,
+    sku: r.sku,
+    productName: product.get(r.sku) ?? r.sku,
+    units: r.lines.reduce((n, l) => n + l.qty, 0),
+    fromName: branch.get(r.fromBranchId) ?? r.fromBranchId,
+    toName: branch.get(r.toBranchId) ?? r.toBranchId,
+    dispatchedAt: r.dispatchedAt,
+  }));
 }

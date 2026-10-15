@@ -9,10 +9,13 @@
 
 export const VELOCITY_WEEKS = 8;
 export const VELOCITY_DAYS = VELOCITY_WEEKS * 7;
+// Where dispatched stock waits for the receiving branch to confirm it. A ledger location, not a branch.
+export const IN_TRANSIT = { _id: "IN-TRANSIT", name: "In transit", code: "TRN" } as const;
 
 export interface BranchStock {
   branchId: string;
   onHand: number; // ACTIVE batches only (UNBATCHED included); recalled stock never counts
+  incoming?: number; // dispatched to this branch, not yet received: counts towards its need, never its surplus
   soldInWindow: number; // units SOLD in the VELOCITY_DAYS whole UTC days before today
   policy: { reorderPoint: number; overstockWeeks: number } | null;
   stocktakeOpen: boolean; // an active OPEN stocktake (see activeStocktakes) freezes the branch on both sides
@@ -60,7 +63,8 @@ export function assessBranch(b: BranchStock): BranchPosition | null {
   const keep = Math.max(ceilDiv(w * b.soldInWindow, VELOCITY_WEEKS), rp + 1);
   const target = Math.max(rp + 1, ceilDiv(w * b.soldInWindow, 2 * VELOCITY_WEEKS));
   const surplus = overstocked ? Math.max(0, b.onHand - keep) : 0;
-  const need = b.onHand < rp ? target - b.onHand : 0;
+  const have = b.onHand + (b.incoming ?? 0); // a shortfall already on its way isn't suggested again
+  const need = have < rp ? target - have : 0;
   return {
     branchId: b.branchId,
     onHand: b.onHand,

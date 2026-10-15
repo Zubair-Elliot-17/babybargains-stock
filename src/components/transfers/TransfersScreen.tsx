@@ -112,7 +112,7 @@ export function TransfersScreen({ rows, emptyText }: { rows: TransferRow[]; empt
       setSelected(null);
       notify(
         res.ok
-          ? `Moved ${count(row.qty, "unit")} of ${row.productName} from ${row.fromName} to ${row.toName}.`
+          ? `Dispatched ${count(row.qty, "unit")} of ${row.productName} from ${row.fromName} to ${row.toName}. They count at ${row.toName} once a clerk there confirms them.`
           : sent ? "This transfer was already sent. The list is up to date." : message,
       );
       refocus.current = true;
