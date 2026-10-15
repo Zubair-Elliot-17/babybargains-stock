@@ -2,13 +2,6 @@
 
 Deferred during plan review. Each has the context needed to pick it up later.
 
-## In-transit transfers (P3)
-- **What:** model a transfer as dispatch then receive (an in-transit holding location confirmed by the
-  recipient) instead of an instant `TRANSFER_OUT/IN` pair.
-- **Why:** between Accept and the goods arriving, a stocktake at either branch sees a mismatch and a
-  sale at the donor can be refused for units still on its shelf.
-- **Context:** Milestone 3 chose instant transfers on purpose (plan-m3); Accept assumes the stock moves now.
-
 ## Transfers at scale (P3)
 - **What:** covering index `{type, at, branchId, sku, qty}` (or a 56-day sales rollup) for the SOLD read;
   cap the suggestion list with a "showing N of M" note; fetch recalled batch ids once and start the

@@ -71,7 +71,11 @@ recorded or counted figures are solid.
 - **Manager (desktop/tablet):** a Transfers screen listing moves from branches holding too much of a
   SKU to branches below its reorder point, ranked by units that no longer need reordering, then
   retail value. Filter by receiving branch; Review opens a side panel with before/after stock and the
-  batches that would move (oldest first); Accept moves the stock at once as a `TRANSFER_OUT/IN` pair.
+  batches that would move (oldest first). Accept dispatches the stock into an `IN-TRANSIT` ledger location
+  (a `TRANSFER_OUT/IN` pair), and a clerk at the receiving branch confirms arrival from **Incoming stock** on
+  their home screen (a second pair). Until then a stocktake there doesn't expect the goods, recalls pull them
+  off the road, and the suggestion counts them so the same shortfall isn't suggested twice
+  ([design](docs/designs/in-transit-transfers.md)).
 - **The rule, per SKU and branch** (policy from `stockPolicies`: reorder point `rp`, overstock weeks
   `W`; velocity `v` = units sold in the 56 whole UTC days before today ÷ 8, so a suggestion holds
   all day):

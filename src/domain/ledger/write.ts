@@ -6,7 +6,7 @@ import type { Movement, Origin, Stocktake } from "../schemas";
 import { allocateFifo, type Lot } from "./allocate";
 import { computeStocktakePlan, loadTransferInputs } from "./read";
 import { activeStocktakes, countKey, foldCounts, STALE_MS, UNBATCHED, unbatchedBatchId } from "./stocktake";
-import { suggestForSku } from "./transfers";
+import { IN_TRANSIT, suggestForSku } from "./transfers";
 
 // The only runtime write path for stock. Every command runs in one transaction:
 //
@@ -240,7 +240,7 @@ export async function acceptTransferSuggestion(c: Cols, s: ClientSession, ctx: C
   if (open.length) {
     throw new DomainError("STOCKTAKE_OPEN", "A stocktake is in progress at one of these branches. Try again once it is submitted", 409, { branchIds: open });
   }
-  const [stock] = await loadTransferInputs(c, now, { skus: [input.sku], session: s });
+  const [stock] = await loadTransferInputs(c, now, { skus: [input.sku], session: s }); // counts units already on the way
   const fresh = stock ? suggestForSku(stock).find((x) => x.fromBranchId === input.fromBranchId && x.toBranchId === input.toBranchId) : undefined;
   const suggestedQty = fresh?.qty ?? 0;
   if (input.qty > suggestedQty) {
@@ -251,7 +251,60 @@ export async function acceptTransferSuggestion(c: Cols, s: ClientSession, ctx: C
       { suggestedQty },
     );
   }
-  return transferStock(c, s, ctx, input);
+  // Dispatch: the units leave the donor's shelf for IN-TRANSIT; the receiving branch confirms arrival.
+  const moved = await transferStock(c, s, ctx, { ...input, toBranchId: IN_TRANSIT._id });
+  await c.transfers.insertOne(
+    {
+      _id: ctx.commandId,
+      sku: input.sku,
+      fromBranchId: input.fromBranchId,
+      toBranchId: input.toBranchId,
+      lines: moved.allocations.map((a) => ({ batchId: a.batchId, qty: a.qty })),
+      status: "IN_TRANSIT",
+      dispatchedAt: now,
+      origin: ctx.origin,
+    },
+    { session: s },
+  );
+  return { ...moved, transferId: ctx.commandId };
+}
+
+// The receiving branch confirms a dispatched transfer: its units move from IN-TRANSIT onto that branch's
+// shelf. Lines whose batch was recalled on the way were already pulled from IN-TRANSIT, so they don't arrive.
+export async function receiveTransfer(c: Cols, s: ClientSession, ctx: CommandCtx, input: { transferId: string; branchId: string }) {
+  const now = ctx.now ?? new Date();
+  const transfer = await c.transfers.findOne({ _id: input.transferId }, { session: s });
+  if (!transfer || transfer.toBranchId !== input.branchId) throw new NotFound("No transfer to this branch with that id");
+  if (transfer.status !== "IN_TRANSIT") throw new DomainError("TRANSFER_RECEIVED", "This transfer is already received", 409);
+  await lockBranches(c, s, [transfer.toBranchId]); // conflicts with a stocktake opening, or a recall (it locks all branches)
+  if (await c.stocktakes.findOne({ branchId: transfer.toBranchId, ...activeStocktakes(now) }, { session: s, projection: { _id: 1 } })) {
+    throw new DomainError("STOCKTAKE_OPEN", "A stocktake is in progress here. Receive this once it is submitted", 409);
+  }
+  const recalled = new Set(
+    await c.batches.distinct("_id", { _id: { $in: transfer.lines.map((l) => l.batchId) }, status: "RECALLED" }, { session: s }),
+  );
+  const arriving = transfer.lines.filter((l) => !recalled.has(l.batchId));
+  const base = { sku: transfer.sku, refType: "transfer" as const, refId: transfer._id, attributed: false };
+  if (arriving.length) {
+    await postMovements(
+      c,
+      s,
+      ctx,
+      arriving.flatMap((l) => [
+        { ...base, type: "TRANSFER_OUT" as const, branchId: IN_TRANSIT._id, batchId: l.batchId, qty: -l.qty },
+        { ...base, type: "TRANSFER_IN" as const, branchId: transfer.toBranchId, batchId: l.batchId, qty: l.qty },
+      ]),
+    );
+  }
+  const units = arriving.reduce((n, l) => n + l.qty, 0);
+  const recalledUnits = transfer.lines.reduce((n, l) => n + l.qty, 0) - units;
+  const done = await c.transfers.updateOne(
+    { _id: transfer._id, status: "IN_TRANSIT" },
+    { $set: { status: "RECEIVED", receivedAt: now, ...(recalledUnits ? { recalledUnits } : {}) } },
+    { session: s },
+  );
+  if (!done.modifiedCount) throw new DomainError("TRANSFER_RECEIVED", "This transfer is already received", 409); // belt and braces: the lock already serialises
+  return { transferId: transfer._id, units, recalledUnits };
 }
 
 export interface PullListRow {
@@ -326,7 +379,7 @@ export async function quarantineBatch(
     recalledAt: now,
     pullList,
     units: pullList.reduce((n, r) => n + r.units, 0),
-    branches: new Set(pullList.map((r) => r.branchId)).size,
+    branches: new Set(pullList.map((r) => r.branchId).filter((b) => b !== IN_TRANSIT._id)).size, // the road isn't a branch
   };
 }
 

@@ -212,6 +212,22 @@ export const PurchaseOrder = z.object({
 });
 export type PurchaseOrder = z.infer<typeof PurchaseOrder>;
 
+// A dispatched transfer (docs/designs/in-transit-transfers.md): its units sit at IN-TRANSIT until the
+// receiving branch confirms them. _id is the movements' refId.
+export const Transfer = z.object({
+  _id: Id,
+  sku: Id,
+  fromBranchId: Id,
+  toBranchId: Id,
+  lines: z.array(z.object({ batchId: Id, qty: z.number().int().positive() })).min(1).max(50),
+  status: z.enum(["IN_TRANSIT", "RECEIVED"]),
+  dispatchedAt: z.date(),
+  receivedAt: z.date().optional(),
+  recalledUnits: z.number().int().min(0).optional(), // pulled by a recall while on the road, so not received
+  origin: Origin,
+});
+export type Transfer = z.infer<typeof Transfer>;
+
 // A supplier price list applied by a manager: before/after per product, so the nightly reset can undo it.
 export const CatalogueImport = z.object({
   _id: z.string().min(1).max(181), // `${supplierId}:${ref}`
@@ -236,4 +252,5 @@ export const validatedCollections = {
   stocktakeLines: StocktakeLine,
   purchaseOrders: PurchaseOrder,
   catalogueImports: CatalogueImport,
+  transfers: Transfer,
 } as const;

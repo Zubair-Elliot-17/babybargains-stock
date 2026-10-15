@@ -64,9 +64,9 @@ test("the last accept into a branch keeps its toast and moves focus to the empty
   await expect(reviewButtons(page)).toHaveCount(1);
   await reviewButtons(page).click();
   await page.getByRole("button", { name: "Accept transfer" }).click();
-  await expect(page.getByRole("status").filter({ hasText: /^Moved / })).toContainText(`to ${toName}`);
+  await expect(page.getByRole("status").filter({ hasText: /^Dispatched / })).toContainText(`to ${toName}`);
   const empty = page.getByText(`No transfers into ${toName} right now.`);
   await expect(empty).toBeVisible();
   await expect(empty).toBeFocused();
-  await expect(page.getByRole("status").filter({ hasText: /^Moved / })).toBeVisible();
+  await expect(page.getByRole("status").filter({ hasText: /^Dispatched / })).toBeVisible();
 });

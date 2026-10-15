@@ -93,6 +93,7 @@ export async function resetDemo(db: Db, now = new Date()): Promise<ResetReport> 
   removed.stocktakeLines = (await c.stocktakeLines.deleteMany({ origin: "visitor" })).deletedCount;
   removed.batches = (await c.batches.deleteMany({ createdOrigin: "visitor" })).deletedCount;
   removed.purchaseOrders = (await c.purchaseOrders.deleteMany({ origin: "visitor" })).deletedCount;
+  removed.transfers = (await c.transfers.deleteMany({ origin: "visitor" })).deletedCount; // their movements went with the visitor movements
   // Visitor price lists: each changed product kept its seeded name and price (seedName/seedPrice). A list
   // applied during the reset sets them again and is undone the next night.
   removed.catalogueImports = (await c.catalogueImports.deleteMany({ origin: "visitor" })).deletedCount;

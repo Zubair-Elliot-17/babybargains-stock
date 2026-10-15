@@ -5,6 +5,7 @@ import type {
   InventoryRow,
   PurchaseOrder,
   CatalogueImport,
+  Transfer,
   Movement,
   Product,
   SalesDay,
@@ -53,6 +54,7 @@ export function cols(db: Db) {
     stocktakeLines: db.collection<StocktakeLine>("stocktakeLines"),
     purchaseOrders: db.collection<PurchaseOrder>("purchaseOrders"),
     catalogueImports: db.collection<CatalogueImport>("catalogueImports"),
+    transfers: db.collection<Transfer>("transfers"),
     commandLog: db.collection<CommandLogEntry>("commandLog"),
     rateLimits: db.collection<RateLimitEntry>("rateLimits"),
     ops: db.collection<OpsDoc>("ops"),
@@ -92,6 +94,9 @@ export async function ensureIndexes(db: Db): Promise<void> {
     c.purchaseOrders.createIndex({ status: 1, sentAt: -1 }),
     c.purchaseOrders.createIndex({ origin: 1 }),
     c.catalogueImports.createIndex({ origin: 1, appliedAt: -1 }),
+    c.transfers.createIndex({ toBranchId: 1, status: 1 }),
+    c.transfers.createIndex({ status: 1, sku: 1 }),
+    c.transfers.createIndex({ origin: 1 }),
   ]);
 }
 
