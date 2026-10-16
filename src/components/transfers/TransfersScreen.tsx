@@ -3,7 +3,7 @@
 import { useRouter } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
 import type { TransferRow } from "@/domain/ledger/read";
-import { VELOCITY_WEEKS } from "@/domain/ledger/transfers";
+import { VELOCITY_DAYS, VELOCITY_WEEKS, type BranchPosition } from "@/domain/ledger/transfers";
 import { money } from "@/lib/format";
 import { count } from "@/lib/plural";
 import styles from "./transfers.module.css";
@@ -11,11 +11,13 @@ import styles from "./transfers.module.css";
 const rowKey = (r: TransferRow) => `${r.sku}|${r.fromBranchId}|${r.toBranchId}`;
 
 // Weeks of cover is derived from VELOCITY_WEEKS of sales, so it is shown as an estimate (DESIGN.md).
-function Cover({ weeks }: { weeks: number | null }) {
+function Cover({ at }: { at: BranchPosition }) {
+  const weeks = at.coverWeeks;
   if (weeks === 0) return <span>out of stock</span>; // a fact, not an estimate
   const text = weeks === null ? `no sales in ${VELOCITY_WEEKS} wks` : `${weeks < 10 ? weeks.toFixed(1) : Math.round(weeks)} wks cover`;
+  const days = at.daysInStock < VELOCITY_DAYS ? `, counting only the ${at.daysInStock} days it had stock` : "";
   return (
-    <span className="estimated" title={`Estimated from sales over the ${VELOCITY_WEEKS} weeks before today`}>
+    <span className="estimated" title={`Estimated from sales over the ${VELOCITY_WEEKS} weeks before today${days}`}>
       {text}
       <span className="sr-only"> (estimated)</span>
     </span>
@@ -81,6 +83,10 @@ export function TransfersScreen({ rows, emptyText }: { rows: TransferRow[]; empt
 
   function notify(message: string) {
     setToast(message);
+    hideToastLater();
+  }
+
+  function hideToastLater() {
     clearTimeout(toastTimer.current);
     toastTimer.current = setTimeout(() => setToast(null), 6000);
   }
@@ -151,7 +157,7 @@ export function TransfersScreen({ rows, emptyText }: { rows: TransferRow[]; empt
                   <td data-label="From">
                     <div>
                       {r.fromName}
-                      <span className={styles.sub}>{r.from.onHand} on hand · <Cover weeks={r.from.coverWeeks} /></span>
+                      <span className={styles.sub}>{r.from.onHand} on hand · <Cover at={r.from} /></span>
                     </div>
                   </td>
                   <td data-label="To">
@@ -191,12 +197,12 @@ export function TransfersScreen({ rows, emptyText }: { rows: TransferRow[]; empt
               <div>
                 <dt>From {selected.fromName}</dt>
                 <dd>{selected.from.onHand} → {selected.from.onHand - selected.qty} on hand</dd>
-                <dd className={styles.sub}><Cover weeks={selected.from.coverWeeks} /> · keeps at least {selected.from.keep}</dd>
+                <dd className={styles.sub}><Cover at={selected.from} /> · keeps at least {selected.from.keep}</dd>
               </div>
               <div>
                 <dt>To {selected.toName}</dt>
                 <dd>{selected.to.onHand} → {selected.to.onHand + selected.qty} on hand</dd>
-                <dd className={styles.sub}>Reorder point {selected.to.reorderPoint} · <Cover weeks={selected.to.coverWeeks} /></dd>
+                <dd className={styles.sub}>Reorder point {selected.to.reorderPoint} · <Cover at={selected.to} /></dd>
               </div>
               <div>
                 <dt>Saves reordering</dt>
@@ -222,7 +228,18 @@ export function TransfersScreen({ rows, emptyText }: { rows: TransferRow[]; empt
         </dialog>
       )}
 
-      <p className={styles.toast} role="status">{toast}</p>
+      {/* Stays while hovered or focused, so a long message can be read; Dismiss closes it now. */}
+      <div
+        className={styles.toast}
+        data-shown={toast ? "" : undefined}
+        onMouseEnter={() => clearTimeout(toastTimer.current)}
+        onMouseLeave={() => toast && hideToastLater()}
+        onFocus={() => clearTimeout(toastTimer.current)}
+        onBlur={() => toast && hideToastLater()}
+      >
+        <p role="status">{toast}</p>
+        {toast && <button className={styles.dismiss} type="button" onClick={() => setToast(null)}>Dismiss</button>}
+      </div>
     </div>
   );
 }

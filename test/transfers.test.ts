@@ -39,6 +39,18 @@ describe("assessBranch", () => {
     expect(assessBranch(br("A", 12, 16))).toMatchObject({ role: "neither", coverWeeks: 6 });
   });
 
+  it("measures velocity over the days the branch had stock, so a sell-out isn't read as slow demand", () => {
+    // 4 sold in the 14 days it had stock: v = 2/wk (not 0.5), target = max(5, ceil(6)) = 6
+    expect(assessBranch(br("B", 0, 4, { daysInStock: 14 }))).toMatchObject({ role: "recipient", velocity: 2, daysInStock: 14, target: 6, need: 6 });
+    // and a donor with a short in-stock history keeps more back: keep = max(ceil(6·2), 5) = 12
+    expect(assessBranch(br("A", 30, 4, { daysInStock: 14 }))).toMatchObject({ role: "donor", keep: 12, surplus: 18 });
+  });
+
+  it("counts at least a week in stock, so one sale on a restock day can't spike velocity", () => {
+    expect(assessBranch(br("B", 0, 1, { daysInStock: 1 }))).toMatchObject({ velocity: 1, daysInStock: 7 });
+    expect(assessBranch(br("B", 0, 1))).toMatchObject({ velocity: 1 / 8, daysInStock: 56 });
+  });
+
   it("excludes branches without a policy or with an open stocktake", () => {
     expect(assessBranch(br("A", 30, 0, { policy: null }))).toBeNull();
     expect(assessBranch(br("A", 30, 0, { stocktakeOpen: true }))).toBeNull();

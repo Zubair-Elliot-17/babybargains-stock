@@ -118,22 +118,37 @@
   gap: var(--space-3);
 }
 
+/* The live region (<p role="status">) stays rendered while empty: one that was display:none may not be announced. */
 .toast {
   position: fixed;
   right: var(--space-6);
   bottom: var(--space-6);
   max-width: 420px;
-  margin: 0;
+}
+
+.toast[data-shown] {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-3);
   padding: var(--space-3) var(--space-4);
   border-radius: var(--radius);
   background: var(--color-ink);
   color: var(--color-surface);
 }
 
-/* Empty, the live region stays rendered (no box): one that was display:none may not be announced. */
-.toast:empty {
+.toast p {
+  margin: 0;
+}
+
+.dismiss {
+  flex: none;
   padding: 0;
+  border: 0;
   background: none;
+  color: inherit;
+  font: inherit;
+  text-decoration: underline;
+  cursor: pointer;
 }
 
 /* Below 1280px the table and a side panel don't both fit: the panel slides over the table instead.

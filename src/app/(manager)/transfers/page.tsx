@@ -40,13 +40,13 @@ export default async function TransfersPage({ searchParams }: { searchParams: Pr
       </>
     );
   }
-  const n = view.suggestions.length;
+  const n = view.total;
   return (
     <>
       <h1>Transfers · {n ? `${count(n, "suggestion")}${to ? ` into ${to.name}` : ""}` : "nothing to move"}</h1>
       <p className={styles.meta}>
         Stock from branches with more than their overstock weeks of cover, to branches below their reorder point. Cover uses sales
-        from the {VELOCITY_WEEKS} weeks before today. Accepting dispatches the stock, oldest batches first; it reaches the receiving branch when a clerk there confirms it.
+        from the {VELOCITY_WEEKS} weeks before today, counting only the days a branch had stock. Accepting dispatches the stock, oldest batches first; it reaches the receiving branch when a clerk there confirms it.
       </p>
       <form className={styles.filter} action="/transfers" method="get">
         <div>
@@ -63,6 +63,11 @@ export default async function TransfersPage({ searchParams }: { searchParams: Pr
       {view.blocked.length > 0 && (
         <p className="banner" role="note">
           Left out while a stocktake is in progress: {view.blocked.map((b) => b.name).join(", ")}.
+        </p>
+      )}
+      {view.total > view.suggestions.length && (
+        <p className={styles.meta} role="note">
+          Showing the top {view.suggestions.length} of {view.total}. Pick a receiving branch to narrow the list.
         </p>
       )}
       <TransfersScreen
