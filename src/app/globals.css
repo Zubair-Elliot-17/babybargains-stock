@@ -212,7 +212,10 @@ th.num {
   border-radius: 999px;
   font-size: var(--text-meta);
   font-weight: 600;
-  border: 1px solid currentColor;
+  white-space: nowrap;
+  color: var(--color-ink-muted);
+  background: var(--color-surface-quiet);
+  border: 1px solid color-mix(in srgb, currentColor 28%, transparent);
 }
 
 .pill-recalled,
@@ -292,8 +295,26 @@ th.num {
 
 .page-head p {
   margin: 0;
+  max-width: 80ch;
   color: var(--color-ink-muted);
   font-size: var(--text-table);
+}
+
+/* Filter row under a page title: one white strip on the canvas. */
+.page-head .toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: end;
+  gap: var(--space-3);
+  margin: var(--space-3) 0 0;
+  padding: var(--space-3) var(--space-4);
+  background: var(--color-surface);
+  border: 1px solid var(--color-hairline);
+  border-radius: var(--radius-panel);
+}
+
+.page-head .toolbar label {
+  margin: 0;
 }
 
 .banner {

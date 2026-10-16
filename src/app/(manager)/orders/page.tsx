@@ -33,7 +33,10 @@ export default async function OrdersPage({ searchParams }: { searchParams: Promi
 
   return (
     <>
-      <h1>Orders{open ? ` · ${open} open` : ""}</h1>
+      <header className="page-head">
+        <h1>Orders{open ? ` · ${open} open` : ""}</h1>
+        <p>Send purchase orders to suppliers, then receive deliveries against them. <Link href="/orders/price-list">Supplier price lists</Link> update product names and prices.</p>
+      </header>
       {orders.some((o) => o._id === params.created) && <p className="banner" role="status">Order {params.created} sent.</p>}
 
       <section className={styles.section} aria-labelledby="new-order">
@@ -105,7 +108,7 @@ export default async function OrdersPage({ searchParams }: { searchParams: Promi
           </div>
         )}
       </section>
-      <p className={styles.meta}><Link href="/analytics">Analytics</Link> shows overdue orders, lead time and fill rate. <Link href="/orders/price-list">Supplier price lists</Link> update product names and prices.</p>
+      <p className={styles.meta}><Link href="/analytics">Analytics</Link> shows overdue orders, lead time and fill rate.</p>
     </>
   );
 }

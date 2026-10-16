@@ -28,24 +28,27 @@ export default async function AnalyticsPage({ searchParams }: { searchParams: Pr
 
   return (
     <>
-      <h1>Analytics · {scope}</h1>
-      <form className={styles.filters} method="get">
-        <label>
-          Branch
-          <select className="input" name="branch" defaultValue={branchId ?? ""}>
-            <option value="">All branches</option>
-            {branches.map((b) => <option key={b._id} value={b._id}>{b.name}</option>)}
-          </select>
-        </label>
-        <label>
-          Category
-          <select className="input" name="category" defaultValue={category ?? ""}>
-            <option value="">All categories</option>
-            {Object.entries(CATEGORIES).map(([id, label]) => <option key={id} value={id}>{label}</option>)}
-          </select>
-        </label>
-        <button className="btn" type="submit">Show</button>
-      </form>
+      <header className="page-head">
+        <h1>Analytics · {scope}</h1>
+        <p>Sales, stock health and supplier orders from the stock ledger. Figures run to today, UTC.</p>
+        <form className={`${styles.filters} toolbar`} method="get">
+          <label>
+            Branch
+            <select className="input" name="branch" defaultValue={branchId ?? ""}>
+              <option value="">All branches</option>
+              {branches.map((b) => <option key={b._id} value={b._id}>{b.name}</option>)}
+            </select>
+          </label>
+          <label>
+            Category
+            <select className="input" name="category" defaultValue={category ?? ""}>
+              <option value="">All categories</option>
+              {Object.entries(CATEGORIES).map(([id, label]) => <option key={id} value={id}>{label}</option>)}
+            </select>
+          </label>
+          <button className="btn" type="submit">Show</button>
+        </form>
+      </header>
 
       <h2>Needs action</h2>
       <dl className={summary.summary}>

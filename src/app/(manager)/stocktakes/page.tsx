@@ -22,7 +22,10 @@ export default async function StocktakesPage({ searchParams }: { searchParams: P
   const awaiting = all.filter((s) => s.status === "SUBMITTED").length;
   return (
     <>
-      <h1>Stocktakes{awaiting ? ` · ${awaiting} awaiting review` : ""}</h1>
+      <header className="page-head">
+        <h1>Stocktakes{awaiting ? ` · ${awaiting} awaiting review` : ""}</h1>
+        <p>Counts that clerks send from the shop floor. Review each one&apos;s variances, then approve it to post the adjustments.</p>
+      </header>
       <nav className={styles.tabs} aria-label="Stocktake status">
         {TABS.map((t) => (
           <Link key={t.id} href={`/stocktakes?tab=${t.id}`} className={styles.tab} aria-current={t.id === tab ? "page" : undefined}>

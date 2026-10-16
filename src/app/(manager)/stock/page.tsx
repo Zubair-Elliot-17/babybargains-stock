@@ -18,28 +18,30 @@ export default async function StockPage({ searchParams }: { searchParams: Promis
   const low = rows.filter((r) => r.low).length;
   return (
     <>
-      <h1>Stock · {branchId ? branches.find((b) => b._id === branchId)?.name : "All branches"}</h1>
-      <form className={styles.filters} method="get">
-        <label>
-          Branch
-          <select className="input" name="branch" defaultValue={branchId ?? ""}>
-            <option value="">All branches</option>
-            {branches.map((b) => <option key={b._id} value={b._id}>{b.name}</option>)}
-          </select>
-        </label>
-        <label>
-          Product or SKU
-          <input className="input" name="q" defaultValue={params.q ?? ""} type="search" />
-        </label>
-        <label className={styles.check}>
-          <input type="checkbox" name="low" value="1" defaultChecked={params.low === "1"} /> Low stock only
-        </label>
-        <button className="btn" type="submit">Show</button>
-      </form>
-      <p className={styles.meta}>
-        {rows.length} products{low ? ` · ${low} below reorder point` : ""}. On hand excludes recalled batches.
-        {rows.length > SHOWN ? ` Showing the first ${SHOWN}; search to narrow.` : ""}
-      </p>
+      <header className="page-head">
+        <h1>Stock · {branchId ? branches.find((b) => b._id === branchId)?.name : "All branches"}</h1>
+        <p>
+          {rows.length} products{low ? ` · ${low} below reorder point` : ""}. On hand excludes recalled batches.
+          {rows.length > SHOWN ? ` Showing the first ${SHOWN}; search to narrow.` : ""}
+        </p>
+        <form className={`${styles.filters} toolbar`} method="get">
+          <label>
+            Branch
+            <select className="input" name="branch" defaultValue={branchId ?? ""}>
+              <option value="">All branches</option>
+              {branches.map((b) => <option key={b._id} value={b._id}>{b.name}</option>)}
+            </select>
+          </label>
+          <label>
+            Product or SKU
+            <input className="input" name="q" defaultValue={params.q ?? ""} type="search" />
+          </label>
+          <label className={styles.check}>
+            <input type="checkbox" name="low" value="1" defaultChecked={params.low === "1"} /> Low stock only
+          </label>
+          <button className="btn" type="submit">Show</button>
+        </form>
+      </header>
       <div className={styles.scroll}>
         <table className="cards">
           <thead>
