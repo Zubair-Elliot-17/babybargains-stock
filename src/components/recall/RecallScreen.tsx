@@ -92,7 +92,8 @@ export function RecallScreen({ data }: { data: RecallData }) {
 
   const recalled = data.status === "RECALLED";
   const shelfLabel = Object.keys(data.lastCountedAt).length ? "On shelf (counted where dated)" : "On shelf (expected)";
-  const rows = state.branches.filter((b) => b.received + b.transferredIn > 0);
+  // A stocktake can find units at a branch the batch never reached; that branch still gets a row.
+  const rows = state.branches.filter((b) => b.received + b.transferredIn > 0 || b.adjusted !== 0 || b.found > 0);
 
   return (
     <div className={styles.screen}>
