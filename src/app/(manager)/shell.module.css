@@ -1,12 +1,13 @@
 .shell {
   display: grid;
-  grid-template-columns: 220px 1fr;
+  grid-template-columns: 232px 1fr;
   min-height: 100vh;
+  background: var(--color-canvas);
 }
 
 .rail {
   border-right: 1px solid var(--color-hairline);
-  padding: var(--space-6) var(--space-4);
+  padding: var(--space-6) var(--space-3);
   display: flex;
   flex-direction: column;
   gap: var(--space-6);
@@ -23,24 +24,53 @@
   gap: var(--space-1);
 }
 
+.brand {
+  padding: 0 var(--space-2);
+}
+
+/* Quiet rail: muted items, the current page in accent on a tinted pill. */
 .link {
   display: flex;
   align-items: center;
+  gap: var(--space-3);
   min-height: 44px;
   padding: 0 var(--space-3);
-  border-radius: var(--radius);
-  color: var(--color-ink);
+  border-radius: 8px;
+  color: var(--color-ink-muted);
+  font-weight: 500;
   text-decoration: none;
 }
 
 .link:visited {
+  color: var(--color-ink-muted);
+}
+
+.link:hover {
   color: var(--color-ink);
+  background: color-mix(in srgb, var(--color-ink) 5%, var(--color-canvas));
 }
 
 .link[aria-current="page"] {
-  background: var(--color-surface-quiet);
+  color: var(--color-accent);
+  background: var(--tint-accent);
   font-weight: 600;
-  box-shadow: inset 3px 0 0 var(--color-accent);
+}
+
+.icon {
+  flex: none;
+  width: 20px;
+  height: 20px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.75;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .link {
+    transition: background-color var(--motion), color var(--motion);
+  }
 }
 
 .soon {
@@ -76,16 +106,15 @@
   height: 28px;
   display: flex;
   align-items: center;
-  padding: 0 var(--space-6);
+  padding: 0 var(--space-8);
   font-size: var(--text-meta);
   color: var(--color-ink-muted);
-  background: var(--color-surface-quiet);
   border-bottom: 1px solid var(--color-hairline);
 }
 
 .content {
-  padding: var(--space-6) var(--space-8) var(--space-12);
-  max-width: 1200px;
+  padding: var(--space-8) var(--space-8) var(--space-12);
+  max-width: 1280px;
 }
 
 /* Tablet: narrow rail with short labels. */
@@ -103,10 +132,14 @@
   }
   .short {
     display: inline;
-    font-weight: 500;
+    font-size: 11px;
+    line-height: 1;
   }
   .link {
+    flex-direction: column;
     justify-content: center;
+    gap: var(--space-1);
+    min-height: 52px;
     padding: 0;
   }
   .content {
@@ -145,7 +178,12 @@
     display: none;
   }
   .link {
+    flex-direction: row;
+    min-height: 44px;
     padding: 0 var(--space-3);
+  }
+  .icon {
+    display: none;
   }
   .signout {
     margin: 0 0 0 auto;
