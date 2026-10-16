@@ -22,7 +22,7 @@ export default async function RecallPage({ searchParams }: { searchParams: Promi
     const recent = await recentRecalls(await getDb());
     return (
       <>
-        <h1>Recall</h1>
+        <RecallHead />
         <SearchForm />
         <RecentRecalls recent={recent} />
       </>
@@ -35,7 +35,7 @@ export default async function RecallPage({ searchParams }: { searchParams: Promi
   } catch {
     return (
       <>
-        <h1>Recall</h1>
+        <RecallHead />
         <SearchForm value={batch} />
         <p className="banner banner-error" role="alert">
           Couldn&apos;t load. <Link href={`/recall?batch=${encodeURIComponent(batch)}`}>Retry</Link>
@@ -47,7 +47,7 @@ export default async function RecallPage({ searchParams }: { searchParams: Promi
   if (!loaded.view) {
     return (
       <>
-        <h1>Recall</h1>
+        <RecallHead />
         <SearchForm value={batch} />
         <p className="banner" role="status">
           No batch <span className="mono">{batch.toUpperCase()}</span> found.
@@ -97,6 +97,15 @@ function commonName(names: string[]): string {
   return names.length > 1 ? `${base} (all variants)` : (names[0] ?? base);
 }
 
+function RecallHead() {
+  return (
+    <header className="page-head">
+      <h1>Recall</h1>
+      <p>Find a batch by the code on its label to see where every unit went, then quarantine it at every branch in one step.</p>
+    </header>
+  );
+}
+
 function SearchForm({ value, compact }: { value?: string; compact?: boolean }) {
   return (
     <form className={compact ? styles.searchCompact : styles.search} action="/recall" method="get" role="search">
@@ -111,8 +120,8 @@ function SearchForm({ value, compact }: { value?: string; compact?: boolean }) {
 
 function RecentRecalls({ recent }: { recent: { batchCode: string; recalledAt: Date }[] }) {
   return (
-    <section>
-      <h2>Recent recalls</h2>
+    <section aria-labelledby="recent">
+      <h2 id="recent">Recent recalls</h2>
       {recent.length === 0 ? (
         <p className={styles.muted}>No batches have been recalled. Try the example batch <Link className="mono" href="/recall?batch=B-4471">B-4471</Link>.</p>
       ) : (
@@ -120,11 +129,13 @@ function RecentRecalls({ recent }: { recent: { batchCode: string; recalledAt: Da
           {recent.map((r) => (
             <li key={r.batchCode}>
               <Link className="mono" href={`/recall?batch=${r.batchCode}`}>{r.batchCode}</Link>{" "}
-              <span className={styles.muted}>quarantined {r.recalledAt.toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" })}</span>
+              <span className="pill pill-recall">Quarantined</span>
+              <span className={styles.muted}>{r.recalledAt.toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" })}</span>
             </li>
           ))}
           <li>
-            <Link className="mono" href="/recall?batch=B-4471">B-4471</Link> <span className={styles.muted}>example active batch</span>
+            <Link className="mono" href="/recall?batch=B-4471">B-4471</Link> <span className="pill pill-active">Example</span>
+            <span className={styles.muted}>An active batch to try a recall on</span>
           </li>
         </ul>
       )}

@@ -259,25 +259,43 @@ th.num {
   margin: 0 0 var(--space-3);
 }
 
-/* Tables inside a panel run edge to edge with a quiet header row; sr-only chart tables keep their 1px box. */
-.panel table:not(.sr-only) {
+/* An empty state as a panel of its own. */
+p.panel {
+  margin: 0;
+  padding-block: var(--space-4);
+}
+
+/* A panel's own table runs edge to edge with a quiet header row; sr-only chart tables keep their 1px box. */
+.panel {
+  overflow: clip; /* square table headers keep the panel's round corners; clip keeps sticky children working */
+}
+
+.panel > table:not(.sr-only) {
   width: calc(100% + 2 * var(--pad));
   margin-inline: calc(-1 * var(--pad));
 }
 
-.panel thead th {
+.panel > table:not(.sr-only):first-child {
+  margin-top: calc(-1 * var(--space-4));
+}
+
+.panel > table:not(.sr-only):last-child {
+  margin-bottom: calc(-1 * var(--pad));
+}
+
+.panel > table > thead th {
   background: var(--color-surface-quiet);
 }
 
-.panel tr > :first-child {
+.panel > table > * > tr > :first-child {
   padding-left: var(--pad);
 }
 
-.panel tr > :last-child {
+.panel > table > * > tr > :last-child {
   padding-right: var(--pad);
 }
 
-.panel tbody tr:last-child > * {
+.panel > table > tbody > tr:last-child > * {
   border-bottom: 0;
 }
 
@@ -392,10 +410,10 @@ th.num {
   .cards td:empty {
     display: none;
   }
-  .panel .cards tr {
+  .panel > .cards > tbody > tr {
     padding-inline: var(--pad);
   }
-  .panel .cards tr > * {
+  .panel > .cards > tbody > tr > * {
     padding-inline: 0;
   }
 }

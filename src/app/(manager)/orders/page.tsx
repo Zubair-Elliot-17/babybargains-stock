@@ -10,6 +10,7 @@ import styles from "@/components/manage/manage.module.css";
 export const metadata = { title: "Orders · BabyBargains Stock" };
 
 const STATUS = { SENT: "Sent", PARTIAL: "Part received", RECEIVED: "Received", CANCELLED: "Cancelled" } as const;
+const PILL = { SENT: "pill", PARTIAL: "pill pill-warning", RECEIVED: "pill pill-active", CANCELLED: "pill" } as const;
 
 export default async function OrdersPage({ searchParams }: { searchParams: Promise<{ branch?: string; supplier?: string; created?: string }> }) {
   await requireManagerPage();
@@ -39,7 +40,7 @@ export default async function OrdersPage({ searchParams }: { searchParams: Promi
       </header>
       {orders.some((o) => o._id === params.created) && <p className="banner" role="status">Order {params.created} sent.</p>}
 
-      <section className={styles.section} aria-labelledby="new-order">
+      <section className="panel" aria-labelledby="new-order">
         <h2 id="new-order">New order</h2>
         <form className={styles.filters} method="get">
           <label>
@@ -69,43 +70,41 @@ export default async function OrdersPage({ searchParams }: { searchParams: Promi
         )}
       </section>
 
-      <section className={styles.section} aria-labelledby="order-list">
+      <section className={`panel ${styles.section} ${styles.scroll}`} aria-labelledby="order-list">
         <h2 id="order-list">Recent orders</h2>
         {orders.length === 0 ? (
           <p className={styles.meta}>No orders yet. Orders placed in the demo are cleared at the nightly reset.</p>
         ) : (
-          <div className={styles.scroll}>
-            <table className="cards">
-              <thead>
-                <tr>
-                  <th scope="col">Order</th>
-                  <th scope="col">Branch</th>
-                  <th scope="col">Supplier</th>
-                  <th scope="col">Sent</th>
-                  <th scope="col" className="num">Received</th>
-                  <th scope="col">Status</th>
-                  <th scope="col"><span className="sr-only">Actions</span></th>
-                </tr>
-              </thead>
-              <tbody>
-                {orders.map((o) => {
-                  const ordered = o.lines.reduce((n, l) => n + l.ordered, 0);
-                  const received = o.lines.reduce((n, l) => n + l.received, 0);
-                  return (
-                    <tr key={o._id}>
-                      <th scope="row" className="mono">{o._id}</th>
-                      <td data-label="Branch">{o.branchName}</td>
-                      <td data-label="Supplier">{o.supplierName}</td>
-                      <td data-label="Sent">{when(o.sentAt)} UTC</td>
-                      <td className="num" data-label="Received">{received} of {ordered}</td>
-                      <td data-label="Status">{STATUS[o.status]}</td>
-                      <td><OrderActions key={`${o._id}:${received}:${o.status}`} order={o} /></td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
+          <table className="cards">
+            <thead>
+              <tr>
+                <th scope="col">Order</th>
+                <th scope="col">Branch</th>
+                <th scope="col">Supplier</th>
+                <th scope="col">Sent</th>
+                <th scope="col" className="num">Received</th>
+                <th scope="col">Status</th>
+                <th scope="col"><span className="sr-only">Actions</span></th>
+              </tr>
+            </thead>
+            <tbody>
+              {orders.map((o) => {
+                const ordered = o.lines.reduce((n, l) => n + l.ordered, 0);
+                const received = o.lines.reduce((n, l) => n + l.received, 0);
+                return (
+                  <tr key={o._id}>
+                    <th scope="row" className="mono">{o._id}</th>
+                    <td data-label="Branch">{o.branchName}</td>
+                    <td data-label="Supplier">{o.supplierName}</td>
+                    <td data-label="Sent">{when(o.sentAt)} UTC</td>
+                    <td className="num" data-label="Received">{received} of {ordered}</td>
+                    <td data-label="Status"><span className={PILL[o.status]}>{STATUS[o.status]}</span></td>
+                    <td><OrderActions key={`${o._id}:${received}:${o.status}`} order={o} /></td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
         )}
       </section>
       <p className={styles.meta}><Link href="/analytics">Analytics</Link> shows overdue orders, lead time and fill rate.</p>

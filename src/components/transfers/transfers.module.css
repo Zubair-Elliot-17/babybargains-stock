@@ -28,7 +28,7 @@
 }
 
 .table tr[data-selected] {
-  background: var(--color-surface-quiet);
+  background: var(--tint-accent);
 }
 
 .sub {
@@ -66,8 +66,10 @@
 .panel {
   display: grid;
   gap: var(--space-3);
-  padding: var(--space-4) 0 var(--space-4) var(--space-6);
-  border-left: 1px solid var(--color-hairline);
+  padding: var(--space-4) var(--space-6) var(--space-6);
+  background: var(--color-surface);
+  border: 1px solid var(--color-hairline);
+  border-radius: var(--radius-panel);
 }
 
 .panel h2 {
@@ -169,6 +171,8 @@
   .panel {
     align-content: start;
     padding: var(--space-6);
+    border: 0;
+    border-radius: 0;
   }
 }
 

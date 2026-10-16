@@ -48,7 +48,7 @@ export default async function PriceListPage({ searchParams }: { searchParams: Pr
             products={products.map((p) => ({ sku: p._id, name: p.name, price: p.price }))}
           />
           {applied.length > 0 && (
-            <section className={styles.section} aria-labelledby="applied">
+            <section className={`panel ${styles.section}`} aria-labelledby="applied">
               <h2 id="applied">Applied price lists</h2>
               <ul>
                 {applied.map((a) => (

@@ -1,8 +1,13 @@
+/* Segmented control on the canvas: the current tab is a white chip. */
 .tabs {
-  display: flex;
+  display: inline-flex;
+  flex-wrap: wrap;
   gap: var(--space-1);
-  margin: var(--space-6) 0 var(--space-4);
-  border-bottom: 1px solid var(--color-hairline);
+  margin: 0 0 var(--space-4);
+  padding: var(--space-1);
+  border: 1px solid var(--color-hairline);
+  border-radius: var(--radius-panel);
+  background: color-mix(in srgb, var(--color-ink) 4%, var(--color-canvas));
 }
 
 .tab {
@@ -10,18 +15,22 @@
   display: inline-flex;
   align-items: center;
   gap: var(--space-2);
-  padding: 0 var(--space-3);
-  color: var(--color-ink);
+  padding: 0 var(--space-4);
+  border-radius: 7px;
+  color: var(--color-ink-muted);
+  font-weight: 500;
   text-decoration: none;
 }
 
 .tab:visited {
-  color: var(--color-ink);
+  color: var(--color-ink-muted);
 }
 
 .tab[aria-current="page"] {
+  color: var(--color-ink);
   font-weight: 600;
-  box-shadow: inset 0 -3px 0 var(--color-accent);
+  background: var(--color-surface);
+  box-shadow: 0 0 0 1px var(--color-hairline);
 }
 
 .count {
@@ -29,6 +38,11 @@
   padding: 0 6px;
   border-radius: 999px;
   background: var(--color-surface-quiet);
+}
+
+.tab[aria-current="page"] .count {
+  color: var(--color-accent);
+  background: var(--tint-accent);
 }
 
 .empty {
@@ -50,17 +64,17 @@
 .summary {
   display: grid;
   grid-template-columns: repeat(4, 1fr);
-  margin: var(--space-3) 0 0;
-  border-top: 1px solid var(--color-hairline);
-  border-bottom: 1px solid var(--color-hairline);
+  margin: 0;
+  background: var(--color-surface);
+  border: 1px solid var(--color-hairline);
+  border-radius: var(--radius-panel);
 }
 
 .summary div {
-  padding: var(--space-3) var(--space-4) var(--space-3) 0;
+  padding: var(--space-3) var(--space-4) var(--space-3) var(--space-6);
 }
 
 .summary div + div {
-  padding-left: var(--space-4);
   border-left: 1px solid var(--color-hairline);
 }
 
@@ -124,17 +138,20 @@
   justify-content: flex-end;
   gap: var(--space-3);
   flex-wrap: wrap;
-  padding: var(--space-3) 0;
+  padding: var(--space-3) var(--space-4);
   background: var(--color-surface);
-  border-top: 1px solid var(--color-hairline);
+  border: 1px solid var(--color-hairline);
+  border-radius: var(--radius-panel) var(--radius-panel) 0 0;
 }
 
 @media (max-width: 767px) {
   .summary {
     grid-template-columns: 1fr 1fr;
   }
+  .summary div {
+    padding-left: var(--space-4);
+  }
   .summary div:nth-child(3) {
-    padding-left: 0;
     border-left: 0;
   }
   .summary div:nth-child(n + 3) {

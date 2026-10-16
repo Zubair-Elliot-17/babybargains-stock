@@ -6,6 +6,15 @@ import styles from "./login.module.css";
 
 const DEFAULT_BRANCH = "BR-LEE";
 
+// Decorative role icons; the card text names the role.
+const Icon = ({ d }: { d: string }) => (
+  <svg className={styles.icon} viewBox="0 0 24 24" aria-hidden focusable="false">
+    <path d={d} />
+  </svg>
+);
+const DESK = "M3 5h18v11H3zM8 20h8M12 16v4M7 12.5l3-3 2.5 2.5L17 7.5";
+const PHONE = "M7 2.5h10v19H7zM10.5 18.5h3M10 9.5l1.5 1.5 3-3";
+
 export function LoginChoice({ branches }: { branches: { id: string; name: string }[] }) {
   const router = useRouter();
   const [busy, setBusy] = useState<"manager" | "clerk" | null>(null);
@@ -32,11 +41,13 @@ export function LoginChoice({ branches }: { branches: { id: string; name: string
   return (
     <div className={styles.choices}>
       <button className={styles.choice} onClick={() => signIn("manager")} disabled={busy !== null}>
+        <Icon d={DESK} />
         <span className={styles.role}>Manager</span>
         <span className={styles.task}>Track a recall across 15 branches</span>
         <span className={styles.hint}>Opens batch <span className="mono">B-4471</span></span>
       </button>
       <div className={`${styles.choice} ${styles.clerk}`}>
+        <Icon d={PHONE} />
         <span className={styles.role}>Clerk</span>
         <span className={styles.task}>Count stock on a phone</span>
         <label htmlFor="branch">Branch</label>

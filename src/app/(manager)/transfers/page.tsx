@@ -77,7 +77,7 @@ export default async function TransfersPage({ searchParams }: { searchParams: Pr
         emptyText={to ? `No transfers into ${to.name} right now.` : "No branch is both over its cover and able to help one below its reorder point."}
       />
       {inTransit.length > 0 && (
-        <section className={styles.inTransit} aria-labelledby="in-transit">
+        <section className={`panel ${styles.inTransit}`} aria-labelledby="in-transit">
           <h2 id="in-transit">In transit · {count(inTransit.reduce((n, r) => n + r.units, 0), "unit")}</h2>
           <table className="cards">
             <thead>

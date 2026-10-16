@@ -97,13 +97,15 @@ export function ReviewScreen(props: {
   return (
     <div className={styles.review}>
       <p><Link href="/stocktakes">← Stocktakes</Link></p>
-      <h1>{heading}</h1>
-      <p className={styles.meta}>
-        Counted by {props.clerkLabel}
-        {props.submittedAt && ` · submitted ${when(props.submittedAt)} UTC`}
-        {props.approvedAt && ` · approved ${when(props.approvedAt)} UTC`}
-        {" · "}Flagged when off by {FLAG_UNITS}+ units or {money(FLAG_PENCE)}+
-      </p>
+      <header className="page-head">
+        <h1>{heading}</h1>
+        <p>
+          Counted by {props.clerkLabel}
+          {props.submittedAt && ` · submitted ${when(props.submittedAt)} UTC`}
+          {props.approvedAt && ` · approved ${when(props.approvedAt)} UTC`}
+          {" · "}Flagged when off by {FLAG_UNITS}+ units or {money(FLAG_PENCE)}+
+        </p>
+      </header>
 
       <dl className={styles.summary}>
         <div><dt>Lines</dt><dd>{props.lines.length}</dd></div>
@@ -115,14 +117,14 @@ export function ReviewScreen(props: {
       {result && <ApprovedBanner result={result} />}
 
       {flagged.length > 0 && (
-        <section aria-label="Flagged lines">
+        <section className="panel" aria-label="Flagged lines">
           <h2>Needs attention</h2>
           <LineTable lines={flagged} accept={reviewable ? { accepted, toggle } : undefined} />
         </section>
       )}
 
       {small.length > 0 && (
-        <section aria-label="Small differences">
+        <section className="panel" aria-label="Small differences">
           <h2>Within threshold · {small.length}</h2>
           <LineTable lines={small} />
         </section>

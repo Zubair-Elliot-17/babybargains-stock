@@ -42,7 +42,7 @@ export default async function StockPage({ searchParams }: { searchParams: Promis
           <button className="btn" type="submit">Show</button>
         </form>
       </header>
-      <div className={styles.scroll}>
+      <div className={`panel ${styles.scroll}`}>
         <table className="cards">
           <thead>
             <tr>
@@ -62,7 +62,7 @@ export default async function StockPage({ searchParams }: { searchParams: Promis
                 <td data-label="Category">{r.category}</td>
                 <td className="num" data-label="On hand">{r.onHand}</td>
                 <td className="num" data-label="Reorder point">{r.reorderPoint || "–"}</td>
-                <td data-label="Status">{r.low ? <span className={styles.low}>{branchId ? "Low" : "Low at a branch"}</span> : "OK"}</td>
+                <td data-label="Status">{r.low ? <span className="pill pill-warning">{branchId ? "Low" : "Low at a branch"}</span> : <span className="pill">OK</span>}</td>
               </tr>
             ))}
           </tbody>
