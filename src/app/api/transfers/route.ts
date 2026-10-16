@@ -17,7 +17,7 @@ export async function POST(req: Request) {
   return handleCommand(req, {
     name: "acceptTransfer",
     role: "manager",
-    actionClass: "general",
+    actionClass: "transfer",
     input: Input,
     precheck: (input) => {
       if (input.fromBranchId === input.toBranchId) throw new SameBranch();

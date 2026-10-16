@@ -182,6 +182,12 @@ th {
   font-size: var(--text-meta);
 }
 
+/* A row header names the row's subject (usually a product): primary text, not a column label. */
+tbody th[scope="row"] {
+  color: var(--color-ink);
+  font-size: var(--text-table);
+}
+
 td.num,
 th.num {
   text-align: right;

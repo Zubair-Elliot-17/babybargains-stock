@@ -40,8 +40,9 @@ describe("transfer suggestions from the ledger", () => {
     const toy = inputs.find((s) => s.sku === TOY)!;
     expect(toy.pricePence).toBe(500);
     expect(toy.branches).toEqual(expect.arrayContaining([
-      { branchId: "BR-A", onHand: 20, incoming: 0, soldInWindow: 0, policy: { reorderPoint: 2, overstockWeeks: 6 }, stocktakeOpen: false },
-      { branchId: "BR-B", onHand: 0, incoming: 0, soldInWindow: 3, policy: { reorderPoint: 2, overstockWeeks: 6 }, stocktakeOpen: false },
+      // Alpha's stock arrived today, so it had none on any window day; Bravo held 3 all window until yesterday's sale.
+      { branchId: "BR-A", onHand: 20, incoming: 0, soldInWindow: 0, daysInStock: 0, policy: { reorderPoint: 2, overstockWeeks: 6 }, stocktakeOpen: false },
+      { branchId: "BR-B", onHand: 0, incoming: 0, soldInWindow: 3, daysInStock: 56, policy: { reorderPoint: 2, overstockWeeks: 6 }, stocktakeOpen: false },
     ]));
   });
 
@@ -58,6 +59,21 @@ describe("transfer suggestions from the ledger", () => {
     expect(await sold(23.99)).toBe(4);
   });
 
+  it("counts only the days a branch had stock, so a branch that sold out is refilled for its real demand", async () => {
+    const dayStart = new Date(new Date().toISOString().slice(0, 10)).getTime();
+    const at = (d: number) => ({ now: new Date(dayStart + d * DAY + 3_600_000) });
+    const sell = (d: number, qty: number) => run((c, s, k) => recordSale(c, s, k, { branchId: "BR-B", lines: [{ sku: COT, qty }] }), at(d));
+    await run((c, s, k) => receiveStock(c, s, k, { branchId: "BR-B", sku: COT, batchId: OLD, qty: 4 }), at(-10));
+    await sell(-10, 1);
+    await sell(-8, 1);
+    await sell(-3, 2); // empty from day -2
+    const [cot] = await loadTransferInputs(cols(t.db), new Date(), { skus: [COT] });
+    expect(cot.branches.find((b) => b.branchId === "BR-B")).toMatchObject({ onHand: 0, soldInWindow: 4, daysInStock: 8 }); // days -10 to -3
+    // v = 4·7/8 = 3.5/wk, target = max(3, ceil(10.5)) = 11; Alpha can spare 12 − max(0, 2) = 10. Over all 56 days it would be 3.
+    const view = await listTransferSuggestions(t.db, { to: "BR-B" });
+    expect(view.suggestions.find((s) => s.sku === COT)).toMatchObject({ qty: 10, to: { daysInStock: 8 } });
+  });
+
   it("lists ranked suggestions with names and the FIFO batches that would move", async () => {
     const view = await listTransferSuggestions(t.db);
     expect(view.suggestions.map((s) => [s.sku, s.fromBranchId, s.toBranchId, s.qty, s.valuePence])).toEqual([
@@ -67,6 +83,7 @@ describe("transfer suggestions from the ledger", () => {
     expect(view.suggestions[0]).toMatchObject({ productName: "Test Cot · Oak", fromName: "Alpha", toName: "Bravo", preview: [{ batchCode: "B-1", qty: 3 }] });
     expect(view.branches.map((b) => b.name)).toEqual(["Alpha", "Bravo"]);
     expect(view.blocked).toEqual([]);
+    expect(view.total).toBe(2);
   });
 
   it("filters by recipient branch", async () => {

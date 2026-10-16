@@ -74,7 +74,7 @@ export async function ensureIndexes(db: Db): Promise<void> {
     c.batches.createIndex({ sku: 1, status: 1, receivedAt: 1 }),
     c.movements.createIndex({ sku: 1, batchId: 1, at: 1 }),
     c.movements.createIndex({ branchId: 1, sku: 1, at: 1 }),
-    c.movements.createIndex({ type: 1, at: 1 }),
+    c.movements.createIndex({ type: 1, at: 1, branchId: 1, sku: 1, qty: 1 }), // covers the transfers SOLD read
     c.movements.createIndex({ sku: 1, type: 1, at: 1 }), // transfer accept: one SKU's recent sales
     c.movements.createIndex({ refType: 1, refId: 1 }),
     c.movements.createIndex({ origin: 1 }),
@@ -98,6 +98,10 @@ export async function ensureIndexes(db: Db): Promise<void> {
     c.transfers.createIndex({ status: 1, sku: 1 }),
     c.transfers.createIndex({ origin: 1 }),
   ]);
+  // Superseded by the covering index above; absent on fresh DBs.
+  await c.movements.dropIndex("type_1_at_1").catch((e) => {
+    if (e?.codeName !== "IndexNotFound") throw e;
+  });
 }
 
 export type AnyCollection = Collection<Record<string, unknown>>;

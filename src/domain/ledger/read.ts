@@ -6,7 +6,7 @@ import type { Batch, Branch, Product, Stocktake } from "../schemas";
 import { allocateFifo, type Lot } from "./allocate";
 import { DAY, type CompactMovement } from "./fold";
 import { activeStocktakes, countKey, foldCounts, LATE_MS, planLine, UNBATCHED, unbatchedBatchId, type EffectiveCount, type PlannedLine } from "./stocktake";
-import { IN_TRANSIT, VELOCITY_DAYS, suggestTransfers, type BranchStock, type SkuStock, type TransferSuggestion } from "./transfers";
+import { assessBranch, IN_TRANSIT, VELOCITY_DAYS, suggestTransfers, type BranchStock, type SkuStock, type TransferSuggestion } from "./transfers";
 
 export interface RecallView {
   batchCode: string;
@@ -399,14 +399,14 @@ export async function latestStocktakeForBranch(db: Db, branchId: string): Promis
 export async function loadTransferInputs(
   c: Cols,
   now: Date,
-  opts: { skus?: string[]; session?: ClientSession; openBranchIds?: string[] } = {}, // openBranchIds: already read by the caller
+  opts: { skus?: string[]; session?: ClientSession; openBranchIds?: string[]; recalled?: string[] } = {}, // openBranchIds, recalled: already read by the caller
 ): Promise<SkuStock[]> {
   const { session } = opts;
   const bySku = opts.skus ? { sku: { $in: opts.skus } } : {};
   // VELOCITY_DAYS whole UTC days ending at today 00:00, so the page and a later Accept the same day see the same sales.
   const until = new Date(Math.floor(now.getTime() / DAY) * DAY);
   const since = new Date(until.getTime() - VELOCITY_DAYS * DAY);
-  const recalled = await c.batches.distinct("_id", { ...bySku, status: "RECALLED" }, { session });
+  const recalled = opts.recalled ?? (await c.batches.distinct("_id", { ...bySku, status: "RECALLED" }, { session }));
   const [policies, products, stock, sold, open, onTheWay] = await Promise.all([
     c.stockPolicies.find(bySku, { session }).toArray(),
     c.products.find(opts.skus ? { _id: { $in: opts.skus } } : {}, { session, projection: { price: 1 } }).toArray(),
@@ -444,7 +444,50 @@ export async function loadTransferInputs(
       stocktakeOpen: openBranches.has(p.branchId),
     });
   }
-  return [...out.values()].filter((s) => s.branches.length);
+  const result = [...out.values()].filter((s) => s.branches.length);
+  await addDaysInStock(c, result, since, until, recalled, session);
+  return result;
+}
+
+// Sets daysInStock: window days a branch opened with ACTIVE stock or sold some, rebuilt backwards from on-hand.
+// Only SKUs with a donor and a recipient on raw sales are read: fewer days only raises velocity, which shrinks
+// donors and grows needs but never creates either, so other SKUs can't produce a suggestion.
+async function addDaysInStock(c: Cols, skus: SkuStock[], since: Date, until: Date, recalled: string[], session?: ClientSession) {
+  const live = skus.filter((s) => {
+    const roles = new Set(s.branches.map((b) => assessBranch(b)?.role));
+    return roles.has("donor") && roles.has("recipient");
+  });
+  if (!live.length) return;
+  const days = await c.movements
+    .aggregate<{ _id: { branchId: string; sku: string; day: Date }; net: number; sales: number }>(
+      [
+        { $match: { sku: { $in: live.map((s) => s.sku) }, at: { $gte: since }, batchId: { $nin: recalled }, branchId: { $ne: IN_TRANSIT._id } } },
+        {
+          $group: {
+            _id: { branchId: "$branchId", sku: "$sku", day: { $dateTrunc: { date: "$at", unit: "day" } } },
+            net: { $sum: "$qty" },
+            sales: { $sum: { $cond: [{ $eq: ["$type", "SOLD"] }, 1, 0] } },
+          },
+        },
+      ],
+      { session },
+    )
+    .toArray();
+  const byPair = Map.groupBy(days, (r) => `${r._id.branchId}|${r._id.sku}`);
+  for (const s of live) {
+    for (const b of s.branches) {
+      const rows = byPair.get(`${b.branchId}|${s.sku}`) ?? [];
+      const byDay = new Map(rows.map((r) => [r._id.day.getTime(), r]));
+      let after = rows.reduce((n, r) => n + (r._id.day >= until ? r.net : 0), 0); // today's movements so far
+      let inStock = 0;
+      for (let t = until.getTime() - DAY; t >= since.getTime(); t -= DAY) {
+        const r = byDay.get(t);
+        after += r?.net ?? 0;
+        if (b.onHand - after > 0 || r?.sales) inStock++;
+      }
+      b.daysInStock = inStock;
+    }
+  }
 }
 
 // Units dispatched to each branch and not yet received, per SKU; recalled batches won't arrive.
@@ -469,15 +512,17 @@ export interface TransferRow extends TransferSuggestion {
   preview: { batchCode: string; qty: number }[]; // FIFO batches that would move
 }
 
+export const MAX_SUGGESTIONS = 50; // the best-ranked ones; the page says how many more there are
+
 export interface TransfersView {
   suggestions: TransferRow[];
+  total: number; // suggestions before the MAX_SUGGESTIONS cap
   branches: Pick<Branch, "_id" | "name">[];
   blocked: Pick<Branch, "_id" | "name">[]; // branches left out because a stocktake is open
 }
 
 // SKUs below their reorder point at one branch, counting ACTIVE stock as loadTransferInputs does.
-async function shortSkus(c: Cols, branchId: string): Promise<string[]> {
-  const recalled = await c.batches.distinct("_id", { status: "RECALLED" });
+async function shortSkus(c: Cols, branchId: string, recalled: string[]): Promise<string[]> {
   const [policies, stock] = await Promise.all([
     c.stockPolicies.find({ branchId }, { projection: { sku: 1, reorderPoint: 1 } }).toArray(),
     c.inventory
@@ -494,13 +539,16 @@ async function shortSkus(c: Cols, branchId: string): Promise<string[]> {
 export async function listTransferSuggestions(db: Db, opts: { now?: Date; to?: string } = {}): Promise<TransfersView> {
   const c = cols(db);
   const now = opts.now ?? new Date();
-  const [open, branches] = await Promise.all([
+  const recalled = await c.batches.distinct("_id", { status: "RECALLED" });
+  const [open, branches, short] = await Promise.all([
     c.stocktakes.distinct("branchId", activeStocktakes(now)),
     c.branches.find({}, { projection: { name: 1 } }).sort({ name: 1 }).toArray(),
+    // A receiving-branch view only needs the SKUs that branch is short of (whole SKUs, so matching is unchanged).
+    opts.to ? shortSkus(c, opts.to, recalled) : undefined,
   ]);
-  // A receiving-branch view only needs the SKUs that branch is short of (whole SKUs, so matching is unchanged).
-  const inputs = await loadTransferInputs(c, now, { skus: opts.to ? await shortSkus(c, opts.to) : undefined, openBranchIds: open });
-  const ranked = suggestTransfers(inputs).filter((s) => !opts.to || s.toBranchId === opts.to);
+  const inputs = await loadTransferInputs(c, now, { skus: short, openBranchIds: open, recalled });
+  const all = suggestTransfers(inputs).filter((s) => !opts.to || s.toBranchId === opts.to);
+  const ranked = all.slice(0, MAX_SUGGESTIONS);
   const skus = [...new Set(ranked.map((s) => s.sku))];
   const [products, rows] = await Promise.all([
     c.products.find({ _id: { $in: skus } }, { projection: { name: 1 } }).toArray(),
@@ -527,7 +575,7 @@ export async function listTransferSuggestions(db: Db, opts: { now?: Date; to?: s
       preview,
     };
   });
-  return { suggestions, branches, blocked: branches.filter((b) => open.includes(b._id)) };
+  return { suggestions, total: all.length, branches, blocked: branches.filter((b) => open.includes(b._id)) };
 }
 
 export interface InTransitRow {
