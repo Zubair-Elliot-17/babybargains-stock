@@ -12,7 +12,6 @@ import summary from "@/components/stocktakes/stocktakes.module.css";
 export const metadata = { title: "Analytics · BabyBargains Stock" };
 
 const CATEGORIES: Record<Product["category"], string> = { cot: "Cots", pram: "Prams", monitor: "Monitors", clothing: "Clothing", toy: "Toys" };
-const MONTH = (m: string) => new Date(`${m}-01T00:00:00Z`).toLocaleString("en-GB", { month: "short", timeZone: "UTC" });
 
 export default async function AnalyticsPage({ searchParams }: { searchParams: Promise<{ branch?: string; category?: string }> }) {
   await requireManagerPage();
@@ -22,8 +21,8 @@ export default async function AnalyticsPage({ searchParams }: { searchParams: Pr
   const branchId = branches.some((b) => b._id === params.branch) ? params.branch : undefined;
   const category = params.category && Object.hasOwn(CATEGORIES, params.category) ? (params.category as Product["category"]) : undefined;
   const a = await analytics(db, { branchId, category });
-  const peak = Math.max(1, ...a.salesByMonth.map((m) => m.pence));
-  const year = a.salesByMonth.reduce((n, m) => n + m.pence, 0);
+  const peak = Math.max(1, ...a.salesByWeek.map((m) => m.pence));
+  const year = a.salesByWeek.reduce((n, m) => n + m.pence, 0);
   const scope = [branchId ? branches.find((b) => b._id === branchId)?.name : "All branches", category ? CATEGORIES[category] : null].filter(Boolean).join(" · ");
 
   return (
@@ -119,13 +118,13 @@ export default async function AnalyticsPage({ searchParams }: { searchParams: Pr
 
       <section className={styles.section} aria-labelledby="sales">
         <h2 id="sales">Sales, last 12 months · {money(year)}</h2>
-        <div className={styles.bars} role="img" aria-label={`Monthly sales: ${a.salesByMonth.map((m) => `${MONTH(m.month)} ${money(m.pence)}`).join(", ")}`}>
-          {a.salesByMonth.map((m) => (
-            <div key={m.month} className={styles.bar} style={{ height: `${(m.pence / peak) * 100}%` }} title={`${MONTH(m.month)}: ${money(m.pence)} · ${count(m.units, "unit")}`} />
+        <div className={styles.bars} role="img" aria-label={`Monthly sales: ${a.salesByWeek.map((m) => `${m.start} ${money(m.pence)}`).join(", ")}`}>
+          {a.salesByWeek.map((m) => (
+            <div key={m.start} className={styles.bar} style={{ height: `${(m.pence / peak) * 100}%` }} title={`${m.start}: ${money(m.pence)} · ${count(m.units, "unit")}`} />
           ))}
         </div>
         <div className={styles.barLabels} aria-hidden>
-          {a.salesByMonth.map((m) => <span key={m.month}>{MONTH(m.month)}</span>)}
+          {a.salesByWeek.map((m) => <span key={m.start}>{m.start}</span>)}
         </div>
       </section>
 

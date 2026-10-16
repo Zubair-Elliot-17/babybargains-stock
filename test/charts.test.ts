@@ -66,3 +66,14 @@ describe("chart primitives", () => {
     expect([niceCeil(1), niceCeil(7), niceCeil(12), niceCeil(26_000), niceCeil(5_000_001)]).toEqual([1, 10, 20, 50_000, 10_000_000]);
   });
 });
+
+describe("change chip", () => {
+  it("shows a dash, never Infinity, when there is nothing to compare with", async () => {
+    const { Change } = await import("@/components/charts/Kpi");
+    const html = (v: number | null) => renderToStaticMarkup(createElement(Change, { value: v, period: "previous 30 days" }));
+    expect(html(null)).toBe('<span class="' + html(null).match(/class="([^"]*)"/)![1] + '">– vs previous 30 days</span>');
+    expect(html(Infinity)).toContain("– vs previous 30 days");
+    expect(html(0.042)).toMatch(/▲<\/span> \+4\.2% vs previous 30 days/);
+    expect(html(-0.5)).toMatch(/▼<\/span> −50\.0% vs previous 30 days/);
+  });
+});
