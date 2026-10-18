@@ -252,6 +252,45 @@ describe("analytics metrics", () => {
     expect(a.abc.reduce((n, r) => n + r.revenueShare, 0)).toBeCloseTo(1, 3);
   });
 
+  it("shows the same league and heatmap with a branch filter, other branches included up to 83 days back", async () => {
+    await sell("BR-A", TOY, 2, 0);
+    await sell("BR-B", TOY, 3, 45); // the previous 30 days, for the change
+    await sell("BR-B", TOY, 4, 83); // last day of the 12 weeks
+    await sell("BR-B", TOY, 5, 84); // outside the 12 weeks
+    const all = await at();
+    const one = await at({ branchId: "BR-A" });
+    expect(all.league.find((r) => r.branchId === "BR-B")?.weekly[0]).toBe(2000);
+    expect(one.league).toEqual(all.league);
+    expect(one.weekday).toEqual(all.weekday);
+    const cots = await at({ branchId: "BR-A", category: "cot" });
+    expect(cots.league.map((r) => r.sales30)).toEqual([0, 0]);
+    expect(cots.weekday.flatMap((r) => r.avg).every((v) => v === 0)).toBe(true);
+  });
+
+  it("keeps the totals in agreement under a branch and category filter", async () => {
+    await run((c, s, k) => receiveStock(c, s, k, { branchId: "BR-A", sku: COT, batchId: OLD, qty: 6 }), { now: ago(400) });
+    await run((c, s, k) => receiveStock(c, s, k, { branchId: "BR-B", sku: COT, batchId: NEW, qty: 4 }), { now: ago(300) });
+    for (const [branchId, sku, qty, daysAgo] of [["BR-A", TOY, 3, 0], ["BR-B", TOY, 5, 12], ["BR-A", COT, 1, 20], ["BR-B", COT, 2, 45], ["BR-A", TOY, 7, 200]] as const) {
+      await sell(branchId, sku, qty, daysAgo);
+    }
+    const total = (xs: { pence: number }[]) => xs.reduce((n, x) => n + x.pence, 0);
+    const price = { [COT]: 10000, [TOY]: 500 } as Record<string, number>;
+    const expected = { "BR-A": { "": 15000, toy: 5000 }, "BR-B": { "": 22500, toy: 2500 } } as const; // a year's sales per scope
+    for (const branchId of ["BR-A", "BR-B"] as const) {
+      for (const category of ["", "toy"] as const) {
+        const a = await at({ branchId, category: category || undefined });
+        const year = total(a.salesByWeek);
+        expect(year, `${branchId} ${category}`).toBe(expected[branchId][category]);
+        expect(total(a.categories)).toBe(year);
+        expect(total(a.abc)).toBe(year);
+        const shelf = (await stockView(t.db, { branchId })).filter((r) => !category || r.sku === TOY);
+        expect(total(a.stockAge)).toBe(a.kpi.stockPence);
+        expect(a.kpi.stockPence).toBe(shelf.reduce((n, r) => n + r.onHand * price[r.sku], 0));
+        expect(a.deadStockValuePence).toBeLessThanOrEqual(a.kpi.stockPence);
+      }
+    }
+  });
+
   it("reads salesDays once and stockMovements only for dead stock and top movers", async () => {
     await sell("BR-A", TOY, 1, 0);
     await t.db.command({ profile: 2 });
