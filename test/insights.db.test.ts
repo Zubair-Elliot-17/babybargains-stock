@@ -204,6 +204,9 @@ describe("analytics metrics", () => {
     const cot = (await at()).cover.find((r) => r.category === "cot");
     expect(cot).toEqual({ category: "cot", onHand: 0, weeklyUnits: 0, weeks: null, band: null });
     expect((await at({ category: "toy" })).cover.map((r) => r.category)).toEqual(["toy"]);
+    // Reorder cover (20 ÷ 1 a week) above the overstock policy: the band can't invert, it closes at the reorder cover.
+    await cols(t.db).stockPolicies.updateOne({ _id: `BR-B:${TOY}` }, { $set: { reorderPoint: 20 } });
+    expect((await toy({ branchId: "BR-B" }))?.band).toEqual([20, 20]);
   });
 
   it("values shelf stock at retail by batch age, leaving out recalled batches and goods in transit", async () => {

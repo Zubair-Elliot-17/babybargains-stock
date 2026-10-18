@@ -244,7 +244,8 @@ export async function analytics(db: Db, opts: { branchId?: string; category?: Pr
   const stockAge = AGE_BUCKETS.map((b) => ({ bucket: b.bucket, pence: 0 }));
   for (const r of ageRows) if (inCategory(r._id.sku)) stockAge[r._id.bucket].pence += r.onHand * (product.get(r._id.sku)?.price ?? 0);
 
-  // Weeks of cover = on hand ÷ weekly units. Band (R4): Σ reorder points ÷ weekly units, up to mean overstock weeks.
+  // Weeks of cover = on hand ÷ weekly units. Band (R4): Σ reorder points ÷ weekly units, up to mean overstock weeks,
+  // never below the reorder cover (as assessBranch keeps max(overstock weeks, reorder point)).
   const cover = ProductCategory.options
     .filter((cat) => !opts.category || cat === opts.category)
     .map((category) => {
@@ -252,8 +253,9 @@ export async function analytics(db: Db, opts: { branchId?: string; category?: Pr
       const onHand = rows.filter((r) => isCat(r.sku)).reduce((n, r) => n + r.onHand, 0);
       const weeklyUnits = sales.skus.filter((r) => isCat(r._id)).reduce((n, r) => n + r.recent, 0) / COVER_WEEKS;
       const pol = policies.filter((p) => isCat(p.sku));
+      const low = pol.reduce((n, p) => n + p.reorderPoint, 0) / weeklyUnits;
       const band: [number, number] | null = weeklyUnits > 0 && pol.length
-        ? [pol.reduce((n, p) => n + p.reorderPoint, 0) / weeklyUnits, pol.reduce((n, p) => n + p.overstockWeeks, 0) / pol.length]
+        ? [low, Math.max(low, pol.reduce((n, p) => n + p.overstockWeeks, 0) / pol.length)]
         : null;
       return { category, onHand, weeklyUnits, weeks: weeklyUnits > 0 ? onHand / weeklyUnits : null, band };
     });
