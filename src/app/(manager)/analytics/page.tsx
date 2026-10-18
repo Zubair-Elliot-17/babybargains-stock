@@ -108,7 +108,7 @@ export default async function AnalyticsPage({ searchParams }: { searchParams: Pr
         )}
       </section>
 
-      <div className={`${styles.grid} ${styles.section}`}>
+      <div className={`${charts.pairs} ${styles.section}`}>
         <section className="panel" aria-labelledby="categories">
           <h2 id="categories">Sales by category, last 12 months</h2>
           {year === 0 ? <Empty height={OVERVIEW}>No sales in the last 12 months.</Empty> : (

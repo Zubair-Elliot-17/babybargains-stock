@@ -375,6 +375,13 @@
   min-height: 180px;
 }
 
+/* Four overview charts: two by two, so none sits alone on a row. */
+.pairs {
+  display: grid;
+  gap: var(--space-6);
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 440px), 1fr));
+}
+
 .empty {
   display: grid;
   place-items: center;
