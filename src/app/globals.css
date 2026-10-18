@@ -115,6 +115,10 @@ h2 {
   table-layout: fixed; /* a table otherwise grows to its content and widens the page */
 }
 
+.sr-only > caption {
+  white-space: normal; /* WebKit widens a table to its caption's unwrapped length */
+}
+
 button,
 input,
 select {

@@ -108,3 +108,26 @@ test("manager sends an order, receives it, and sees stock and analytics", async 
   await expect(page.getByRole("img", { name: /^Weekly sales/ })).toBeVisible();
   await expect(page.getByText("Open orders")).toBeVisible();
 });
+
+test("analytics charts each have a name and their data as a table beside them", async ({ page }) => {
+  await page.goto("/login");
+  await page.getByRole("button", { name: /Manager/ }).click();
+  await page.waitForURL(/\/recall/);
+  await page.goto("/analytics");
+  const charts = [/^Weekly sales/, /^Sales by category/, /^Weeks of cover/, /^Shelf stock at retail by batch age/, /^ABC split/, /^Average daily sales by branch and weekday/];
+  for (const name of charts) {
+    const chart = page.getByRole("img", { name });
+    await expect(chart).toBeVisible();
+    // The table is a sibling, so role="img" does not hide it, and it has a caption and header cells.
+    const table = chart.locator("xpath=following-sibling::table[contains(@class, 'sr-only')]");
+    await expect(table.locator("caption")).not.toBeEmpty();
+    expect(await table.locator("th[scope]").count()).toBeGreaterThan(1);
+  }
+  // Branch league: a real table, one labelled 12-week sparkline per branch.
+  const league = page.getByRole("region", { name: "Branch league, last 30 days" });
+  const branches = await league.locator("tbody tr").count();
+  expect(branches).toBeGreaterThan(1);
+  await expect(league.getByRole("img", { name: /weekly sales over the last 12 weeks/ })).toHaveCount(branches);
+  // KPI sparkline is decorative: the tile's change chip states the trend.
+  await expect(page.locator("dl svg[aria-hidden]").first()).toBeAttached();
+});

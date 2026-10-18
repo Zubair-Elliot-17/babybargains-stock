@@ -27,6 +27,16 @@ test("@phone every manager screen fits the width, with no sideways scroll", asyn
   await expect(current).toHaveAttribute("href", "/stocktakes");
 });
 
+test("@phone analytics fits the width with filters, and nothing animates under reduced motion", async ({ page }) => {
+  await page.emulateMedia({ reducedMotion: "reduce" });
+  await signInManager(page);
+  await page.goto("/analytics?branch=BR-BEL&category=pram");
+  await expect(page.locator("h1")).toHaveText(/Analytics · .+ · Prams/);
+  expect(await overflow(page)).toBeLessThanOrEqual(0);
+  await page.getByRole("navigation", { name: "Main" }).getByRole("link", { name: "Stock", exact: true }).hover();
+  expect(await page.evaluate(() => document.getAnimations().length)).toBe(0);
+});
+
 test("@phone transfers lists suggestions as cards and opens the review sheet", async ({ page }, info) => {
   test.skip(info.project.name !== "phone", "cards are the phone layout");
   await signInManager(page);
