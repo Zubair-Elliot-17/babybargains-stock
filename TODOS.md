@@ -17,3 +17,6 @@ Deferred during plan review. Each has the context needed to pick it up later.
 - **ABC values:** the ABC chart shows its values only on hover (the sr-only table has them).
 - **Orphan SKUs:** revenue from SKUs missing from the catalogue makes category shares add up to less than 100%.
 - **Link encoding:** analytics links build `?to=`/branch hrefs from an unencoded branchId (values come from the DB allowlist).
+
+## Order-dependent tests (P3)
+- **What:** with `vitest --sequence.shuffle --sequence.seed=4242`, test/command.test.ts:85 (duplicate BR-A from buildWorld twice), test/seed.test.ts:106 (needs an earlier seed) and test/quarantine.route.test.ts:48 (leftover rateLimits rows) fail; unshuffled they pass. These were there before ui-overhaul.
