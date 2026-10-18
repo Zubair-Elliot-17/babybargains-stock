@@ -42,15 +42,23 @@ export const AGE_BUCKETS = [
   { bucket: "Over 180 days", upTo: Infinity },
 ] as const;
 
-// Shelf stock per batch with its received date (R3): the inventory scan, then batches by _id.
-async function shelfByBatch(db: Db, match: Awaited<ReturnType<typeof shelf>>) {
-  const c = cols(db);
-  const rows = await c.inventory
-    .aggregate<{ _id: string; sku: string; onHand: number }>([{ $match: match }, { $group: { _id: "$batchId", sku: { $first: "$sku" }, onHand: { $sum: "$onHand" } } }])
+// Shelf stock by SKU and age bucket (R3): batches joined on _id, bucketed in the database.
+async function shelfByAge(db: Db, match: Awaited<ReturnType<typeof shelf>>, now: Date) {
+  const age = { $ifNull: [{ $floor: { $divide: [{ $subtract: [now, { $first: "$b.receivedAt" }] }, DAY] } }, Number.MAX_SAFE_INTEGER] }; // no batch record: oldest
+  return cols(db).inventory
+    .aggregate<{ _id: { sku: string; bucket: number }; onHand: number }>([
+      { $match: match },
+      { $group: { _id: "$batchId", sku: { $first: "$sku" }, onHand: { $sum: "$onHand" } } },
+      { $lookup: { from: "batches", localField: "_id", foreignField: "_id", as: "b", pipeline: [{ $project: { _id: 0, receivedAt: 1 } }] } },
+      { $set: { age } },
+      {
+        $group: {
+          _id: { sku: "$sku", bucket: { $switch: { branches: AGE_BUCKETS.slice(0, -1).map((b, i) => ({ case: { $lte: ["$age", b.upTo] }, then: i })), default: AGE_BUCKETS.length - 1 } } },
+          onHand: { $sum: "$onHand" },
+        },
+      },
+    ])
     .toArray();
-  const batches = await c.batches.find({ _id: { $in: rows.map((r) => r._id) } }, { projection: { receivedAt: 1 } }).toArray();
-  const received = new Map(batches.map((b) => [b._id, b.receivedAt]));
-  return rows.map((r) => ({ sku: r.sku, onHand: r.onHand, receivedAt: received.get(r._id) }));
 }
 
 export interface StockRow {
@@ -126,32 +134,41 @@ export async function analytics(db: Db, opts: { branchId?: string; category?: Pr
   const byBranch = opts.branchId ? { branchId: opts.branchId } : {};
   const today = Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate());
   const categorySkus = opts.category ? await c.products.distinct("_id", { category: opts.category }) : null;
+  const lines = categorySkus ? { $filter: { input: "$lines", cond: { $in: ["$$this.sku", categorySkus] } } } : "$lines";
   const bySku = categorySkus ? { sku: { $in: categorySkus } } : {};
   const match = shelf(db, opts.branchId);
-  const [products, branches, suppliers, rows, batchRows, policies, soldRecently, [sales], movers, orders] = await Promise.all([
+  const [products, branches, suppliers, rows, ageRows, policies, soldRecently, [sales], movers, orders] = await Promise.all([
     c.products.find({}, { projection: { name: 1, category: 1, price: 1 } }).toArray(),
     c.branches.find({}, { projection: { name: 1, code: 1 } }).toArray(),
     c.suppliers.find({}, { projection: { name: 1 } }).toArray(),
     match.then((m) => sellable(db, opts.branchId, m)),
-    match.then((m) => shelfByBatch(db, m)),
+    match.then((m) => shelfByAge(db, m, now)),
     c.stockPolicies.find(byBranch).toArray(),
     c.movements.aggregate<{ _id: { branchId: string; sku: string } }>([
       { $match: { type: "SOLD", at: { $gte: new Date(now.getTime() - DEAD_DAYS * DAY) }, ...byBranch } },
       { $group: { _id: { branchId: "$branchId", sku: "$sku" } } },
     ]).toArray(),
-    // The page's only salesDays read (R1). Facets that feed the league and heatmap keep every branch.
+    // The page's only salesDays read (R1). A salesDays doc is one branch-day, so per-day totals need no $unwind;
+    // they keep every branch for the league and heatmap. Only the by-SKU facet unwinds lines.
     c.salesDays.aggregate<SalesFacets>([
       { $match: { day: { $gte: new Date(today - (YEAR_DAYS - 1) * DAY), $lt: new Date(today + DAY) } } },
-      { $unwind: "$lines" },
-      ...(categorySkus ? [{ $match: { "lines.sku": { $in: categorySkus } } }] : []),
+      // Other branches only feed the league and heatmap, which read the last 84 days.
+      ...(opts.branchId ? [{ $match: { $or: [{ branchId: opts.branchId }, { day: { $gte: new Date(today - 83 * DAY) } }] } }] : []),
       {
         $facet: {
-          days: [{ $group: { _id: { branchId: "$branchId", day: "$day" }, pence: { $sum: { $multiply: ["$lines.qty", "$lines.unitPrice"] } }, units: { $sum: "$lines.qty" } } }],
-          recent: [
-            { $match: { day: { $gte: new Date(today - (COVER_WEEKS * 7 - 1) * DAY) }, ...(opts.branchId ? { branchId: opts.branchId } : {}) } },
-            { $group: { _id: "$lines.sku", units: { $sum: "$lines.qty" } } },
+          days: [{ $project: { _id: 0, branchId: 1, day: 1, pence: { $sum: { $map: { input: lines, in: { $multiply: ["$$this.qty", "$$this.unitPrice"] } } } }, units: { $sum: { $map: { input: lines, in: "$$this.qty" } } } } }],
+          skus: [
+            ...(opts.branchId ? [{ $match: { branchId: opts.branchId } }] : []),
+            { $unwind: "$lines" },
+            ...(categorySkus ? [{ $match: { "lines.sku": { $in: categorySkus } } }] : []),
+            {
+              $group: {
+                _id: "$lines.sku",
+                pence: { $sum: { $multiply: ["$lines.qty", "$lines.unitPrice"] } },
+                recent: { $sum: { $cond: [{ $gte: ["$day", new Date(today - (COVER_WEEKS * 7 - 1) * DAY)] }, "$lines.qty", 0] } },
+              },
+            },
           ],
-          year: [...(opts.branchId ? [{ $match: { branchId: opts.branchId } }] : []), { $group: { _id: "$lines.sku", pence: { $sum: { $multiply: ["$lines.qty", "$lines.unitPrice"] } } } }],
         },
       },
     ]).toArray(),
@@ -196,10 +213,10 @@ export async function analytics(db: Db, opts: { branchId?: string; category?: Pr
   const daily: Days = new Map();
   const perBranch = new Map<string, Days>();
   for (const r of sales.days) {
-    const ago = Math.round((today - r._id.day.getTime()) / DAY);
-    if (!perBranch.has(r._id.branchId)) perBranch.set(r._id.branchId, new Map());
-    add(perBranch.get(r._id.branchId)!, ago, r);
-    if (!opts.branchId || r._id.branchId === opts.branchId) add(daily, ago, r);
+    const ago = Math.round((today - r.day.getTime()) / DAY);
+    if (!perBranch.has(r.branchId)) perBranch.set(r.branchId, new Map());
+    add(perBranch.get(r.branchId)!, ago, r);
+    if (!opts.branchId || r.branchId === opts.branchId) add(daily, ago, r);
   }
   const sumOf = (m: Days | undefined, from: number, to: number, key: "pence" | "units") => {
     let n = 0;
@@ -215,21 +232,17 @@ export async function analytics(db: Db, opts: { branchId?: string; category?: Pr
     })
     .sort((a, b) => b.sales30 - a.sales30 || a.name.localeCompare(b.name));
   const byCategory = new Map<string, number>();
-  for (const r of sales.year) {
+  for (const r of sales.skus) {
     const cat = product.get(r._id)?.category;
     if (cat) byCategory.set(cat, (byCategory.get(cat) ?? 0) + r.pence);
   }
-  const yearPence = sales.year.reduce((n, r) => n + r.pence, 0);
+  const yearPence = sales.skus.reduce((n, r) => n + r.pence, 0);
   const categories = ProductCategory.options
     .filter((cat) => !opts.category || cat === opts.category)
     .map((category) => ({ category, pence: byCategory.get(category) ?? 0, share: yearPence ? (byCategory.get(category) ?? 0) / yearPence : 0 }))
     .sort((a, b) => b.pence - a.pence || a.category.localeCompare(b.category));
   const stockAge = AGE_BUCKETS.map((b) => ({ bucket: b.bucket, pence: 0 }));
-  for (const r of batchRows) {
-    if (!inCategory(r.sku)) continue;
-    const age = r.receivedAt ? Math.floor((now.getTime() - r.receivedAt.getTime()) / DAY) : Infinity; // a batch with no record counts as oldest
-    stockAge[AGE_BUCKETS.findIndex((b) => age <= b.upTo)].pence += r.onHand * (product.get(r.sku)?.price ?? 0);
-  }
+  for (const r of ageRows) if (inCategory(r._id.sku)) stockAge[r._id.bucket].pence += r.onHand * (product.get(r._id.sku)?.price ?? 0);
 
   // Weeks of cover = on hand ÷ weekly units. Band (R4): Σ reorder points ÷ weekly units, up to mean overstock weeks.
   const cover = ProductCategory.options
@@ -237,7 +250,7 @@ export async function analytics(db: Db, opts: { branchId?: string; category?: Pr
     .map((category) => {
       const isCat = (sku: string) => product.get(sku)?.category === category;
       const onHand = rows.filter((r) => isCat(r.sku)).reduce((n, r) => n + r.onHand, 0);
-      const weeklyUnits = sales.recent.filter((r) => isCat(r._id)).reduce((n, r) => n + r.units, 0) / COVER_WEEKS;
+      const weeklyUnits = sales.skus.filter((r) => isCat(r._id)).reduce((n, r) => n + r.recent, 0) / COVER_WEEKS;
       const pol = policies.filter((p) => isCat(p.sku));
       const band: [number, number] | null = weeklyUnits > 0 && pol.length
         ? [pol.reduce((n, p) => n + p.reorderPoint, 0) / weeklyUnits, pol.reduce((n, p) => n + p.overstockWeeks, 0) / pol.length]
@@ -246,7 +259,7 @@ export async function analytics(db: Db, opts: { branchId?: string; category?: Pr
     });
 
   // ABC by the year's revenue: a product's class comes from the share ranked above it (<80% A, <95% B, else C).
-  const revenue = new Map(sales.year.map((r) => [r._id, r.pence]));
+  const revenue = new Map(sales.skus.map((r) => [r._id, r.pence]));
   const ranked = products.filter((p) => inCategory(p._id)).map((p) => ({ sku: p._id, pence: revenue.get(p._id) ?? 0 }));
   ranked.sort((a, b) => b.pence - a.pence || a.sku.localeCompare(b.sku));
   const scopePence = ranked.reduce((n, r) => n + r.pence, 0);
@@ -309,9 +322,8 @@ export async function analytics(db: Db, opts: { branchId?: string; category?: Pr
 }
 
 interface SalesFacets {
-  days: { _id: { branchId: string; day: Date }; pence: number; units: number }[];
-  recent: { _id: string; units: number }[]; // by sku, last COVER_WEEKS weeks
-  year: { _id: string; pence: number }[]; // by sku
+  days: { branchId: string; day: Date; pence: number; units: number }[];
+  skus: { _id: string; pence: number; recent: number }[]; // year revenue and last COVER_WEEKS weeks' units, by sku
 }
 
 const change = (now: number, before: number) => (before > 0 ? (now - before) / before : null);
