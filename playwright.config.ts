@@ -9,6 +9,9 @@ export default defineConfig({
   // Phone runs first: the desktop suite ends by quarantining the shared seeded batch.
   projects: [
     { name: "phone", use: { ...devices["Pixel 7"] }, grep: /@phone/ },
+    // Opt-in Safari check of the phone specs: E2E_WEBKIT=1 without E2E_PROD, since WebKit drops the
+    // production build's Secure session cookie on http://localhost.
+    ...(process.env.E2E_WEBKIT ? [{ name: "webkit-phone", use: { ...devices["iPhone 14"] }, grep: /@phone/ }] : []),
     { name: "desktop", use: { ...devices["Desktop Chrome"], viewport: { width: 1440, height: 900 } }, dependencies: ["phone"] },
   ],
   webServer: {

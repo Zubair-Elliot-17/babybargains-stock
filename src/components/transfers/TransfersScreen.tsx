@@ -133,9 +133,9 @@ export function TransfersScreen({ rows, emptyText }: { rows: TransferRow[]; empt
   return (
     <div className={selected ? styles.withPanel : undefined}>
       {rows.length === 0 ? (
-        <p className={styles.empty} ref={empty} tabIndex={-1}>{emptyText}</p>
+        <p className={`panel ${styles.empty}`} ref={empty} tabIndex={-1}>{emptyText}</p>
       ) : (
-        <>
+        <div className="panel">
           <table className={`${styles.table} cards`} ref={table}>
             <thead>
               <tr>
@@ -177,7 +177,7 @@ export function TransfersScreen({ rows, emptyText }: { rows: TransferRow[]; empt
               ))}
             </tbody>
           </table>
-        </>
+        </div>
       )}
 
       {selected && (

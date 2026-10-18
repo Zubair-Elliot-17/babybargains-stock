@@ -10,6 +10,11 @@
   --color-warning: #b54708;
   --color-hairline: #dce1df;
   --color-control-border: #7f8b87;
+  --color-canvas: #f3f5f4; /* manager shell only (R10); panels sit on it */
+  /* Tints are mixed with white, not transparent, so text keeps 4.5:1 on panel and canvas alike. */
+  --tint-accent: color-mix(in srgb, var(--color-accent) 10%, white);
+  --tint-warning: color-mix(in srgb, var(--color-warning) 10%, white);
+  --tint-recall: color-mix(in srgb, var(--color-recall) 10%, white);
 
   --font-ui: var(--font-instrument), "Helvetica Neue", Arial, sans-serif;
   --font-mono: var(--font-plex-mono), ui-monospace, monospace;
@@ -30,6 +35,7 @@
   --text-strip: 40px;
 
   --radius: 6px;
+  --radius-panel: 10px;
   --shadow-dialog: 0 8px 24px rgba(0, 0, 0, 0.12);
   --motion: 150ms cubic-bezier(0.16, 1, 0.3, 1);
 }
@@ -106,6 +112,11 @@ h2 {
   overflow: hidden;
   clip: rect(0 0 0 0);
   white-space: nowrap;
+  table-layout: fixed; /* a table otherwise grows to its content and widens the page */
+}
+
+.sr-only > caption {
+  white-space: normal; /* WebKit widens a table to its caption's unwrapped length */
 }
 
 button,
@@ -206,15 +217,127 @@ th.num {
   border-radius: 999px;
   font-size: var(--text-meta);
   font-weight: 600;
-  border: 1px solid currentColor;
+  white-space: nowrap;
+  color: var(--color-ink-muted);
+  background: var(--color-surface-quiet);
+  border: 1px solid color-mix(in srgb, currentColor 28%, transparent);
 }
 
-.pill-recalled {
+.pill-recalled,
+.pill-recall {
   color: var(--color-recall);
+  background: var(--tint-recall);
 }
 
 .pill-active {
   color: var(--color-accent);
+  background: var(--tint-accent);
+}
+
+.pill-warning {
+  color: var(--color-warning);
+  background: var(--tint-warning);
+}
+
+/* Content surface on the manager canvas (D-UI1): the border carries the edge, no shadow. */
+.panel {
+  --pad: var(--space-6);
+  background: var(--color-surface);
+  border: 1px solid var(--color-hairline);
+  border-radius: var(--radius-panel);
+  padding: var(--space-4) var(--pad) var(--pad);
+  min-width: 0;
+}
+
+.panel > :first-child {
+  margin-top: 0;
+}
+
+.panel > :last-child {
+  margin-bottom: 0;
+}
+
+.panel h2,
+.panel h3 {
+  font-size: var(--text-body);
+  font-weight: 600;
+  margin: 0 0 var(--space-3);
+}
+
+/* An empty state as a panel of its own. */
+p.panel {
+  margin: 0;
+  padding-block: var(--space-4);
+}
+
+/* A panel's own table runs edge to edge with a quiet header row; sr-only chart tables keep their 1px box. */
+.panel {
+  overflow: clip; /* square table headers keep the panel's round corners; clip keeps sticky children working */
+}
+
+.panel > table:not(.sr-only) {
+  width: calc(100% + 2 * var(--pad));
+  margin-inline: calc(-1 * var(--pad));
+}
+
+.panel > table:not(.sr-only):first-child {
+  margin-top: calc(-1 * var(--space-4));
+}
+
+.panel > table:not(.sr-only):last-child {
+  margin-bottom: calc(-1 * var(--pad));
+}
+
+.panel > table > thead th {
+  background: var(--color-surface-quiet);
+}
+
+.panel > table > * > tr > :first-child {
+  padding-left: var(--pad);
+}
+
+.panel > table > * > tr > :last-child {
+  padding-right: var(--pad);
+}
+
+.panel > table > tbody > tr:last-child > * {
+  border-bottom: 0;
+}
+
+@media (max-width: 767px) {
+  .panel {
+    --pad: var(--space-4);
+  }
+}
+
+.page-head {
+  display: grid;
+  gap: var(--space-1);
+  margin-bottom: var(--space-6);
+}
+
+.page-head p {
+  margin: 0;
+  max-width: 80ch;
+  color: var(--color-ink-muted);
+  font-size: var(--text-table);
+}
+
+/* Filter row under a page title: one white strip on the canvas. */
+.page-head .toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: end;
+  gap: var(--space-3);
+  margin: var(--space-3) 0 0;
+  padding: var(--space-3) var(--space-4);
+  background: var(--color-surface);
+  border: 1px solid var(--color-hairline);
+  border-radius: var(--radius-panel);
+}
+
+.page-head .toolbar label {
+  margin: 0;
 }
 
 .banner {
@@ -291,5 +414,11 @@ th.num {
   }
   .cards td:empty {
     display: none;
+  }
+  .panel > .cards > tbody > tr {
+    padding-inline: var(--pad);
+  }
+  .panel > .cards > tbody > tr > * {
+    padding-inline: 0;
   }
 }

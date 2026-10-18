@@ -43,23 +43,25 @@ export default async function TransfersPage({ searchParams }: { searchParams: Pr
   const n = view.total;
   return (
     <>
-      <h1>Transfers · {n ? `${count(n, "suggestion")}${to ? ` into ${to.name}` : ""}` : "nothing to move"}</h1>
-      <p className={styles.meta}>
-        Stock from branches with more than their overstock weeks of cover, to branches below their reorder point. Cover uses sales
-        from the {VELOCITY_WEEKS} weeks before today, counting only the days a branch had stock. Accepting dispatches the stock, oldest batches first; it reaches the receiving branch when a clerk there confirms it.
-      </p>
-      <form className={styles.filter} action="/transfers" method="get">
-        <div>
-          <label htmlFor="to">Receiving branch</label>
-          <select id="to" name="to" className="input" defaultValue={to?._id ?? ""}>
-            <option value="">All branches</option>
-            {view.branches.map((b) => (
-              <option key={b._id} value={b._id}>{b.name}</option>
-            ))}
-          </select>
-        </div>
-        <button className="btn" type="submit">Show</button>
-      </form>
+      <header className="page-head">
+        <h1>Transfers · {n ? `${count(n, "suggestion")}${to ? ` into ${to.name}` : ""}` : "nothing to move"}</h1>
+        <p>
+          Stock from branches with more than their overstock weeks of cover, to branches below their reorder point. Cover uses sales
+          from the {VELOCITY_WEEKS} weeks before today, counting only the days a branch had stock. Accepting dispatches the stock, oldest batches first; it reaches the receiving branch when a clerk there confirms it.
+        </p>
+        <form className={`${styles.filter} toolbar`} action="/transfers" method="get">
+          <div>
+            <label htmlFor="to">Receiving branch</label>
+            <select id="to" name="to" className="input" defaultValue={to?._id ?? ""}>
+              <option value="">All branches</option>
+              {view.branches.map((b) => (
+                <option key={b._id} value={b._id}>{b.name}</option>
+              ))}
+            </select>
+          </div>
+          <button className="btn" type="submit">Show</button>
+        </form>
+      </header>
       {view.blocked.length > 0 && (
         <p className="banner" role="note">
           Left out while a stocktake is in progress: {view.blocked.map((b) => b.name).join(", ")}.
@@ -75,7 +77,7 @@ export default async function TransfersPage({ searchParams }: { searchParams: Pr
         emptyText={to ? `No transfers into ${to.name} right now.` : "No branch is both over its cover and able to help one below its reorder point."}
       />
       {inTransit.length > 0 && (
-        <section className={styles.inTransit} aria-labelledby="in-transit">
+        <section className={`panel ${styles.inTransit}`} aria-labelledby="in-transit">
           <h2 id="in-transit">In transit · {count(inTransit.reduce((n, r) => n + r.units, 0), "unit")}</h2>
           <table className="cards">
             <thead>

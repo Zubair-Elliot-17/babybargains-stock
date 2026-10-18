@@ -99,7 +99,7 @@ export function PriceListImport(props: { supplierId: string; supplierName: strin
   }
 
   return (
-    <section className={styles.section} aria-labelledby="price-list">
+    <section className={`panel ${styles.section}`} aria-labelledby="price-list">
       <h2 id="price-list">{props.supplierName}</h2>
       {!locked && !busy && (
         <div className={styles.filters}>

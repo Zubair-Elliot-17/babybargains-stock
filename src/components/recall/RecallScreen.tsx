@@ -192,7 +192,7 @@ export function RecallScreen({ data }: { data: RecallData }) {
         <p className={styles.legend}>● delivery · ◆ transfer · ■ stocktake · ✕ quarantine · ←/→ 1 day, PgUp/PgDn 1 week</p>
       </section>
 
-      <section aria-label="Branches">
+      <section className="panel" aria-label="Branches">
         <table className={styles.table}>
           <thead>
             <tr>

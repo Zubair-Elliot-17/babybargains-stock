@@ -24,18 +24,20 @@ export default async function PriceListPage({ searchParams }: { searchParams: Pr
   return (
     <>
       <p><Link href="/orders">← Orders</Link></p>
-      <h1>Supplier price lists</h1>
-      <p className={styles.meta}>A supplier&apos;s price list updates the names and prices of its products and can add products we don&apos;t stock yet. Preview it, then apply it. Demo changes are undone at the nightly reset.</p>
-      <form className={styles.filters} method="get">
-        <label>
-          Supplier
-          <select className="input" name="supplier" defaultValue={supplier?._id ?? ""} required>
-            <option value="" disabled>Choose…</option>
-            {suppliers.map((s) => <option key={s._id} value={s._id}>{s.name}</option>)}
-          </select>
-        </label>
-        <button className="btn" type="submit">Choose</button>
-      </form>
+      <header className="page-head">
+        <h1>Supplier price lists</h1>
+        <p>A supplier&apos;s price list updates the names and prices of its products and can add products we don&apos;t stock yet. Preview it, then apply it. Demo changes are undone at the nightly reset.</p>
+        <form className={`${styles.filters} toolbar`} method="get">
+          <label>
+            Supplier
+            <select className="input" name="supplier" defaultValue={supplier?._id ?? ""} required>
+              <option value="" disabled>Choose…</option>
+              {suppliers.map((s) => <option key={s._id} value={s._id}>{s.name}</option>)}
+            </select>
+          </label>
+          <button className="btn" type="submit">Choose</button>
+        </form>
+      </header>
       {supplier && (
         <>
           <PriceListImport
@@ -46,7 +48,7 @@ export default async function PriceListPage({ searchParams }: { searchParams: Pr
             products={products.map((p) => ({ sku: p._id, name: p.name, price: p.price }))}
           />
           {applied.length > 0 && (
-            <section className={styles.section} aria-labelledby="applied">
+            <section className={`panel ${styles.section}`} aria-labelledby="applied">
               <h2 id="applied">Applied price lists</h2>
               <ul>
                 {applied.map((a) => (
