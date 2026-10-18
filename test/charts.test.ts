@@ -37,6 +37,14 @@ describe("chart primitives", () => {
     expect(p.table).toContain("<td>in range</td>");
   });
 
+  it("bar list keeps every table row as wide as its header when a bar has no band", () => {
+    const p = parts(createElement(BarList, {
+      label: "Cover.", caption: "Cover", head: ["Category", "Cover", "Band", "Status"],
+      bars: [{ name: "Cots", value: 0, text: "–", note: "no sales" }, { name: "Toys", value: 4, text: "4.0 wks", band: [2, 6] }],
+    }));
+    expect(p.table).toContain("<th scope=\"row\">Cots</th><td>–</td><td>–</td><td>no sales</td>");
+  });
+
   it("stacked bar has one table row per bar and a legend with values", () => {
     const p = parts(createElement(StackedBar, {
       label: "Stock by age.", caption: "Stock age", series: [{ name: "0–30 days", color: "red" }, { name: "31+ days", color: "blue" }],

@@ -41,31 +41,6 @@
   gap: var(--space-6);
 }
 
-.bars {
-  display: grid;
-  grid-template-columns: repeat(12, 1fr);
-  align-items: end;
-  gap: var(--space-1);
-  height: 180px;
-  margin-top: var(--space-4);
-  border-bottom: 1px solid var(--color-hairline);
-}
-
-.bar {
-  background: var(--color-accent);
-  border-radius: 2px 2px 0 0;
-  min-height: 1px;
-}
-
-.barLabels {
-  display: grid;
-  grid-template-columns: repeat(12, 1fr);
-  gap: var(--space-1);
-  font-size: var(--text-meta);
-  color: var(--color-ink-muted);
-  text-align: center;
-}
-
 .scroll {
   overflow-x: auto;
 }

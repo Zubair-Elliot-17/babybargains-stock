@@ -105,6 +105,6 @@ test("manager sends an order, receives it, and sees stock and analytics", async 
   await page.getByRole("navigation", { name: "Main" }).getByRole("link", { name: "Analytics" }).click();
   await expect(page.getByRole("heading", { level: 1 })).toHaveText("Analytics · All branches");
   await expect(page.getByRole("heading", { name: "Needs action" })).toBeVisible();
-  await expect(page.getByRole("img", { name: /^Monthly sales: / })).toBeVisible();
+  await expect(page.getByRole("img", { name: /^Weekly sales/ })).toBeVisible();
   await expect(page.getByText("Open orders")).toBeVisible();
 });

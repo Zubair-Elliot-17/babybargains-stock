@@ -370,6 +370,51 @@
   color: #fff;
 }
 
+/* Overview panels share one chart height, and an empty state keeps it (one muted sentence). */
+.overview {
+  min-height: 180px;
+}
+
+.empty {
+  display: grid;
+  place-items: center;
+  margin: 0;
+  text-align: center;
+  font-size: var(--text-meta);
+  color: var(--color-ink-muted);
+}
+
+/* Branch league: the selected branch keeps its place, tinted and named "selected". */
+.league tr[data-current] > * {
+  background: var(--tint-accent);
+}
+
+.league td:last-child {
+  width: 1%;
+}
+
+.facts {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: var(--space-4);
+  margin: 0 0 var(--space-3);
+}
+
+.facts dt {
+  font-size: var(--text-meta);
+  color: var(--color-ink-muted);
+}
+
+.facts dd {
+  margin: 0;
+  font-size: var(--text-section);
+  font-weight: 600;
+}
+
+.facts :global(.pill) {
+  vertical-align: middle;
+}
+
 .short {
   display: none;
 }

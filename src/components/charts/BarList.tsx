@@ -30,7 +30,7 @@ export function BarList({ label, caption, head, bars, max }: { label: string; ca
           </div>
         ))}
       </div>
-      <SrTable caption={caption} head={head} rows={bars.map((b) => [b.name, b.text, ...(b.band ? [`${b.band[0].toFixed(1)}–${b.band[1].toFixed(1)}`, b.note ?? "in range"] : [])])} />
+      <SrTable caption={caption} head={head} rows={bars.map((b) => [b.name, b.text, ...(b.band ? [`${b.band[0].toFixed(1)}–${b.band[1].toFixed(1)}`, b.note ?? "in range"] : head.length > 2 ? ["–", b.note ?? "–"] : [])])} />
     </div>
   );
 }

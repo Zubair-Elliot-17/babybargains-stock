@@ -112,6 +112,7 @@ h2 {
   overflow: hidden;
   clip: rect(0 0 0 0);
   white-space: nowrap;
+  table-layout: fixed; /* a table otherwise grows to its content and widens the page */
 }
 
 button,
