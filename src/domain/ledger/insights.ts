@@ -111,12 +111,12 @@ export interface Analytics {
   cover: { category: Product["category"]; onHand: number; weeklyUnits: number; weeks: number | null; band: [number, number] | null }[];
   abc: { class: "A" | "B" | "C"; skus: number; pence: number; skuShare: number; revenueShare: number }[];
   categories: { category: Product["category"]; pence: number; share: number }[]; // the year's revenue, largest first
-  weekday: { branchId: string; name: string; code: string; avg: number[] }[]; // Mon..Sun average daily pence, last 12 weeks
+  weekday: { branchId: string; name: string; code: string; avg: number[] }[]; // Mon..Sun average daily pence, the 12 whole weeks before today
   league: { branchId: string; name: string; code: string; sales30: number; change: number | null; weekly: number[] }[]; // every branch (Q3)
   kpi: {
     sales30: number;
-    salesPrev30: number;
-    salesChange: number | null; // null when the previous period sold nothing
+    salesPrev30: number; // days 31-60 ago: the 30 whole days before the change's window (days 1-30)
+    salesChange: number | null; // whole days 1-30 vs 31-60; null when the previous period sold nothing
     units30: number;
     unitsPrev30: number;
     unitsChange: number | null;
@@ -153,7 +153,7 @@ export async function analytics(db: Db, opts: { branchId?: string; category?: Pr
     c.salesDays.aggregate<SalesFacets>([
       { $match: { day: { $gte: new Date(today - (YEAR_DAYS - 1) * DAY), $lt: new Date(today + DAY) } } },
       // Other branches only feed the league and heatmap, which read the last 84 days.
-      ...(opts.branchId ? [{ $match: { $or: [{ branchId: opts.branchId }, { day: { $gte: new Date(today - 83 * DAY) } }] } }] : []),
+      ...(opts.branchId ? [{ $match: { $or: [{ branchId: opts.branchId }, { day: { $gte: new Date(today - 84 * DAY) } }] } }] : []),
       {
         $facet: {
           days: [{ $project: { _id: 0, branchId: 1, day: 1, pence: { $sum: { $map: { input: lines, in: { $multiply: ["$$this.qty", "$$this.unitPrice"] } } } }, units: { $sum: { $map: { input: lines, in: "$$this.qty" } } } } }],
@@ -228,7 +228,7 @@ export async function analytics(db: Db, opts: { branchId?: string; category?: Pr
     .map((b) => {
       const m = perBranch.get(b._id);
       const sales30 = sumOf(m, 0, 29, "pence");
-      return { branchId: b._id, name: b.name, code: b.code, sales30, change: change(sales30, sumOf(m, 30, 59, "pence")), weekly: Array.from({ length: 12 }, (_, w) => sumOf(m, (11 - w) * 7, (11 - w) * 7 + 6, "pence")) };
+      return { branchId: b._id, name: b.name, code: b.code, sales30, change: change(sumOf(m, 1, 30, "pence"), sumOf(m, 31, 60, "pence")), weekly: Array.from({ length: 12 }, (_, w) => sumOf(m, (11 - w) * 7, (11 - w) * 7 + 6, "pence")) };
     })
     .sort((a, b) => b.sales30 - a.sales30 || a.name.localeCompare(b.name));
   const byCategory = new Map<string, number>();
@@ -236,7 +236,8 @@ export async function analytics(db: Db, opts: { branchId?: string; category?: Pr
     const cat = product.get(r._id)?.category;
     if (cat) byCategory.set(cat, (byCategory.get(cat) ?? 0) + r.pence);
   }
-  const yearPence = sales.skus.reduce((n, r) => n + r.pence, 0);
+  // Shares of categorised revenue: a SKU since dropped from the catalogue has no category to count under.
+  const yearPence = [...byCategory.values()].reduce((n, p) => n + p, 0);
   const categories = ProductCategory.options
     .filter((cat) => !opts.category || cat === opts.category)
     .map((category) => ({ category, pence: byCategory.get(category) ?? 0, share: yearPence ? (byCategory.get(category) ?? 0) / yearPence : 0 }))
@@ -277,19 +278,20 @@ export async function analytics(db: Db, opts: { branchId?: string; category?: Pr
     row.skuShare = ranked.length ? row.skus / ranked.length : 0;
     row.revenueShare = scopePence ? row.pence / scopePence : 0;
   }
+  // Changes and weekday averages use whole days (ending yesterday): today's unfinished day would drag them down.
   const todayDow = (new Date(today).getUTCDay() + 6) % 7; // Monday = 0
   const weekday = [...branches]
     .sort((a, b) => a.name.localeCompare(b.name))
     .map((b) => {
       const avg = [0, 0, 0, 0, 0, 0, 0];
-      for (let ago = 0; ago < 84; ago++) avg[(todayDow - (ago % 7) + 7) % 7] += perBranch.get(b._id)?.get(ago)?.pence ?? 0;
+      for (let ago = 1; ago <= 84; ago++) avg[(todayDow - (ago % 7) + 7) % 7] += perBranch.get(b._id)?.get(ago)?.pence ?? 0;
       return { branchId: b._id, name: b.name, code: b.code, avg: avg.map((p) => p / 12) }; // each weekday occurs 12 times in 84 days
     });
   const kpi = {
     sales30: sum(0, 29, "pence"),
-    salesPrev30: sum(30, 59, "pence"),
+    salesPrev30: sum(31, 60, "pence"),
     units30: sum(0, 29, "units"),
-    unitsPrev30: sum(30, 59, "units"),
+    unitsPrev30: sum(31, 60, "units"),
     daily30: Array.from({ length: 30 }, (_, i) => daily.get(29 - i)?.pence ?? 0),
   };
 
@@ -313,7 +315,7 @@ export async function analytics(db: Db, opts: { branchId?: string; category?: Pr
     abc,
     cover,
     stockAge,
-    kpi: { ...kpi, stockPence: stockAge.reduce((n, b) => n + b.pence, 0), salesChange: change(kpi.sales30, kpi.salesPrev30), unitsChange: change(kpi.units30, kpi.unitsPrev30) },
+    kpi: { ...kpi, stockPence: stockAge.reduce((n, b) => n + b.pence, 0), salesChange: change(sum(1, 30, "pence"), kpi.salesPrev30), unitsChange: change(sum(1, 30, "units"), kpi.unitsPrev30) },
     topMovers: movers.map((m) => ({ sku: m._id, name: product.get(m._id)?.name ?? m._id, units: m.units })),
     orders: {
       open: orders.filter((o) => o.status === "SENT" || o.status === "PARTIAL").length,

@@ -57,7 +57,7 @@ export default async function RecallPage({ searchParams }: { searchParams: Promi
               {loaded.suggestions!.map((s, i) => (
                 <span key={s}>
                   {i > 0 && ", "}
-                  <Link className="mono" href={`/recall?batch=${s}`}>{s}</Link>
+                  <Link className="mono" href={`/recall?batch=${encodeURIComponent(s)}`}>{s}</Link>
                 </span>
               ))}
               ?
@@ -111,7 +111,7 @@ function SearchForm({ value, compact }: { value?: string; compact?: boolean }) {
     <form className={compact ? styles.searchCompact : styles.search} action="/recall" method="get" role="search">
       <label htmlFor="batch">Batch code</label>
       <div className={styles.searchRow}>
-        <input id="batch" name="batch" className="input mono" defaultValue={value} placeholder="e.g. B-4471" autoComplete="off" required maxLength={40} />
+        <input id="batch" name="batch" className="input mono" defaultValue={value} placeholder="B-4471" autoComplete="off" required maxLength={40} />
         <button className="btn btn-primary" type="submit">Find batch</button>
       </div>
     </form>
@@ -128,7 +128,7 @@ function RecentRecalls({ recent }: { recent: { batchCode: string; recalledAt: Da
         <ul className={styles.recent}>
           {recent.map((r) => (
             <li key={r.batchCode}>
-              <Link className="mono" href={`/recall?batch=${r.batchCode}`}>{r.batchCode}</Link>{" "}
+              <Link className="mono" href={`/recall?batch=${encodeURIComponent(r.batchCode)}`}>{r.batchCode}</Link>{" "}
               <span className="pill pill-recall">Quarantined</span>
               <span className={styles.muted}>{r.recalledAt.toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" })}</span>
             </li>

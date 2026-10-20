@@ -81,6 +81,7 @@ describe("stocktake routes fingerprint their [id]", () => {
     const submit = await import("@/app/api/stocktakes/[id]/submit/route");
     const approve = await import("@/app/api/stocktakes/[id]/approve/route");
     const db = await getDb();
+    await db.dropDatabase();
     await migrate(db);
     await buildWorld(db);
     const clerk = createSession("clerk", "BR-A");
