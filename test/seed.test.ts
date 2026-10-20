@@ -100,6 +100,14 @@ describe("transfer scenario", () => {
 });
 
 describe("nightly reset", () => {
+  // Its own seeded database, so it doesn't depend on the generator test running first.
+  let t: Awaited<ReturnType<typeof freshDb>>;
+  beforeAll(async () => {
+    t = await freshDb();
+    await writeSeed(t.db, generateSeed({ branches: 3, skus: 60, days: 240, seed: 42, anchor }), anchor);
+  });
+  afterAll(() => t.close());
+
   it("removes visitor changes, restores visitor recalls and shifts dates to end today", async () => {
     const c = cols(t.db);
     const k = { commandId: "visitor-q", actor: "v", origin: "visitor" as const };

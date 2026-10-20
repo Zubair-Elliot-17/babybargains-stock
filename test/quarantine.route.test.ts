@@ -37,6 +37,7 @@ it("refuses UNBATCHED with 400 without spending the session's recall budget", as
 });
 
 it("caps recalls per client IP, so fresh demo sessions can't reset the limit", async () => {
+  await cols(await getDb()).rateLimits.deleteMany({}); // count only this test's rows, whatever ran before
   const fromIp = async (ip: string) => {
     token = createSession("manager").token; // a new session each time
     return (await recall("B-404", ip)).status; // unknown batch still spends budget, recalls nothing

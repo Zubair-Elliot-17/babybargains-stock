@@ -290,6 +290,22 @@
 }
 
 
+/* Values under a bar, keyed by the same swatches as the legend. */
+.stackValues {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-1) var(--space-4);
+  margin-top: var(--space-1);
+  font-size: var(--text-meta);
+  font-weight: 600;
+}
+
+.stackValues > span {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+}
+
 .legend {
   display: flex;
   flex-wrap: wrap;

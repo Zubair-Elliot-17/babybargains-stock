@@ -98,14 +98,15 @@ describe("analytics metrics", () => {
     }
   });
 
-  it("sums the last 30 days of sales and compares them with the 30 days before", async () => {
-    await sell("BR-A", TOY, 2, 0);
+  it("sums the last 30 days of sales and compares 30 whole days with the 30 before, leaving out today", async () => {
+    await sell("BR-A", TOY, 2, 0); // today: in the total, not in the change
     await sell("BR-B", TOY, 3, 29);
-    await sell("BR-A", TOY, 4, 30); // previous period
-    await sell("BR-A", TOY, 6, 59);
-    await sell("BR-A", TOY, 1, 60); // older than both
+    await sell("BR-A", TOY, 4, 30); // in the change's window (days 1-30), not in the total
+    await sell("BR-A", TOY, 12, 31); // previous period (days 31-60)
+    await sell("BR-A", TOY, 2, 60);
+    await sell("BR-A", TOY, 9, 61); // older than both
     const { kpi } = await at();
-    expect(kpi).toMatchObject({ sales30: 2500, units30: 5, salesPrev30: 5000, unitsPrev30: 10, salesChange: -0.5, unitsChange: -0.5 });
+    expect(kpi).toMatchObject({ sales30: 2500, units30: 5, salesPrev30: 7000, unitsPrev30: 14, salesChange: -0.5, unitsChange: -0.5 });
     expect(kpi.daily30).toHaveLength(30);
     expect(kpi.daily30.at(-1)).toBe(1000);
     expect(kpi.daily30[0]).toBe(1500);
@@ -130,20 +131,22 @@ describe("analytics metrics", () => {
   it("ranks every branch by 30-day sales, whatever the branch filter, with 12 weekly buckets", async () => {
     await sell("BR-A", TOY, 2, 0);
     await sell("BR-A", TOY, 4, 30);
+    await sell("BR-A", TOY, 8, 45); // previous period: days 1-30 (2000) vs 31-60 (4000)
     await sell("BR-B", TOY, 3, 29);
     await sell("BR-B", TOY, 1, 80);
     const { league } = await at();
     expect(league.map((r) => [r.branchId, r.name, r.code, r.sales30, r.change])).toEqual([["BR-B", "Bravo", "BB", 1500, null], ["BR-A", "Alpha", "AA", 1000, -0.5]]);
     expect(league[0].weekly).toEqual([500, 0, 0, 0, 0, 0, 0, 1500, 0, 0, 0, 0]);
-    expect(league[1].weekly).toEqual([0, 0, 0, 0, 0, 0, 0, 2000, 0, 0, 0, 1000]);
+    expect(league[1].weekly).toEqual([0, 0, 0, 0, 0, 4000, 0, 2000, 0, 0, 0, 1000]);
     expect((await at({ branchId: "BR-A" })).league.map((r) => r.branchId)).toEqual(["BR-B", "BR-A"]);
     expect((await at({ category: "cot" })).league.map((r) => r.sales30)).toEqual([0, 0]);
   });
 
-  it("averages each branch's sales by weekday over 12 weeks, counting days with no sales as 0", async () => {
-    await sell("BR-A", TOY, 2, 0); // Wednesday
-    await sell("BR-A", TOY, 4, 7); // the Wednesday before
-    await sell("BR-A", TOY, 8, 84); // a 13th Wednesday: outside the 12 weeks
+  it("averages each branch's sales by weekday over the 12 whole weeks before today, counting days with no sales as 0", async () => {
+    await sell("BR-A", TOY, 2, 0); // today (Wednesday), unfinished: left out
+    await sell("BR-A", TOY, 1, 7); // the Wednesday before
+    await sell("BR-A", TOY, 5, 84); // the 12th Wednesday back
+    await sell("BR-A", TOY, 8, 91); // a 13th: outside the 12 weeks
     await sell("BR-B", TOY, 3, 1); // Tuesday
     const { weekday } = await at({ branchId: "BR-B" });
     expect(weekday).toEqual([
@@ -169,6 +172,16 @@ describe("analytics metrics", () => {
     expect(a.salesByWeek.reduce((n, w) => n + w.pence, 0)).toBe(12500);
     expect((await at({ branchId: "BR-B" })).categories[0]).toEqual({ category: "toy", pence: 1500, share: 1 });
     expect((await at({ category: "toy" })).categories).toEqual([{ category: "toy", pence: 2500, share: 1 }]);
+  });
+
+  it("keeps category shares at 100% when a sold product has left the catalogue", async () => {
+    await run((c, s, k) => receiveStock(c, s, k, { branchId: "BR-A", sku: COT, batchId: OLD, qty: 5 }), { now: ago(400) });
+    await sell("BR-A", TOY, 2, 3);
+    await sell("BR-A", COT, 1, 10);
+    await cols(t.db).products.deleteOne({ _id: COT });
+    const { categories } = await at();
+    expect(categories[0]).toEqual({ category: "toy", pence: 1000, share: 1 });
+    expect(categories.reduce((n, c) => n + c.share, 0)).toBe(1);
   });
 
   it("classes products A, B or C by the revenue share ranked above them; unsold products are C", async () => {
@@ -255,11 +268,12 @@ describe("analytics metrics", () => {
     expect(a.abc.reduce((n, r) => n + r.revenueShare, 0)).toBeCloseTo(1, 3);
   });
 
-  it("shows the same league and heatmap with a branch filter, other branches included up to 83 days back", async () => {
+  it("shows the same league and heatmap with a branch filter, other branches included up to 84 days back", async () => {
     await sell("BR-A", TOY, 2, 0);
     await sell("BR-B", TOY, 3, 45); // the previous 30 days, for the change
-    await sell("BR-B", TOY, 4, 83); // last day of the 12 weeks
-    await sell("BR-B", TOY, 5, 84); // outside the 12 weeks
+    await sell("BR-B", TOY, 4, 83); // last day of the league's 12 weeks
+    await sell("BR-B", TOY, 5, 84); // last day of the heatmap's 12 whole weeks
+    await sell("BR-B", TOY, 6, 85); // outside both
     const all = await at();
     const one = await at({ branchId: "BR-A" });
     expect(all.league.find((r) => r.branchId === "BR-B")?.weekly[0]).toBe(2000);

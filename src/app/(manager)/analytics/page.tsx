@@ -234,7 +234,7 @@ export default async function AnalyticsPage({ searchParams }: { searchParams: Pr
               </tbody>
             </table>
           )}
-          <p className={styles.meta}><Link href={`/transfers${branchId ? `?to=${branchId}` : ""}`}>Cover from another branch</Link> or <Link href="/orders">order from the supplier</Link>.</p>
+          <p className={styles.meta}><Link href={`/transfers${branchId ? `?to=${encodeURIComponent(branchId)}` : ""}`}>Cover from another branch</Link> or <Link href="/orders">order from the supplier</Link>.</p>
         </section>
 
         <section className="panel" aria-labelledby="dead">

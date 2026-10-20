@@ -1,7 +1,7 @@
 import styles from "./charts.module.css";
 import { SrTable } from "./SrTable";
 
-// One or more 100% bars split into ordered segments with 2px gaps, plus a legend that carries the values.
+// One or more 100% bars split into ordered segments with 2px gaps; values print in the legend (one bar) or under each bar.
 export function StackedBar(props: {
   label: string;
   caption: string;
@@ -23,6 +23,13 @@ export function StackedBar(props: {
                   <span key={series[i].name} style={{ flexGrow: v, background: series[i].color }} title={`${series[i].name}: ${r.text(v)} (${share(v, total)})`} />
                 ))}
               </span>
+              {!single && (
+                <span className={styles.stackValues}>
+                  {r.values.map((v, i) => (
+                    <span key={series[i].name}><span className={styles.swatch} style={{ background: series[i].color }} />{r.text(v)} · {share(v, total)}</span>
+                  ))}
+                </span>
+              )}
             </div>
           );
         })}
