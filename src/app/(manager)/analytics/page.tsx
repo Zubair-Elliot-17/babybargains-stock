@@ -19,8 +19,9 @@ export const metadata = { title: "Analytics · BabyBargains Stock" };
 
 const CATEGORIES: Record<Product["category"], string> = { cot: "Cots", pram: "Prams", monitor: "Monitors", clothing: "Clothing", toy: "Toys" };
 const WEEKDAYS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
-// Each step is at least 3:1 on white; old stock takes the warning colour (DESIGN.md "Charts").
-const RAMP = ["var(--color-accent)", "#4a9085", "var(--color-control-border)", "var(--color-warning)"];
+// Ink, grey, hatch, then recall for the oldest bucket: readable without hue (DESIGN.md "Charts").
+const HATCH = "repeating-linear-gradient(135deg, var(--color-ink) 0 1.5px, var(--color-surface) 1.5px 5px)";
+const RAMP = ["var(--color-ink)", "var(--color-chart-2)", HATCH, "var(--color-recall)"];
 const OVERVIEW = 180;
 
 const pct = (share: number) => `${Math.round(share * 100)}%`;
@@ -93,22 +94,22 @@ export default async function AnalyticsPage({ searchParams }: { searchParams: Pr
         </dl>
       </section>
 
-      <section className={`panel ${styles.section}`} aria-labelledby="sales">
-        <h2 id="sales">Sales, last 12 months · {money(year)}</h2>
-        {year === 0 ? <Empty height={320}>No sales in the last 12 months.</Empty> : (
-          <LineChart
-            label={`Weekly sales over the last 52 weeks, ${moneyWhole(year)} in total; the latest week took ${moneyWhole(weeks.at(-1)!.pence)} and the best week ${moneyWhole(best)}.`}
-            caption="Weekly sales, last 52 weeks"
-            head={["Week starting", "Sales"]}
-            points={weeks.map((w) => ({ name: day(w.start, "numeric"), value: w.pence }))}
-            ticks={ticks}
-            format={moneyShort}
-            height={320}
-          />
-        )}
-      </section>
+      <div className={`${charts.lead} ${styles.section}`}>
+        <section className="panel" aria-labelledby="sales">
+          <h2 id="sales">Sales, last 12 months · {money(year)}</h2>
+          {year === 0 ? <Empty height={320}>No sales in the last 12 months.</Empty> : (
+            <LineChart
+              label={`Weekly sales over the last 52 weeks, ${moneyWhole(year)} in total; the latest week took ${moneyWhole(weeks.at(-1)!.pence)} and the best week ${moneyWhole(best)}.`}
+              caption="Weekly sales, last 52 weeks"
+              head={["Week starting", "Sales"]}
+              points={weeks.map((w) => ({ name: day(w.start, "numeric"), value: w.pence }))}
+              ticks={ticks}
+              format={moneyShort}
+              height={320}
+            />
+          )}
+        </section>
 
-      <div className={`${charts.pairs} ${styles.section}`}>
         <section className="panel" aria-labelledby="categories">
           <h2 id="categories">Sales by category, last 12 months</h2>
           {year === 0 ? <Empty height={OVERVIEW}>No sales in the last 12 months.</Empty> : (
@@ -123,6 +124,9 @@ export default async function AnalyticsPage({ searchParams }: { searchParams: Pr
           )}
         </section>
 
+      </div>
+
+      <div className={`${charts.pairs} ${styles.section}`}>
         <section className="panel" aria-labelledby="cover">
           <h2 id="cover">Weeks of cover by category</h2>
           {a.cover.every((c) => c.onHand === 0 && c.weeks === null) ? <Empty height={OVERVIEW}>No stock and no sales to measure cover against.</Empty> : (

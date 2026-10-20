@@ -1,14 +1,9 @@
-// Brand mark (accent square with three stacked boxes) plus the wordmark.
+// Wordmark only: the name set like a shelf-ticket header, "Stock" in the batch-code mono.
 export function Wordmark() {
   return (
-    <span style={{ display: "inline-flex", alignItems: "center", gap: 10, fontWeight: 600, fontSize: 17, letterSpacing: "-0.01em", whiteSpace: "nowrap" }}>
-      <svg width="28" height="28" viewBox="0 0 28 28" aria-hidden focusable="false">
-        <rect width="28" height="28" rx="7" fill="var(--color-accent)" />
-        <path d="M7.5 14.5h5.75v6H7.5zM14.75 14.5h5.75v6h-5.75zM11.1 7.5h5.8v5.5h-5.8z" fill="#fff" />
-      </svg>
-      <span>
-        BabyBargains <span style={{ color: "var(--color-accent)" }}>Stock</span>
-      </span>
+    <span style={{ display: "inline-flex", alignItems: "baseline", gap: 6, whiteSpace: "nowrap", lineHeight: 1 }}>
+      <span style={{ fontWeight: 800, fontStretch: "75%", fontSize: 22, letterSpacing: "-0.01em" }}>BabyBargains</span>{" "}
+      <span className="mono" style={{ fontSize: 12, fontWeight: 500, padding: "2px 4px", background: "var(--color-ticket)", color: "var(--color-ink)", textTransform: "uppercase" }}>Stock</span>
     </span>
   );
 }

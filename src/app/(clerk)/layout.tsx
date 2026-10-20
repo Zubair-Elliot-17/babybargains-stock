@@ -3,6 +3,7 @@ import { cols } from "@/domain/collections";
 import { currentSession } from "@/lib/command";
 import { getDb } from "@/lib/db";
 import { ClerkNav } from "@/components/count/ClerkNav";
+import { Wordmark } from "@/components/Wordmark";
 import { OfflineCopy } from "@/components/count/OfflineCopy";
 import styles from "@/components/count/count.module.css";
 
@@ -14,9 +15,7 @@ export default async function ClerkLayout({ children }: { children: React.ReactN
     <div className={styles.frameWrap}>
       <div className={styles.frame}>
         <header className={styles.header}>
-          <span className={styles.brand}>
-            BabyBargains <span style={{ color: "var(--color-accent)" }}>Stock</span>
-          </span>
+          <Wordmark />
           <span className={styles.branch}>{branch?.name}</span>
           <form action="/logout" method="post">
             <button className={styles.signout} type="submit">Sign out</button>

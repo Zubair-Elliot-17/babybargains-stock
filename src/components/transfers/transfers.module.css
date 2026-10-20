@@ -60,20 +60,21 @@
 }
 
 .sheet::backdrop {
-  background: rgba(31, 42, 46, 0.4);
+  background: rgba(20, 20, 20, 0.45);
 }
 
 .panel {
   display: grid;
   gap: var(--space-3);
-  padding: var(--space-4) var(--space-6) var(--space-6);
-  background: var(--color-surface);
-  border: 1px solid var(--color-hairline);
-  border-radius: var(--radius-panel);
+  padding: var(--space-3) var(--space-4) var(--space-4);
+  background: var(--color-surface-quiet);
+  border-top: 2px solid var(--color-ink);
 }
 
 .panel h2 {
   margin: 0;
+  padding-top: 0;
+  border-top: 0; /* the panel's own rule already opens it */
 }
 
 .panel h2:focus:not(:focus-visible) {

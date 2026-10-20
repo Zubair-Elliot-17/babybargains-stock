@@ -1,44 +1,55 @@
 .shell {
-  display: grid;
-  grid-template-columns: 232px 1fr;
   min-height: 100vh;
   background: var(--color-canvas);
 }
 
-.rail {
-  border-right: 1px solid var(--color-hairline);
-  padding: var(--space-6) var(--space-3);
+.demobar {
+  min-height: 28px;
   display: flex;
-  flex-direction: column;
-  gap: var(--space-6);
-  position: sticky;
-  top: 0;
-  height: 100vh;
+  align-items: center;
+  padding: 0 var(--space-8);
+  font-size: var(--text-meta);
+  color: #fff;
+  background: var(--color-ink);
+}
+
+/* Masthead: wordmark, text nav, sign out, closed by a 2px ink rule like a printed form header. */
+.mast {
+  display: flex;
+  align-items: stretch;
+  gap: var(--space-8);
+  padding: 0 var(--space-8);
+  border-bottom: 2px solid var(--color-ink);
+  min-height: 64px;
+}
+
+.mast > :first-child {
+  align-self: center;
+  flex: none;
 }
 
 .nav {
   list-style: none;
   margin: 0;
   padding: 0;
-  display: grid;
+  display: flex;
   gap: var(--space-1);
 }
 
-.brand {
-  padding: 0 var(--space-2);
-}
-
-/* Quiet rail: muted items, the current page in accent on a tinted pill. */
 .link {
   display: flex;
   align-items: center;
-  gap: var(--space-3);
+  gap: var(--space-2);
+  height: 100%;
   min-height: 44px;
   padding: 0 var(--space-3);
-  border-radius: 8px;
   color: var(--color-ink-muted);
-  font-weight: 500;
+  font-weight: 600;
+  font-stretch: 87.5%;
   text-decoration: none;
+  white-space: nowrap;
+  border-bottom: 4px solid transparent;
+  margin-bottom: -2px; /* the current page's bar sits on the masthead rule */
 }
 
 .link:visited {
@@ -47,34 +58,18 @@
 
 .link:hover {
   color: var(--color-ink);
-  background: color-mix(in srgb, var(--color-ink) 5%, var(--color-canvas));
+  border-bottom-color: var(--color-hairline);
 }
 
-.link[aria-current="page"] {
-  color: var(--color-accent);
-  background: var(--tint-accent);
-  font-weight: 600;
-}
-
-.icon {
-  flex: none;
-  width: 20px;
-  height: 20px;
-  fill: none;
-  stroke: currentColor;
-  stroke-width: 1.75;
-  stroke-linecap: round;
-  stroke-linejoin: round;
-}
-
-@media (prefers-reduced-motion: no-preference) {
-  .link {
-    transition: background-color var(--motion), color var(--motion);
-  }
+/* Current page: a yellow ticket block with an ink bar, never colour alone (aria-current names it). */
+.link[aria-current="page"],
+.link[aria-current="page"]:visited {
+  color: var(--color-ink);
+  background: var(--color-ticket);
+  border-bottom-color: var(--color-ink);
 }
 
 .soon {
-  color: var(--color-ink-muted);
   cursor: default;
 }
 
@@ -83,128 +78,86 @@
   margin-left: var(--space-1);
 }
 
-.short {
-  display: none;
-}
-
 .signout {
-  margin-top: auto;
-  display: grid;
-  gap: var(--space-2);
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
 }
 
 .who {
   font-size: var(--text-meta);
   color: var(--color-ink-muted);
-}
-
-.main {
-  min-width: 0;
-}
-
-.demobar {
-  height: 28px;
-  display: flex;
-  align-items: center;
-  padding: 0 var(--space-8);
-  font-size: var(--text-meta);
-  color: var(--color-ink-muted);
-  border-bottom: 1px solid var(--color-hairline);
+  white-space: nowrap;
 }
 
 .content {
   padding: var(--space-8) var(--space-8) var(--space-12);
-  max-width: 1280px;
-}
-
-/* Tablet: narrow rail with short labels. */
-@media (max-width: 1023px) {
-  .shell {
-    grid-template-columns: 76px 1fr;
-  }
-  .rail {
-    padding: var(--space-4) var(--space-2);
-  }
-  .brand,
-  .full,
-  .who {
-    display: none;
-  }
-  .short {
-    display: inline;
-    font-size: 11px;
-    line-height: 1;
-  }
-  .link {
-    flex-direction: column;
-    justify-content: center;
-    gap: var(--space-1);
-    min-height: 52px;
-    padding: 0;
-  }
-  .content {
-    padding: var(--space-6) var(--space-6) var(--space-12);
-  }
-}
-
-/* Phone: top bar, nav scrolls horizontally. */
-@media (max-width: 767px) {
-  .shell {
-    grid-template-columns: 1fr;
-    align-content: start; /* a short page must not stretch the top bar */
-  }
-  .rail {
-    position: static;
-    height: auto;
-    flex-direction: row;
-    align-items: center;
-    border-right: 0;
-    border-bottom: 1px solid var(--color-hairline);
-    padding: var(--space-2) var(--space-4);
-    overflow-x: auto;
-  }
-  .brand {
-    display: block;
-    flex: none;
-  }
-  .nav {
-    grid-auto-flow: column;
-  }
-  .full {
-    display: inline;
-    white-space: nowrap;
-  }
-  .short {
-    display: none;
-  }
-  .link {
-    flex-direction: row;
-    min-height: 44px;
-    padding: 0 var(--space-3);
-  }
-  .icon {
-    display: none;
-  }
-  .signout {
-    margin: 0 0 0 auto;
-  }
-  .demobar {
-    padding: 0 var(--space-4);
-  }
-  .content {
-    padding: var(--space-4) var(--space-4) 96px;
-  }
+  max-width: 1360px;
 }
 
 .badge {
   display: inline-block;
-  margin-left: var(--space-2);
   min-width: 20px;
-  padding: 0 6px;
-  border-radius: 999px;
-  background: var(--color-warning);
+  padding: 0 5px;
+  background: var(--color-ink);
   color: #fff;
   font-size: 12px;
-  font-weight: 600;
+  font-weight: 700;
+  line-height: 20px;
   text-align: center;
+}
+
+/* Tablet and phone: wordmark and sign out on top, the nav scrolls sideways under them. */
+@media (max-width: 1023px) {
+  .mast,
+  .demobar,
+  .content {
+    padding-inline: var(--space-6);
+  }
+  .mast {
+    flex-wrap: wrap;
+    align-items: center;
+    row-gap: 0;
+  }
+  .signout {
+    padding-block: var(--space-2);
+  }
+  .who {
+    display: none;
+  }
+  .link {
+    margin-bottom: 0; /* inside the scrolling strip a 2px overhang would scroll vertically */
+  }
+  .nav {
+    order: 3;
+    align-self: stretch;
+    flex-basis: 100%;
+    overflow-x: auto;
+    margin: 0 calc(-1 * var(--space-6));
+    padding: 0 var(--space-6);
+  }
+}
+
+@media (max-width: 767px) {
+  .mast,
+  .demobar {
+    padding-inline: var(--space-4);
+  }
+  .nav {
+    margin: 0 calc(-1 * var(--space-4));
+    padding: 0 var(--space-4);
+  }
+  .link {
+    padding: 0 var(--space-2);
+  }
+  .content {
+    padding: var(--space-6) var(--space-4) 96px;
+  }
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .link {
+    transition: background-color var(--motion), color var(--motion), border-color var(--motion);
+  }
 }

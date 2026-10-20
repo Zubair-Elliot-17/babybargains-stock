@@ -1,25 +1,30 @@
 /* Server-rendered charts and stat tiles (DESIGN.md "Charts"). */
+/* Receipt strip: one ruled row of headline figures, hairlines between, no boxes. */
+/* Each figure draws its left and top hairline 1px outside itself; the strip clips the ones on its
+   outer edges, so rules stay right however the row wraps. */
 .kpis {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-  gap: var(--space-4);
-  margin: 0;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 200px), 1fr));
+  margin: 0 0 var(--space-4);
+  border-top: 2px solid var(--color-ink);
+  border-bottom: 1px solid var(--color-ink);
+  overflow: hidden;
 }
 
 .kpi {
   display: grid;
   align-content: start;
   gap: var(--space-1);
-  padding: var(--space-4) var(--space-4) var(--space-3);
-  background: var(--color-surface);
-  border: 1px solid var(--color-hairline);
-  border-radius: var(--radius-panel);
+  padding: var(--space-3) var(--space-4) var(--space-4);
+  margin: -1px 0 0 -1px;
+  border-left: 1px solid var(--color-hairline);
+  border-top: 1px solid var(--color-hairline);
   min-width: 0;
 }
 
 .kpi dt {
+  order: 2;
   font-size: var(--text-meta);
-  font-weight: 500;
   color: var(--color-ink-muted);
 }
 
@@ -28,49 +33,47 @@
 }
 
 .kpi > dd:first-of-type {
-  font-size: var(--text-title);
-  font-weight: 600;
-  line-height: 1.15;
+  order: 1;
+  font-size: var(--text-strip);
+  font-weight: 800;
+  font-stretch: 75%;
+  line-height: 1;
   letter-spacing: -0.01em;
-  font-variant-numeric: proportional-nums;
-}
-
-.kpi .warn {
-  color: var(--color-warning);
 }
 
 .kpiFoot {
+  order: 3;
   display: flex;
-  align-items: center;
+  align-items: end;
   justify-content: space-between;
   gap: var(--space-2);
   flex-wrap: wrap;
-  min-height: 28px;
   font-size: var(--text-meta);
   color: var(--color-ink-muted);
 }
 
-.change {
-  display: inline-flex;
-  align-items: center;
-  gap: 2px;
+/* The action figure: a yellow ticket behind the number (the label says what it counts). */
+.kpi .warn {
+  justify-self: start;
   padding: 0 var(--space-2);
-  border-radius: 999px;
+  background: var(--color-ticket);
+  box-shadow: inset 0 0 0 1px var(--color-ink);
+}
+
+/* Signed change as plain text: arrow and sign carry direction, colour only adds weight. */
+.change {
   font-size: var(--text-meta);
   font-weight: 600;
   white-space: nowrap;
   color: var(--color-ink-muted);
-  background: var(--color-surface-quiet);
 }
 
 .change[data-dir="up"] {
-  color: var(--color-accent);
-  background: var(--tint-accent);
+  color: var(--color-ink);
 }
 
 .change[data-dir="down"] {
-  color: var(--color-warning);
-  background: var(--tint-warning);
+  color: var(--color-recall);
 }
 
 .chart {
@@ -84,7 +87,7 @@
 
 .spark path {
   fill: none;
-  stroke: var(--color-accent);
+  stroke: var(--color-ink);
   stroke-width: 1.5;
   stroke-linejoin: round;
   stroke-linecap: round;
@@ -118,7 +121,7 @@
 
 .plot {
   position: relative;
-  border-bottom: 1px solid var(--color-control-border);
+  border-bottom: 1px solid var(--color-ink);
 }
 
 .plot svg {
@@ -137,7 +140,7 @@
 }
 
 .area {
-  fill: color-mix(in srgb, var(--color-accent) 10%, transparent);
+  fill: none;
 }
 
 .stroke {
@@ -216,12 +219,12 @@
   top: 4px;
   height: 12px;
   min-width: 2px;
-  border-radius: 0 4px 4px 0;
-  background: var(--color-accent);
+  background: var(--color-ink);
 }
 
+/* Out of band: recall red plus the printed word ("over" / "under"), never colour alone. */
 .bar[data-tone="warn"] {
-  background: var(--color-warning);
+  background: var(--color-recall);
 }
 
 /* Healthy band: a decorative wash whose 2px edges carry the 3:1 contrast. */
@@ -242,26 +245,24 @@
 .note {
   font-size: var(--text-meta);
   font-weight: 600;
-  color: var(--color-warning);
+  color: var(--color-recall);
 }
 
 .meter {
   display: block;
-  height: 4px;
+  height: 3px;
   margin-top: 4px;
-  border-radius: 2px;
   background: var(--color-surface-quiet);
 }
 
 .meter span {
   display: block;
   height: 100%;
-  border-radius: 2px;
-  background: var(--color-accent);
+  background: var(--color-ink);
 }
 
 .meter span[data-tone="warn"] {
-  background: var(--color-warning);
+  background: var(--color-recall);
 }
 
 /* Stacked bar: 24px, segments separated by 2px of surface. */
@@ -288,13 +289,6 @@
   min-width: 2px;
 }
 
-.stack span:first-child {
-  border-radius: 4px 0 0 4px;
-}
-
-.stack span:last-child {
-  border-radius: 0 4px 4px 0;
-}
 
 .legend {
   display: flex;
@@ -321,7 +315,7 @@
 .swatch {
   width: 12px;
   height: 12px;
-  border-radius: 3px;
+  box-shadow: inset 0 0 0 1px var(--color-ink);
 }
 
 /* Heatmap: HTML cells that print their own value (DESIGN.md: the one fill exception). */
@@ -346,8 +340,7 @@
 }
 
 .heatRow[data-current] {
-  font-weight: 600;
-  color: var(--color-accent);
+  font-weight: 700;
 }
 
 .heatRow[data-current]::after {
@@ -360,7 +353,6 @@
   display: grid;
   place-items: center;
   min-height: 28px;
-  border-radius: 3px;
   background: var(--color-surface-quiet);
   color: var(--color-ink);
   font-variant-numeric: tabular-nums;
@@ -375,11 +367,24 @@
   min-height: 180px;
 }
 
-/* Four overview charts: two by two, so none sits alone on a row. */
+/* The trend leads at two thirds; the category split sits beside it. */
+.lead {
+  display: grid;
+  gap: var(--space-4) var(--space-8);
+  grid-template-columns: minmax(0, 2fr) minmax(min(100%, 320px), 1fr);
+}
+
+/* Three overview charts in a row; they stack on narrow screens. */
 .pairs {
   display: grid;
-  gap: var(--space-6);
-  grid-template-columns: repeat(auto-fit, minmax(min(100%, 440px), 1fr));
+  gap: var(--space-4) var(--space-8);
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 320px), 1fr));
+}
+
+@media (max-width: 1023px) {
+  .lead {
+    grid-template-columns: minmax(0, 1fr);
+  }
 }
 
 .empty {
@@ -414,8 +419,10 @@
 
 .facts dd {
   margin: 0;
-  font-size: var(--text-section);
-  font-weight: 600;
+  font-size: var(--text-title);
+  font-weight: 800;
+  font-stretch: 75%;
+  line-height: 1.1;
 }
 
 .facts :global(.pill) {
@@ -427,6 +434,18 @@
 }
 
 @media (max-width: 767px) {
+  .kpis {
+    grid-template-columns: 1fr 1fr;
+  }
+  .kpi {
+    padding-inline: var(--space-3);
+  }
+  .kpi > dd:first-of-type {
+    font-size: 40px;
+  }
+  .kpi .change {
+    white-space: normal;
+  }
   .full {
     display: none;
   }

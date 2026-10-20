@@ -3,13 +3,11 @@ import localFont from "next/font/local";
 import "./globals.css";
 
 // Fonts are bundled (SIL OFL, see ./fonts) so builds never depend on a network fetch.
-const instrument = localFont({
-  variable: "--font-instrument",
-  src: [
-    { path: "./fonts/instrument-sans-latin-400-normal.woff2", weight: "400" },
-    { path: "./fonts/instrument-sans-latin-500-normal.woff2", weight: "500" },
-    { path: "./fonts/instrument-sans-latin-600-normal.woff2", weight: "600" },
-  ],
+// Variable in weight (100-900) and width (62-125%): condensed heavy cuts for titles and figures.
+const archivo = localFont({
+  variable: "--font-archivo",
+  src: [{ path: "./fonts/archivo-latin-wdth-normal.woff2", weight: "100 900", style: "normal" }],
+  declarations: [{ prop: "font-stretch", value: "62% 125%" }],
 });
 const plexMono = localFont({
   variable: "--font-plex-mono",
@@ -26,7 +24,7 @@ export const metadata: Metadata = {
 
 export default function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {
   return (
-    <html lang="en-GB" className={`${instrument.variable} ${plexMono.variable}`}>
+    <html lang="en-GB" className={`${archivo.variable} ${plexMono.variable}`}>
       <body>{children}</body>
     </html>
   );
