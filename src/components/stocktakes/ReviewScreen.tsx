@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useMemo, useRef, useState } from "react";
+import { flushSync } from "react-dom";
 import { FLAG_PENCE, FLAG_UNITS, LATE_MS } from "@/domain/ledger/stocktake";
 import { money, when } from "@/lib/format";
 import { count } from "@/lib/plural";
@@ -81,6 +82,13 @@ export function ReviewScreen(props: {
     }
   }
 
+  // The button disappears once everything is accepted, so focus moves on to Approve (now enabled).
+  const approveRef = useRef<HTMLButtonElement>(null);
+  const acceptAll = () => {
+    flushSync(() => setAccepted(new Set(flagged.map((l) => l.key))));
+    approveRef.current?.focus();
+  };
+
   const toggle = (key: string) =>
     setAccepted((s) => {
       const next = new Set(s);
@@ -140,11 +148,11 @@ export function ReviewScreen(props: {
             {allAccepted ? `Posts adjustments for ${count(flagged.length + small.length, "line")}.` : `Accept ${count(flagged.length - accepted.size, "flagged line")} to approve.`}
           </span>
           {!allAccepted && (
-            <button className="btn" disabled={busy} onClick={() => setAccepted(new Set(flagged.map((l) => l.key)))}>
+            <button className="btn" disabled={busy} onClick={acceptAll}>
               Accept all {flagged.length}
             </button>
           )}
-          <button className="btn btn-primary" disabled={!allAccepted || busy} onClick={approve}>
+          <button ref={approveRef} className="btn btn-primary" disabled={!allAccepted || busy} onClick={approve}>
             {busy ? "Approving…" : "Approve stocktake"}
           </button>
         </div>

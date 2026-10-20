@@ -81,6 +81,7 @@ test("manager reviews flagged lines and approves", async ({ page }) => {
   }
   for (let i = 0; i < n; i++) await expect(boxes.nth(i)).toBeChecked();
   await expect(acceptAll).toBeHidden();
+  if (n > 1) await expect(approve).toBeFocused();
   await expect(approve).toBeEnabled();
   await page.screenshot({ path: "e2e/__screens__/review-desktop.png", fullPage: true });
   await approve.click();

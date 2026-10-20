@@ -69,7 +69,7 @@ export default async function StockPage({ searchParams }: { searchParams: Promis
                 <td className="num" data-label="On hand">{r.onHand}</td>
                 <td className="num" data-label="Reorder point">{r.reorderPoint || "–"}</td>
                 <td data-label="Status">{r.low ? <span className="pill pill-warning">{branchId ? "Low" : "Low at a branch"}</span> : null}</td>
-                {branchId && <td>{r.low && <Link className={styles.rowAction} href={orderHref(r.supplierId)} aria-label={`Order ${r.name} for ${branchName}`}>Order</Link>}</td>}
+                {branchId && <td>{r.low && r.supplierId && <Link className={styles.rowAction} href={orderHref(r.supplierId)} aria-label={`Order ${r.name} for ${branchName}`}>Order</Link>}</td>}
               </tr>
             ))}
           </tbody>

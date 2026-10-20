@@ -229,7 +229,7 @@ export default async function AnalyticsPage({ searchParams }: { searchParams: Pr
                     <th scope="row">{r.name}</th>
                     <td>{r.branchName}</td>
                     <td className="num"><span className={styles.low}>{r.onHand}</span> / {r.reorderPoint}<Meter value={r.onHand} max={r.reorderPoint} tone="warn" /></td>
-                    <td><Link className={styles.rowAction} href={`/orders?branch=${encodeURIComponent(r.branchId)}&supplier=${encodeURIComponent(r.supplierId)}`} aria-label={`Order ${r.name} for ${r.branchName}`}>Order</Link></td>
+                    <td>{r.supplierId && <Link className={styles.rowAction} href={`/orders?branch=${encodeURIComponent(r.branchId)}&supplier=${encodeURIComponent(r.supplierId)}`} aria-label={`Order ${r.name} for ${r.branchName}`}>Order</Link>}</td>
                   </tr>
                 ))}
               </tbody>

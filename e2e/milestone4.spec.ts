@@ -71,6 +71,8 @@ test("a low row's Order link opens that branch's supplier order with the product
   await page.waitForURL(/\/orders\?branch=BR-LEE&supplier=SUP-/);
   await expect(page.getByLabel("Branch")).toHaveValue("BR-LEE");
   await expect(page.getByRole("region", { name: "New order lines" }).getByRole("checkbox", { name: `Order ${product}` })).toBeChecked();
+  await page.goto("/analytics");
+  await expect(page.getByRole("link", { name: /^Order .+ for .+$/ }).first()).toHaveAttribute("href", /^\/orders\?branch=BR-[A-Z]+&supplier=SUP-[A-Z]+$/);
 });
 
 test("manager sends an order, receives it, and sees stock and analytics", async ({ page }) => {
