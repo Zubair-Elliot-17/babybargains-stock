@@ -68,3 +68,10 @@
   margin: var(--space-3) 0;
   padding: 0 var(--space-3);
 }
+
+/* A per-row link (e.g. "Order"): 44px tall so it stays a comfortable target on a phone. */
+.rowAction {
+  display: inline-flex;
+  align-items: center;
+  min-height: 44px;
+}

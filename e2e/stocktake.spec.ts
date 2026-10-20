@@ -73,7 +73,15 @@ test("manager reviews flagged lines and approves", async ({ page }) => {
   const boxes = page.getByRole("checkbox");
   const n = await boxes.count();
   expect(n).toBeGreaterThan(0);
-  for (let i = 0; i < n; i++) await boxes.nth(i).check();
+  await boxes.first().check();
+  const acceptAll = page.getByRole("button", { name: `Accept all ${n}` });
+  if (n > 1) {
+    await expect(approve).toBeDisabled();
+    await acceptAll.click();
+  }
+  for (let i = 0; i < n; i++) await expect(boxes.nth(i)).toBeChecked();
+  await expect(acceptAll).toBeHidden();
+  if (n > 1) await expect(approve).toBeFocused();
   await expect(approve).toBeEnabled();
   await page.screenshot({ path: "e2e/__screens__/review-desktop.png", fullPage: true });
   await approve.click();

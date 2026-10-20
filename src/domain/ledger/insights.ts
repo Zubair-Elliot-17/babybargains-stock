@@ -68,13 +68,14 @@ export interface StockRow {
   onHand: number;
   reorderPoint: number; // summed across branches when viewing all
   low: boolean;
+  supplierId: string; // for the quick "Order" link on a low row
 }
 
 // One row per product for a branch (or all branches summed), low stock first.
 export async function stockView(db: Db, opts: { branchId?: string; q?: string; lowOnly?: boolean } = {}): Promise<StockRow[]> {
   const c = cols(db);
   const [products, rows, policies] = await Promise.all([
-    c.products.find({}, { projection: { name: 1, category: 1 } }).toArray(),
+    c.products.find({}, { projection: { name: 1, category: 1, supplierId: 1 } }).toArray(),
     sellable(db, opts.branchId),
     c.stockPolicies.find(opts.branchId ? { branchId: opts.branchId } : {}).toArray(),
   ]);
@@ -93,14 +94,14 @@ export async function stockView(db: Db, opts: { branchId?: string; q?: string; l
     .map((p) => {
       const have = onHand.get(p._id) ?? 0;
       const point = rp.get(p._id) ?? 0;
-      return { sku: p._id, name: p.name, category: p.category, onHand: have, reorderPoint: point, low: opts.branchId ? have < point : lowAnywhere.has(p._id) };
+      return { sku: p._id, name: p.name, category: p.category, onHand: have, reorderPoint: point, low: opts.branchId ? have < point : lowAnywhere.has(p._id), supplierId: p.supplierId };
     })
     .filter((r) => (!q || r.name.toLowerCase().includes(q) || r.sku.toLowerCase().includes(q)) && (!opts.lowOnly || r.low))
     .sort((a, b) => Number(b.low) - Number(a.low) || a.onHand - a.reorderPoint - (b.onHand - b.reorderPoint) || a.name.localeCompare(b.name));
 }
 
 export interface Analytics {
-  lowStock: { branchId: string; branchName: string; sku: string; name: string; onHand: number; reorderPoint: number }[];
+  lowStock: { branchId: string; branchName: string; sku: string; name: string; onHand: number; reorderPoint: number; supplierId: string }[];
   lowStockTotal: number;
   deadStock: { branchId: string; branchName: string; sku: string; name: string; onHand: number; valuePence: number }[];
   deadStockTotal: number;
@@ -138,7 +139,7 @@ export async function analytics(db: Db, opts: { branchId?: string; category?: Pr
   const bySku = categorySkus ? { sku: { $in: categorySkus } } : {};
   const match = shelf(db, opts.branchId);
   const [products, branches, suppliers, rows, ageRows, policies, soldRecently, [sales], movers, orders] = await Promise.all([
-    c.products.find({}, { projection: { name: 1, category: 1, price: 1 } }).toArray(),
+    c.products.find({}, { projection: { name: 1, category: 1, price: 1, supplierId: 1 } }).toArray(),
     c.branches.find({}, { projection: { name: 1, code: 1 } }).toArray(),
     c.suppliers.find({}, { projection: { name: 1 } }).toArray(),
     match.then((m) => sellable(db, opts.branchId, m)),
@@ -188,7 +189,7 @@ export async function analytics(db: Db, opts: { branchId?: string; category?: Pr
 
   const low = policies
     .filter((p) => p.reorderPoint > 0 && inCategory(p.sku) && (at.get(`${p.branchId}|${p.sku}`) ?? 0) < p.reorderPoint)
-    .map((p) => ({ branchId: p.branchId, branchName: branchName.get(p.branchId) ?? p.branchId, sku: p.sku, name: product.get(p.sku)?.name ?? p.sku, onHand: at.get(`${p.branchId}|${p.sku}`) ?? 0, reorderPoint: p.reorderPoint }))
+    .map((p) => ({ branchId: p.branchId, branchName: branchName.get(p.branchId) ?? p.branchId, sku: p.sku, name: product.get(p.sku)?.name ?? p.sku, onHand: at.get(`${p.branchId}|${p.sku}`) ?? 0, reorderPoint: p.reorderPoint, supplierId: product.get(p.sku)?.supplierId ?? "" }))
     .sort((a, b) => a.onHand - a.reorderPoint - (b.onHand - b.reorderPoint));
 
   const sold = new Set(soldRecently.map((r) => `${r._id.branchId}|${r._id.sku}`));
