@@ -1,22 +1,24 @@
 /* Design tokens: see DESIGN.md (design review D17/D20/D22). */
 :root {
-  --color-ink: #1f2a2e;
-  --color-ink-muted: #4d5a57;
+  /* "Stock ticket": ink on paper, ruled not boxed; yellow only ever means "needs action". */
+  --color-ink: #141414;
+  --color-ink-muted: #57544d;
   --color-surface: #ffffff;
-  --color-surface-quiet: #f3f5f4;
-  --color-accent: #0e6b5c;
+  --color-surface-quiet: #f3f3f1; /* shelf: table header strip, hover, empty bar tracks */
+  --color-accent: #141414; /* links, primary buttons, focus and chart marks are ink */
   --color-accent-ink: #ffffff;
-  --color-recall: #b42318;
-  --color-warning: #b54708;
-  --color-hairline: #dce1df;
-  --color-control-border: #7f8b87;
-  --color-canvas: #f3f5f4; /* manager shell only (R10); panels sit on it */
-  /* Tints are mixed with white, not transparent, so text keeps 4.5:1 on panel and canvas alike. */
-  --tint-accent: color-mix(in srgb, var(--color-accent) 10%, white);
-  --tint-warning: color-mix(in srgb, var(--color-warning) 10%, white);
-  --tint-recall: color-mix(in srgb, var(--color-recall) 10%, white);
+  --color-ticket: #ffd100; /* fill only, always behind ink text (12.61); never text or a bare mark */
+  --color-recall: #b8141b;
+  --color-warning: #9c6b00;
+  --color-hairline: #d9d7d1;
+  --color-control-border: #76736c;
+  --color-chart-2: #8a8781;
+  --color-canvas: #ffffff;
+  --tint-accent: #fff4b8; /* ticket tint: selected rows, the current branch */
+  --tint-warning: #fff4b8;
+  --tint-recall: #fdecec;
 
-  --font-ui: var(--font-instrument), "Helvetica Neue", Arial, sans-serif;
+  --font-ui: var(--font-archivo), "Helvetica Neue", Arial, sans-serif;
   --font-mono: var(--font-plex-mono), ui-monospace, monospace;
 
   --space-1: 4px;
@@ -28,15 +30,15 @@
   --space-12: 48px;
 
   --text-meta: 13px;
-  --text-table: 14px;
+  --text-table: 15px;
   --text-body: 16px;
   --text-section: 20px;
-  --text-title: 28px;
-  --text-strip: 40px;
+  --text-title: 40px;
+  --text-strip: 56px;
 
-  --radius: 6px;
-  --radius-panel: 10px;
-  --shadow-dialog: 0 8px 24px rgba(0, 0, 0, 0.12);
+  --radius: 2px;
+  --radius-panel: 0;
+  --shadow-dialog: 0 8px 24px rgba(0, 0, 0, 0.16);
   --motion: 150ms cubic-bezier(0.16, 1, 0.3, 1);
 }
 
@@ -61,11 +63,12 @@ body {
 }
 
 ::selection {
-  background: color-mix(in srgb, var(--color-accent) 22%, transparent);
+  background: var(--color-ticket);
+  color: var(--color-ink);
 }
 
 * {
-  scrollbar-color: color-mix(in srgb, var(--color-accent) 55%, var(--color-hairline)) transparent;
+  scrollbar-color: var(--color-control-border) transparent;
 }
 
 :focus-visible {
@@ -78,27 +81,54 @@ a {
   text-underline-offset: 3px;
 }
 
+a {
+  text-decoration-thickness: 1px;
+}
+
 a:visited {
-  color: #0a4f44;
+  color: var(--color-accent);
+}
+
+a:hover {
+  text-decoration-thickness: 2px;
 }
 
 h1,
 h2,
 h3 {
   margin: 0;
-  line-height: 1.2;
+  line-height: 1.1;
+}
+
+/* Condensed heavy cut for titles and headline figures only; body stays at normal width. */
+h1,
+h2,
+.display {
+  font-stretch: 75%;
+  letter-spacing: -0.005em;
 }
 
 h1 {
   font-size: var(--text-title);
-  font-weight: 600;
+  font-weight: 800;
+  line-height: 1;
 }
 
+/* A section opens on a 2px ink rule, like a heading on a printed count sheet. */
 h2 {
   font-size: var(--text-section);
-  font-weight: 600;
-  margin-top: var(--space-8);
+  font-weight: 700;
+  margin-top: var(--space-12);
   margin-bottom: var(--space-3);
+  padding-top: var(--space-2);
+  border-top: 2px solid var(--color-ink);
+}
+
+@media (max-width: 767px) {
+  :root {
+    --text-title: 32px;
+    --text-strip: 44px;
+  }
 }
 
 .mono {
@@ -145,10 +175,19 @@ select {
   cursor: not-allowed;
 }
 
+.btn:hover:not(:disabled) {
+  border-color: var(--color-ink);
+}
+
 .btn-primary {
   background: var(--color-accent);
   border-color: var(--color-accent);
   color: var(--color-accent-ink);
+  font-weight: 600;
+}
+
+.btn-primary:hover:not(:disabled) {
+  background: #3a3a3a;
 }
 
 .btn-recall {
@@ -188,15 +227,23 @@ td {
 }
 
 th {
-  font-weight: 500;
+  font-weight: 600;
+  font-stretch: 87.5%;
   color: var(--color-ink-muted);
   font-size: var(--text-meta);
+}
+
+thead th {
+  background: var(--color-surface-quiet);
+  border-bottom-color: var(--color-ink);
 }
 
 /* A row header names the row's subject (usually a product): primary text, not a column label. */
 tbody th[scope="row"] {
   color: var(--color-ink);
   font-size: var(--text-table);
+  font-weight: 500;
+  font-stretch: 100%;
 }
 
 td.num,
@@ -211,41 +258,43 @@ th.num {
   cursor: help;
 }
 
+/* Status ticket: a printed rectangle. Neutral states are quiet; only exceptions get a fill. */
 .pill {
   display: inline-block;
-  padding: 0 var(--space-2);
-  border-radius: 999px;
+  padding: 1px 6px;
+  border-radius: var(--radius);
   font-size: var(--text-meta);
   font-weight: 600;
+  line-height: 1.4;
   white-space: nowrap;
   color: var(--color-ink-muted);
-  background: var(--color-surface-quiet);
-  border: 1px solid color-mix(in srgb, currentColor 28%, transparent);
+  background: transparent;
+  border: 1px solid var(--color-hairline);
 }
 
 .pill-recalled,
 .pill-recall {
-  color: var(--color-recall);
-  background: var(--tint-recall);
+  color: #fff;
+  background: var(--color-recall);
+  border-color: var(--color-recall);
 }
 
 .pill-active {
-  color: var(--color-accent);
-  background: var(--tint-accent);
+  color: var(--color-ink);
+  border-color: var(--color-ink);
 }
 
 .pill-warning {
-  color: var(--color-warning);
-  background: var(--tint-warning);
+  color: var(--color-ink);
+  background: var(--color-ticket);
+  border-color: var(--color-ink);
 }
 
-/* Content surface on the manager canvas (D-UI1): the border carries the edge, no shadow. */
+/* A section, not a box (replaces D-UI1 panels): a 2px ink rule on top, content on the paper. */
 .panel {
-  --pad: var(--space-6);
-  background: var(--color-surface);
-  border: 1px solid var(--color-hairline);
-  border-radius: var(--radius-panel);
-  padding: var(--space-4) var(--pad) var(--pad);
+  --pad: 0px;
+  border-top: 2px solid var(--color-ink);
+  padding-top: var(--space-2);
   min-width: 0;
 }
 
@@ -259,61 +308,29 @@ th.num {
 
 .panel h2,
 .panel h3 {
-  font-size: var(--text-body);
-  font-weight: 600;
+  font-size: var(--text-section);
+  font-weight: 700;
+  font-stretch: 75%;
   margin: 0 0 var(--space-3);
+  padding: 0;
+  border: 0;
 }
 
-/* An empty state as a panel of its own. */
+/* An empty state as a section of its own. */
 p.panel {
   margin: 0;
-  padding-block: var(--space-4);
-}
-
-/* A panel's own table runs edge to edge with a quiet header row; sr-only chart tables keep their 1px box. */
-.panel {
-  overflow: clip; /* square table headers keep the panel's round corners; clip keeps sticky children working */
-}
-
-.panel > table:not(.sr-only) {
-  width: calc(100% + 2 * var(--pad));
-  margin-inline: calc(-1 * var(--pad));
-}
-
-.panel > table:not(.sr-only):first-child {
-  margin-top: calc(-1 * var(--space-4));
-}
-
-.panel > table:not(.sr-only):last-child {
-  margin-bottom: calc(-1 * var(--pad));
-}
-
-.panel > table > thead th {
-  background: var(--color-surface-quiet);
-}
-
-.panel > table > * > tr > :first-child {
-  padding-left: var(--pad);
-}
-
-.panel > table > * > tr > :last-child {
-  padding-right: var(--pad);
+  padding-block: var(--space-3);
+  color: var(--color-ink-muted);
 }
 
 .panel > table > tbody > tr:last-child > * {
   border-bottom: 0;
 }
 
-@media (max-width: 767px) {
-  .panel {
-    --pad: var(--space-4);
-  }
-}
-
 .page-head {
   display: grid;
-  gap: var(--space-1);
-  margin-bottom: var(--space-6);
+  gap: var(--space-2);
+  margin-bottom: var(--space-8);
 }
 
 .page-head p {
@@ -323,17 +340,16 @@ p.panel {
   font-size: var(--text-table);
 }
 
-/* Filter row under a page title: one white strip on the canvas. */
+/* Filter row under a page title: a shelf strip, flush with the page. */
 .page-head .toolbar {
   display: flex;
   flex-wrap: wrap;
   align-items: end;
   gap: var(--space-3);
-  margin: var(--space-3) 0 0;
-  padding: var(--space-3) var(--space-4);
-  background: var(--color-surface);
-  border: 1px solid var(--color-hairline);
-  border-radius: var(--radius-panel);
+  margin: var(--space-4) 0 0;
+  padding: var(--space-3);
+  background: var(--color-surface-quiet);
+  border-top: 1px solid var(--color-ink);
 }
 
 .page-head .toolbar label {

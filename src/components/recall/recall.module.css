@@ -1,10 +1,6 @@
 .search {
   max-width: 560px;
   margin: 0 0 var(--space-8);
-  padding: var(--space-4) var(--space-6) var(--space-6);
-  background: var(--color-surface);
-  border: 1px solid var(--color-hairline);
-  border-radius: var(--radius-panel);
 }
 
 .searchCompact {
@@ -21,34 +17,30 @@
   color: var(--color-ink-muted);
 }
 
-/* Recent recalls as small cards on the canvas. */
+/* Recent recalls as a ruled list, like entries on a recall log. */
 .recent {
   list-style: none;
   padding: 0;
   margin: 0;
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
-  gap: var(--space-3);
+  max-width: 560px;
 }
 
 .recent li {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: var(--space-1) var(--space-2);
-  padding: var(--space-3) var(--space-4);
-  background: var(--color-surface);
-  border: 1px solid var(--color-hairline);
-  border-radius: var(--radius-panel);
+  gap: var(--space-1) var(--space-3);
+  padding: var(--space-3) 0;
+  border-bottom: 1px solid var(--color-hairline);
 }
 
 .recent li > a {
-  font-size: var(--text-body);
-  font-weight: 600;
+  font-size: var(--text-section);
+  font-weight: 500;
 }
 
 .recent li > :last-child {
-  flex-basis: 100%;
+  margin-left: auto;
   font-size: var(--text-meta);
 }
 
@@ -85,13 +77,16 @@
   display: grid;
   grid-template-columns: repeat(4, 1fr);
   margin: 0;
-  background: var(--color-surface);
-  border: 1px solid var(--color-hairline);
-  border-radius: var(--radius-panel);
+  border-top: 2px solid var(--color-ink);
+  border-bottom: 1px solid var(--color-ink);
 }
 
 .stat {
-  padding: var(--space-4) var(--space-4) var(--space-4) var(--space-6);
+  padding: var(--space-3) var(--space-4) var(--space-4);
+}
+
+.stat:first-child {
+  padding-left: 0;
 }
 
 .stat + .stat {
@@ -111,8 +106,9 @@
 .stat dd {
   margin: var(--space-1) 0 0;
   font-size: var(--text-strip);
-  font-weight: 600;
-  line-height: 1.1;
+  font-weight: 800;
+  font-stretch: 75%;
+  line-height: 1;
 }
 
 .found {
@@ -136,9 +132,9 @@
   top: 0;
   z-index: 1;
   background: var(--color-surface);
-  padding: var(--space-3) var(--space-6);
-  border: 1px solid var(--color-hairline);
-  border-radius: var(--radius-panel);
+  padding: var(--space-3) 0;
+  border-top: 2px solid var(--color-ink);
+  border-bottom: 1px solid var(--color-hairline);
 }
 
 .timeline .legend {
@@ -229,7 +225,7 @@
 }
 
 .dialog::backdrop {
-  background: rgba(31, 42, 46, 0.4);
+  background: rgba(20, 20, 20, 0.45);
 }
 
 .dialog h2 {

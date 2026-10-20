@@ -1,13 +1,10 @@
-/* Segmented control on the canvas: the current tab is a white chip. */
+/* Index tabs: the current one is ink-barred, like a divider tab in a ring binder. */
 .tabs {
-  display: inline-flex;
+  display: flex;
   flex-wrap: wrap;
   gap: var(--space-1);
-  margin: 0 0 var(--space-4);
-  padding: var(--space-1);
-  border: 1px solid var(--color-hairline);
-  border-radius: var(--radius-panel);
-  background: color-mix(in srgb, var(--color-ink) 4%, var(--color-canvas));
+  margin: 0 0 var(--space-6);
+  border-bottom: 1px solid var(--color-ink);
 }
 
 .tab {
@@ -15,11 +12,13 @@
   display: inline-flex;
   align-items: center;
   gap: var(--space-2);
-  padding: 0 var(--space-4);
-  border-radius: 7px;
+  padding: 0 var(--space-3);
   color: var(--color-ink-muted);
-  font-weight: 500;
+  font-weight: 600;
+  font-stretch: 87.5%;
   text-decoration: none;
+  border-bottom: 4px solid transparent;
+  margin-bottom: -1px;
 }
 
 .tab:visited {
@@ -28,21 +27,19 @@
 
 .tab[aria-current="page"] {
   color: var(--color-ink);
-  font-weight: 600;
-  background: var(--color-surface);
-  box-shadow: 0 0 0 1px var(--color-hairline);
+  border-bottom-color: var(--color-ink);
 }
 
 .count {
   font-size: var(--text-meta);
-  padding: 0 6px;
-  border-radius: 999px;
-  background: var(--color-surface-quiet);
+  padding: 0 5px;
+  border: 1px solid var(--color-hairline);
 }
 
 .tab[aria-current="page"] .count {
-  color: var(--color-accent);
-  background: var(--tint-accent);
+  color: #fff;
+  background: var(--color-ink);
+  border-color: var(--color-ink);
 }
 
 .empty {
@@ -65,13 +62,16 @@
   display: grid;
   grid-template-columns: repeat(4, 1fr);
   margin: 0;
-  background: var(--color-surface);
-  border: 1px solid var(--color-hairline);
-  border-radius: var(--radius-panel);
+  border-top: 2px solid var(--color-ink);
+  border-bottom: 1px solid var(--color-ink);
 }
 
 .summary div {
-  padding: var(--space-3) var(--space-4) var(--space-3) var(--space-6);
+  padding: var(--space-3) var(--space-4);
+}
+
+.summary div:first-child {
+  padding-left: 0;
 }
 
 .summary div + div {
@@ -85,8 +85,10 @@
 
 .summary dd {
   margin: 0;
-  font-size: 28px;
-  font-weight: 600;
+  font-size: 32px;
+  font-weight: 800;
+  font-stretch: 75%;
+  line-height: 1.1;
 }
 
 .warn {
@@ -110,7 +112,7 @@
 }
 
 .pos {
-  color: var(--color-accent);
+  color: var(--color-ink);
   font-weight: 600;
 }
 
@@ -140,8 +142,7 @@
   flex-wrap: wrap;
   padding: var(--space-3) var(--space-4);
   background: var(--color-surface);
-  border: 1px solid var(--color-hairline);
-  border-radius: var(--radius-panel) var(--radius-panel) 0 0;
+  border-top: 2px solid var(--color-ink);
 }
 
 @media (max-width: 767px) {
@@ -149,7 +150,7 @@
     grid-template-columns: 1fr 1fr;
   }
   .summary div {
-    padding-left: var(--space-4);
+    padding-left: 0;
   }
   .summary div:nth-child(3) {
     border-left: 0;
