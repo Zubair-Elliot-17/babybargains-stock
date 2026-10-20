@@ -222,13 +222,14 @@ export default async function AnalyticsPage({ searchParams }: { searchParams: Pr
           <h3 id="low">Low stock {a.lowStockTotal > a.lowStock.length && <span className={styles.meta}>· top {a.lowStock.length} of {a.lowStockTotal}</span>}</h3>
           {a.lowStock.length === 0 ? <p className={styles.meta}>Nothing below its reorder point.</p> : (
             <table>
-              <thead><tr><th scope="col">Product</th><th scope="col">Branch</th><th scope="col" className="num">On hand / point</th></tr></thead>
+              <thead><tr><th scope="col">Product</th><th scope="col">Branch</th><th scope="col" className="num">On hand / point</th><th scope="col"><span className="sr-only">Order</span></th></tr></thead>
               <tbody>
                 {a.lowStock.map((r) => (
                   <tr key={`${r.branchId}|${r.sku}`}>
                     <th scope="row">{r.name}</th>
                     <td>{r.branchName}</td>
                     <td className="num"><span className={styles.low}>{r.onHand}</span> / {r.reorderPoint}<Meter value={r.onHand} max={r.reorderPoint} tone="warn" /></td>
+                    <td><Link className={styles.rowAction} href={`/orders?branch=${encodeURIComponent(r.branchId)}&supplier=${encodeURIComponent(r.supplierId)}`} aria-label={`Order ${r.name} for ${r.branchName}`}>Order</Link></td>
                   </tr>
                 ))}
               </tbody>

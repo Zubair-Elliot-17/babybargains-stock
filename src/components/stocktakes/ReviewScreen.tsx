@@ -110,7 +110,7 @@ export function ReviewScreen(props: {
       <dl className={styles.summary}>
         <div><dt>Lines</dt><dd>{props.lines.length}</dd></div>
         <div><dt>Match</dt><dd>{matched}</dd></div>
-        <div><dt>Flagged</dt><dd className={flagged.length ? styles.warn : undefined}>{flagged.length}</dd></div>
+        <div><dt>Flagged</dt><dd className={flagged.length ? styles.action : undefined}>{flagged.length}</dd></div>
         <div><dt>Net units</dt><dd>{net > 0 ? `+${net}` : net}</dd></div>
       </dl>
 
@@ -139,6 +139,11 @@ export function ReviewScreen(props: {
           <span className={styles.meta}>
             {allAccepted ? `Posts adjustments for ${count(flagged.length + small.length, "line")}.` : `Accept ${count(flagged.length - accepted.size, "flagged line")} to approve.`}
           </span>
+          {!allAccepted && (
+            <button className="btn" disabled={busy} onClick={() => setAccepted(new Set(flagged.map((l) => l.key)))}>
+              Accept all {flagged.length}
+            </button>
+          )}
           <button className="btn btn-primary" disabled={!allAccepted || busy} onClick={approve}>
             {busy ? "Approving…" : "Approve stocktake"}
           </button>

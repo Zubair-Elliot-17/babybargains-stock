@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { requireManagerPage } from "@/auth/session";
 import { cols } from "@/domain/collections";
 import { stockView } from "@/domain/ledger/insights";
@@ -16,13 +17,17 @@ export default async function StockPage({ searchParams }: { searchParams: Promis
   const branchId = branches.some((b) => b._id === params.branch) ? params.branch : undefined;
   const rows = await stockView(db, { branchId, q: params.q, lowOnly: params.low === "1" });
   const low = rows.filter((r) => r.low).length;
+  const branchName = branches.find((b) => b._id === branchId)?.name;
+  // Opens a supplier order for this branch with the low lines already suggested.
+  const orderHref = (supplierId: string) => `/orders?branch=${encodeURIComponent(branchId ?? "")}&supplier=${encodeURIComponent(supplierId)}`;
   return (
     <>
       <header className="page-head">
-        <h1>Stock · {branchId ? branches.find((b) => b._id === branchId)?.name : "All branches"}</h1>
+        <h1>Stock · {branchName ?? "All branches"}</h1>
         <p>
           {rows.length} products{low ? ` · ${low} below reorder point` : ""}. On hand excludes recalled batches.
           {rows.length > SHOWN ? ` Showing the first ${SHOWN}; search to narrow.` : ""}
+          {!branchId && low > 0 ? " Choose a branch to order what it's low on." : ""}
         </p>
         <form className={`${styles.filters} toolbar`} method="get">
           <label>
@@ -52,6 +57,7 @@ export default async function StockPage({ searchParams }: { searchParams: Promis
               <th scope="col" className="num">On hand</th>
               <th scope="col" className="num">Reorder point</th>
               <th scope="col">Status</th>
+              {branchId && <th scope="col"><span className="sr-only">Order</span></th>}
             </tr>
           </thead>
           <tbody>
@@ -63,6 +69,7 @@ export default async function StockPage({ searchParams }: { searchParams: Promis
                 <td className="num" data-label="On hand">{r.onHand}</td>
                 <td className="num" data-label="Reorder point">{r.reorderPoint || "–"}</td>
                 <td data-label="Status">{r.low ? <span className="pill pill-warning">{branchId ? "Low" : "Low at a branch"}</span> : null}</td>
+                {branchId && <td>{r.low && <Link className={styles.rowAction} href={orderHref(r.supplierId)} aria-label={`Order ${r.name} for ${branchName}`}>Order</Link>}</td>}
               </tr>
             ))}
           </tbody>

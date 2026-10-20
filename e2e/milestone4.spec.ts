@@ -60,6 +60,19 @@ test("@phone clerk records a sale and sees short lines marked without system qua
   await expect(page.getByRole("region", { name: "Sale" })).toHaveCount(0);
 });
 
+test("a low row's Order link opens that branch's supplier order with the product suggested", async ({ page }) => {
+  await page.goto("/login");
+  await page.getByRole("button", { name: /Manager/ }).click();
+  await page.waitForURL(/\/recall/);
+  await page.goto("/stock?branch=BR-LEE&low=1");
+  const order = page.getByRole("link", { name: /^Order .+ for Leeds Kirkgate$/ }).first();
+  const product = (await order.getAttribute("aria-label"))!.replace(/^Order (.+) for Leeds Kirkgate$/, "$1");
+  await order.click();
+  await page.waitForURL(/\/orders\?branch=BR-LEE&supplier=SUP-/);
+  await expect(page.getByLabel("Branch")).toHaveValue("BR-LEE");
+  await expect(page.getByRole("region", { name: "New order lines" }).getByRole("checkbox", { name: `Order ${product}` })).toBeChecked();
+});
+
 test("manager sends an order, receives it, and sees stock and analytics", async ({ page }) => {
   await page.goto("/login");
   await page.getByRole("button", { name: /Manager/ }).click();
