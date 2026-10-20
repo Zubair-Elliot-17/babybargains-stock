@@ -73,6 +73,8 @@
 
 .panel h2 {
   margin: 0;
+  padding-top: 0;
+  border-top: 0; /* the panel's own rule already opens it */
 }
 
 .panel h2:focus:not(:focus-visible) {

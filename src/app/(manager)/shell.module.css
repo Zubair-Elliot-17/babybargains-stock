@@ -126,6 +126,9 @@
   .who {
     display: none;
   }
+  .link {
+    margin-bottom: 0; /* inside the scrolling strip a 2px overhang would scroll vertically */
+  }
   .nav {
     order: 3;
     align-self: stretch;

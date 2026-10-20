@@ -114,12 +114,15 @@ h1 {
   line-height: 1;
 }
 
-/* A section opens on a 2px ink rule, like a heading on a printed count sheet. */
 h2 {
   font-size: var(--text-section);
   font-weight: 700;
   margin-top: var(--space-12);
   margin-bottom: var(--space-3);
+}
+
+/* A page section opens on a 2px ink rule, like a heading on a printed count sheet (not in dialogs). */
+main h2:not(dialog h2) {
   padding-top: var(--space-2);
   border-top: 2px solid var(--color-ink);
 }
