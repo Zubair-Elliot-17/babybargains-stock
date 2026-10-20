@@ -152,6 +152,9 @@
   .summary div {
     padding-left: 0;
   }
+  .summary div:nth-child(even) {
+    padding-left: var(--space-4);
+  }
   .summary div:nth-child(3) {
     border-left: 0;
   }

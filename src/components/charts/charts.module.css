@@ -1,11 +1,14 @@
 /* Server-rendered charts and stat tiles (DESIGN.md "Charts"). */
 /* Receipt strip: one ruled row of headline figures, hairlines between, no boxes. */
+/* Each figure draws its left and top hairline 1px outside itself; the strip clips the ones on its
+   outer edges, so rules stay right however the row wraps. */
 .kpis {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 200px), 1fr));
   margin: 0 0 var(--space-4);
   border-top: 2px solid var(--color-ink);
   border-bottom: 1px solid var(--color-ink);
+  overflow: hidden;
 }
 
 .kpi {
@@ -13,13 +16,10 @@
   align-content: start;
   gap: var(--space-1);
   padding: var(--space-3) var(--space-4) var(--space-4);
+  margin: -1px 0 0 -1px;
   border-left: 1px solid var(--color-hairline);
+  border-top: 1px solid var(--color-hairline);
   min-width: 0;
-}
-
-.kpi:first-child {
-  border-left: 0;
-  padding-left: 0;
 }
 
 .kpi dt {
@@ -437,21 +437,14 @@
   .kpis {
     grid-template-columns: 1fr 1fr;
   }
-  .kpi,
-  .kpi:first-child {
-    padding: var(--space-3) var(--space-3) var(--space-3) 0;
-    border-left: 0;
-    border-top: 1px solid var(--color-hairline);
+  .kpi {
+    padding-inline: var(--space-3);
+  }
+  .kpi > dd:first-of-type {
+    font-size: 40px;
   }
   .kpi .change {
     white-space: normal;
-  }
-  .kpi:nth-child(-n + 2) {
-    border-top: 0;
-  }
-  .kpi:nth-child(even) {
-    padding-left: var(--space-3);
-    border-left: 1px solid var(--color-hairline);
   }
   .full {
     display: none;

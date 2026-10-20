@@ -1,54 +1,77 @@
 # Design system
 
-Operational app UI: calm, dense but readable, few colours. Use scene: a back office and a bright shop
-floor, so the app is light with high contrast. Tokens live as CSS variables in `src/app/globals.css`.
+"Stock ticket": the app is printed like the shop's own paperwork (shelf-edge tickets, batch labels,
+count sheets). Ink on paper, ruled not boxed, and one ticket-yellow that only ever means "needs action"
+or "you are here". Research and the rejected directions: `~/.claude/research/babybargains-ui-rework.md`.
+Tokens live as CSS variables in `src/app/globals.css`.
+
+## What we don't do (the template tells)
+No panels or cards on a grey canvas, no KPI tile row, no pill chips, no icons in tinted squares, no
+sidebar of line icons, no rounded-square logo, no gradients. Every screen has one starting point: the
+page title, then the figure or table that needs action.
 
 ## Type
-- Instrument Sans for UI and body, 16px base, tabular figures everywhere.
-- IBM Plex Mono only for SKUs and batch codes.
-- Scale: 13 meta · 14 table · 16 body · 20 section · 28 page title · 40 number strip. Weights 400/500/600.
+- Archivo variable (weight 100-900, width 62-125%), bundled in `src/app/fonts`.
+- Body and tables: width 100, 400/500, tabular figures everywhere.
+- Titles, section heads and headline figures: width 75, weight 800 (titles, figures) or 700 (sections).
+- Column headers and nav: width 87.5, weight 600, sentence case.
+- IBM Plex Mono for SKUs, batch codes and the "STOCK" wordmark tag only.
+- Scale: 13 meta · 15 table · 16 body · 20 section · 40 page title (32 phone) · 56 figure (44 phone).
 
 ## Colour
-| Token | Value | Use | Contrast on white / #F3F5F4 |
+| Token | Value | Use | Contrast |
 |---|---|---|---|
-| `--color-ink` | #1F2A2E | text | 14.7 / 13.4 |
-| `--color-ink-muted` | #4D5A57 | context lines, meta, inactive nav | 7.20 / 6.58 |
-| `--color-accent` | #0E6B5C | links, primary buttons, focus | 6.41 / 5.85 |
-| `--color-recall` | #B42318 | recall, destructive | 6.57 / 6.0 |
-| `--color-warning` | #B54708 | past-view chip, warnings | 5.43 / 4.96 |
-| `--color-control-border` | #7F8B87 | input and button borders | 3.53 / 3.23 |
-| `--color-hairline` | #DCE1DF | dividers and panel borders (decorative) | — |
+| `--color-ink` (`--color-accent`) | #141414 | text, links, primary buttons, focus, chart marks | 18.42 on white, 16.58 on shelf |
+| `--color-ink-muted` | #57544D | context lines, meta, inactive nav | 7.55 / 6.80 |
+| `--color-ticket` | #FFD100 | fill only, always behind ink (12.61) | never text or a bare mark (1.46 on white) |
+| `--tint-accent` | #FFF4B8 | selected rows, current branch | ink 16.57 |
+| `--color-recall` | #B8141B | recall, destructive, stockouts, out-of-band bars, falling change | 6.66; white on it 6.66 |
+| `--color-warning` | #9C6B00 | past-view and kept-offline notices | 4.65 |
+| `--color-control-border` | #76736C | input and button borders | 4.73 |
+| `--color-chart-2` | #8A8781 | second chart series | 3.58 |
+| `--color-hairline` | #D9D7D1 | row rules (decorative) | — |
+| `--color-surface-quiet` | #F3F3F1 | shelf: table header strip, filter strip, login ground | — |
 
-Grey scale has jobs: `--color-canvas` (#F3F5F4) is the manager shell background; `--color-surface`
-(white) is a panel; `--color-surface-quiet` (#F3F5F4) is table headers, hover and empty bar tracks;
-hairline draws edges; muted is secondary text. Clerk screens stay on white.
+Yellow discipline: the current nav item, the action figure (e.g. "16 below reorder point"), a low-stock
+ticket, the clerk's primary button, the wordmark tag. Nothing else. If it spreads it stops meaning anything.
 
-Tints are the colour mixed 10% with white (`--tint-accent/-warning/-recall`), never transparent, so text
-on them reads the same on a panel and on the canvas: accent 5.53, recall 5.58, warning 4.72 on its own
-tint; ink 12.67 and muted 6.21 on the accent tint (selected rows, current nav item).
+## Structure
+- Sections open on a 2px ink rule with the condensed title under it (`h2` and `.panel` both do this);
+  content sits on the paper. No section has a border box. The one bordered object is the login's
+  batch label.
+- Tables: shelf header strip closed by a 1px ink rule, hairline rows, numbers right-aligned.
+- Status tickets (`.pill`): rectangles with a 2px radius. Neutral states are quiet outlines; "OK" shows
+  nothing. Low is ink on yellow with an ink edge; recalled/quarantined is white on recall red.
+- Figure strips (analytics, recall, stocktake summary): one ruled row, 2px ink above, 1px ink below,
+  hairlines between, big condensed figure over a muted label. Change is plain signed text
+  ("▲ +4.5% vs previous 30 days"), falling in recall red.
+- Radius: 2px on controls; 0 on sections. Shadows only on dialogs.
+- Analytics is asymmetric: the trend takes two thirds beside the category split; cover, age and ABC
+  share a row of three.
 
-## Shape and motion
-- 6px radius on inputs and buttons; 10px on panels.
-- Panels on a canvas (D-UI1, replaces "tables, not cards"): manager content sits in white `.panel`s
-  with a hairline border on the grey canvas. A panel's own table runs edge to edge with a quiet header
-  row. Page header (`.page-head`): the h1 with live context, one muted context line, then filters.
-- No shadows except dialogs (`0 8px 24px rgba(0,0,0,.12)`).
-- One authored motion: the number strip counts to new values (150 ms ease-out). Hover transitions
-  and the skeleton shimmer sit inside `prefers-reduced-motion: no-preference`; with reduce, nothing moves.
+## Masthead (manager)
+An ink demo bar, then wordmark, text nav and sign out on one line, closed by a 2px ink rule. The current
+page is a yellow block with a 4px ink bar on the rule (`aria-current` names it). The Stocktakes count is
+a white figure in a small ink box. Phone: the nav scrolls sideways under the wordmark.
+
+## Clerk phone
+Same masthead language in a phone frame (2px ink edge on desktop). The primary button is ink on yellow,
+56px tall. Bottom tabs: 2px ink rule; the current tab has a 4px ink bar.
+
+## Login
+Left: a printed batch label (B-4471 on a yellow tag, the claim at 72px condensed, numbered points, a
+decorative `aria-hidden` barcode). Right: the role choice as tear-off tickets (dashed top edge), no icons.
+
+## Motion
+One authored motion: the number strip counts to new values (150 ms ease-out). Hover transitions and the
+skeleton shimmer sit inside `prefers-reduced-motion: no-preference`; with reduce, nothing moves.
 
 ## Spacing
 4px base: 4 / 8 / 12 / 16 / 24 / 32 / 48.
 
 ## Components
-Table · SidePanel · Dialog (confirm, typed-confirm) · BottomSheet · Stepper · StatusPill
-(neutral: muted text on surface-quiet; `.pill-warning` / `.pill-recall` / `.pill-active`: the colour's
-text on its tint; all with a 1px border at 28% of the text colour; the label always says the state) · Toast · Skeleton ·
-Banner · Slider · Switch (native `role="switch"` checkbox in its label, 44px target, accent when on).
-
-## Nav rail
-Desktop: a muted rail on the canvas with a 20px inline SVG icon (`aria-hidden`) and label per item;
-the current page is accent text on the accent tint, 600 weight. Tablet (≤1023px): 76px rail, icon over
-a short label. Phone: a top bar of text links, icons hidden. Brand: accent square plus wordmark.
+Table · SidePanel · Dialog (confirm, typed-confirm) · BottomSheet · Stepper · StatusPill (ticket) ·
+Toast · Skeleton · Banner · Slider · Switch (native `role="switch"` checkbox in its label, 44px target).
 
 ## Charts
 Hand-made server SVG and HTML in `src/components/charts/`, no chart library and no client JS.
@@ -58,16 +81,17 @@ Hand-made server SVG and HTML in `src/components/charts/`, no chart library and 
   stays 1px in Chromium and WebKit and never widens the page.
 - Fixed heights: 320px for the sales trend, 180px for overview charts. An empty chart is one muted
   sentence at the same height.
-- Marks are ≥3:1 on white: accent 6.41, warning 5.43, `#4A9085` 3.74, control border 3.53 (band
-  edges). Area fills and band washes are decorative; the line or edge carries the contrast.
-- Stock age uses an ordered ramp: accent, #4A9085, control border, then warning for the oldest bucket.
-  ABC uses the first three steps.
-- Colour is never the only signal: change chips carry an arrow and a sign; out-of-band cover bars
-  carry "over" / "under".
-- Heatmap is the one fill exception: accent mixed with white in steps 6/20/36/54/100%, and every cell
-  prints its value, so the fill needn't reach 3:1. Ink on each step is 13.47 / 10.83 / 8.34 / 5.99;
-  the full step uses white text (6.41). Branch names collapse to codes on a phone.
-- Sparklines in KPI tiles are `aria-hidden`; the tile's change chip states the trend. League
+- Ink marks (18.42), square-ended bars, a 2px ink line with no area fill, an ink baseline and hairline
+  gridlines. Band washes are decorative; the band's 2px control-border edges carry 3:1.
+- Series that must be told apart never rely on hue: ink, `--color-chart-2` (3.58), a diagonal ink hatch,
+  then recall red for the oldest stock-age bucket. ABC uses the first three. Legend swatches carry a
+  1px ink edge.
+- Colour is never the only signal: change text carries an arrow and a sign; out-of-band cover bars are
+  recall red and print "over" / "under".
+- Heatmap is the one fill exception: ink mixed with white in steps 6/20/36/54/100%, and every cell
+  prints its value, so the fill needn't reach 3:1. Ink on each step is 16.31 / 11.94 / 7.93 / 4.66;
+  the full step uses white text (18.42). Branch names collapse to codes on a phone.
+- Sparklines in the figure strip are `aria-hidden`; the change text states the trend. League
   sparklines are labelled with their 12 weekly values.
 
 ## Honest numbers
