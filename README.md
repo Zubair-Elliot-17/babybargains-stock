@@ -8,7 +8,24 @@ Stock control for a fictional UK chain of baby-goods shops, built on MongoDB wit
 
 ![Recall finder: search a batch, replay where it went, quarantine it everywhere](docs/recall-demo.gif)
 
+**Launch video (22s, with sound):** a recalled cot batch found, replayed and pulled from every shelf, plus transfers, phone stocktakes and analytics.
+
+<a href="docs/launch-video.mp4"><img src="docs/launch-video.jpg" width="640" alt="Launch video: Recall B-4471, 24 units quarantined across 11 branches" /></a>
+
 **Live demo:** [babybargains-stock.vercel.app](https://babybargains-stock.vercel.app) (choose Manager) · Fictional chain, synthetic data, resets nightly.
+
+| | |
+|---|---|
+| ![Sign-in: a printed batch label and two tear-off role tickets](docs/screens/login.png) | ![Analytics: a ruled strip of headline figures, the 12-month trend and sales by category](docs/screens/analytics.png) |
+| ![Stock for one branch: low products first, each with an Order link](docs/screens/stock.png) | ![Clerk phone: counting stock, searching for cots](docs/screens/count-phone.png) |
+
+## Design
+
+The UI is set like the shop's own paperwork: shelf-edge tickets, batch labels and count sheets. It uses
+ink on white, sections opened by a ruled line instead of boxed cards, and condensed Archivo for titles and
+figures. One ticket yellow is kept for "needs action" or "you are here": the current page, the low-stock
+count, a Low ticket and the clerk's main button. Charts are hand-made server SVG with no chart library,
+and series never depend on hue alone. Tokens, contrast ratios and the rules are in [DESIGN.md](DESIGN.md).
 
 ## Why a ledger, not a counter
 
@@ -56,7 +73,8 @@ recorded or counted figures are solid.
   location) or *replace* (recount). A "Not counted yet" tab and an "N of M products counted" footer
   show coverage; submitting with gaps asks whether to count them as zero or leave them out.
 - **Manager:** a Stocktakes list with an awaiting-review badge, and a review screen that sorts lines
-  by value at risk. Lines off by 3+ units or £50+ need an explicit Accept before approval.
+  by value at risk. Lines off by 3+ units or £50+ need an explicit Accept (one by one, or Accept all)
+  before approval.
 - **Maths that survives a busy shop:** expected stock is evaluated at the moment each line was
   counted (current stock minus movements since), so sales during the count are not variances.
   Approval posts `ADJUSTMENT` movements: shortages come out oldest batch first, surplus goes to the
@@ -120,10 +138,14 @@ Orders/imports and analytics are Milestone 4.
   and spaces only (no hidden or text-reversing characters). Demo guards: a price may move between half
   and double, five lists per hour per visitor IP, and a product's first change keeps its seeded name
   and price on the product, so the nightly reset restores them even if a list lands mid-reset.
-- **Stock (manager):** sellable on-hand per product for a branch or all branches, low stock first.
-- **Analytics (manager):** exceptions first (low stock, dead stock with no sale in 90 days, orders over
-  a week late), then 12 months of sales by branch and category, top movers, supplier lead time and fill
-  rate.
+- **Stock (manager):** sellable on-hand per product for a branch or all branches, low stock first. With a
+  branch chosen, each low row has an **Order** link that opens a supplier order for that branch with its
+  low lines already suggested.
+- **Analytics (manager):** headline figures with the change on the previous 30 whole days, a 52-week
+  sales trend, sales by category, weeks of cover against each category's policy band, stock age at
+  retail, an ABC split, a branch league with sparklines and a weekday heatmap. Then the exceptions: low
+  stock (each row links to an order), dead stock with no sale in 90 days, orders over a week late, top
+  movers, supplier lead time and fill rate.
 
 ## Counting in a stockroom dead spot
 
