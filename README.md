@@ -10,7 +10,7 @@ Stock control for a fictional UK chain of baby-goods shops, built on MongoDB wit
 
 **Launch video (22s, with sound):** a recalled cot batch found, replayed and pulled from every shelf, plus transfers, phone stocktakes and analytics.
 
-<a href="docs/launch-video.mp4"><img src="docs/launch-video.jpg" width="640" alt="Launch video: Recall B-4471, 24 units quarantined across 11 branches" /></a>
+https://github.com/user-attachments/assets/5eccb7cc-5c85-4c36-a254-5a649d3d87ee
 
 **Live demo:** [babybargains-stock.vercel.app](https://babybargains-stock.vercel.app) (choose Manager) · Fictional chain, synthetic data, resets nightly.
 
