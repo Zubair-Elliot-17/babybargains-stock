@@ -47,7 +47,8 @@ meaning anything.
 - Figure strips (analytics, recall, stocktake summary): one hairline cell split by hairlines, a mono
   caps label over a 40px figure. Change is plain signed text ("▲ +4.5% vs previous 30 days"), falling
   in recall red.
-- Radius: 8px on controls, 12px on cells. Shadows only on dialogs.
+- Radius: 8px on controls, 12px on cells. Shadows only on dialogs and the desktop phone frame; buttons
+  and the current nav item or tab carry a 1px edge shadow.
 - Analytics is asymmetric: the trend takes two thirds beside the category split; cover, age and ABC
   share a row of three.
 

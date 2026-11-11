@@ -179,8 +179,8 @@
     flex-direction: row;
     gap: var(--space-1);
     overflow-x: auto;
-    margin: var(--space-2) calc(-1 * var(--space-6)) 0;
-    padding: 0 var(--space-6) var(--space-2);
+    margin: var(--space-1) calc(-1 * var(--space-6)) 0;
+    padding: var(--space-1) var(--space-6) var(--space-2); /* top room so the focus ring isn't clipped */
   }
   .link[aria-current="page"]::before {
     left: 10px;
