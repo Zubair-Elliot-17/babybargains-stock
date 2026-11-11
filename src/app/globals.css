@@ -251,16 +251,14 @@ thead th {
   font-size: var(--text-label);
   letter-spacing: 0.06em;
   text-transform: uppercase;
-  white-space: nowrap;
   background: var(--color-surface-quiet);
   border-bottom: 0;
   padding-block: 10px;
 }
 
-/* Phones: caps headers may wrap and cells tighten, so tables stay inside the panel. */
+/* Phones: caps headers and cells tighten, so tables stay inside the panel. */
 @media (max-width: 767px) {
   thead th {
-    white-space: normal;
     letter-spacing: 0.02em;
   }
   th,

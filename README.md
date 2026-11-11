@@ -16,16 +16,15 @@ https://github.com/user-attachments/assets/5eccb7cc-5c85-4c36-a254-5a649d3d87ee
 
 | | |
 |---|---|
-| ![Sign-in: a printed batch label and two tear-off role tickets](docs/screens/login.png) | ![Analytics: a ruled strip of headline figures, the 12-month trend and sales by category](docs/screens/analytics.png) |
-| ![Stock for one branch: low products first, each with an Order link](docs/screens/stock.png) | ![Clerk phone: counting stock, searching for cots](docs/screens/count-phone.png) |
+| ![Sign-in: the recall claim beside two role choices](docs/screens/login.png) | ![Analytics: a strip of headline figures, the 12-month trend and sales by category](docs/screens/analytics.png) |
+| ![Stock for one branch: low products first, each with an Order link](docs/screens/stock.png) | ![Clerk phone: starting a blind stocktake for one branch](docs/screens/count-phone.png) |
 
 ## Design
 
-The UI is set like the shop's own paperwork: shelf-edge tickets, batch labels and count sheets. It uses
-ink on white, sections opened by a ruled line instead of boxed cards, and condensed Archivo for titles and
-figures. One ticket yellow is kept for "needs action" or "you are here": the current page, the low-stock
-count, a Low ticket and the clerk's main button. Charts are hand-made server SVG with no chart library,
-and series never depend on hue alone. Tokens, contrast ratios and the rules are in [DESIGN.md](DESIGN.md).
+The UI is a calm finance-tool ledger: a white page, a quiet sidebar, hairline cells with soft corners,
+Geist for text and Geist Mono caps for labels. One lime is kept for "needs action" or "you are here": the
+current page, the low-stock count, a Low tag and the clerk's main button. Charts are hand-made server SVG with no chart library, and series never depend on
+hue alone. Tokens, contrast ratios and the rules are in [DESIGN.md](DESIGN.md).
 
 ## Why a ledger, not a counter
 
