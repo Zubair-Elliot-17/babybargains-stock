@@ -35,7 +35,7 @@
 }
 
 .recent li > a {
-  font-size: var(--text-section);
+  font-size: var(--text-body);
   font-weight: 500;
 }
 
@@ -77,16 +77,12 @@
   display: grid;
   grid-template-columns: repeat(4, 1fr);
   margin: 0;
-  border-top: 2px solid var(--color-ink);
-  border-bottom: 1px solid var(--color-ink);
+  border: 1px solid var(--color-hairline);
+  border-radius: var(--radius-panel);
 }
 
 .stat {
-  padding: var(--space-3) var(--space-4) var(--space-4);
-}
-
-.stat:first-child {
-  padding-left: 0;
+  padding: var(--space-4);
 }
 
 .stat + .stat {
@@ -94,9 +90,11 @@
 }
 
 .stat dt {
-  font-size: var(--text-meta);
+  font-family: var(--font-mono);
+  font-size: var(--text-label);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
   color: var(--color-ink-muted);
-  font-weight: 500;
 }
 
 .statSub {
@@ -104,10 +102,10 @@
 }
 
 .stat dd {
-  margin: var(--space-1) 0 0;
+  margin: var(--space-2) 0 0;
   font-size: var(--text-strip);
-  font-weight: 800;
-  font-stretch: 75%;
+  font-weight: 500;
+  letter-spacing: -0.035em;
   line-height: 1;
 }
 
@@ -133,7 +131,7 @@
   z-index: 1;
   background: var(--color-surface);
   padding: var(--space-3) 0;
-  border-top: 2px solid var(--color-ink);
+  border-top: 1px solid var(--color-hairline);
   border-bottom: 1px solid var(--color-hairline);
 }
 
@@ -226,7 +224,7 @@
 }
 
 .dialog::backdrop {
-  background: rgba(20, 20, 20, 0.45);
+  background: rgba(23, 21, 18, 0.4);
 }
 
 .dialog h2 {
@@ -269,9 +267,6 @@
   }
   .strip {
     grid-template-columns: 1fr 1fr;
-  }
-  .stat:nth-child(odd) {
-    padding-left: 0;
   }
   .stat:nth-child(3) {
     border-left: 0;

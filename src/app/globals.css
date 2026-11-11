@@ -1,25 +1,25 @@
-/* Design tokens: see DESIGN.md (design review D17/D20/D22). */
+/* Design tokens: see DESIGN.md ("Ledger"). */
 :root {
-  /* "Stock ticket": ink on paper, ruled not boxed; yellow only ever means "needs action". */
-  --color-ink: #141414;
-  --color-ink-muted: #57544d;
+  /* Warm paper neutrals, hairline cells, one lime that only ever means "needs action" or "you are here". */
+  --color-ink: #171512;
+  --color-ink-muted: #625e56;
   --color-surface: #ffffff;
-  --color-surface-quiet: #f3f3f1; /* shelf: table header strip, hover, empty bar tracks */
-  --color-accent: #141414; /* links, primary buttons, focus and chart marks are ink */
+  --color-surface-quiet: #f6f5f1; /* sidebar, table header strip, hover, empty bar tracks */
+  --color-accent: #171512; /* links, primary buttons, focus and chart marks are ink */
   --color-accent-ink: #ffffff;
-  --color-ticket: #ffd100; /* fill only, always behind ink text (12.61); never text or a bare mark */
-  --color-recall: #b8141b;
-  --color-warning: #9c6b00;
-  --color-hairline: #d9d7d1;
-  --color-control-border: #76736c;
-  --color-chart-2: #8a8781;
-  --color-canvas: #ffffff;
-  --tint-accent: #fff4b8; /* ticket tint: selected rows, the current branch */
-  --tint-warning: #fff4b8;
-  --tint-recall: #fdecec;
+  --color-ticket: #e4f222; /* fill only, always behind ink text; never text or a bare mark */
+  --color-recall: #c0261d;
+  --color-warning: #8a5a00;
+  --color-hairline: #e7e4dc;
+  --color-control-border: #8a867d;
+  --color-chart-2: #8a867d;
+  --color-canvas: #f6f5f1;
+  --tint-accent: #f6fbc9; /* selected rows, the current branch */
+  --tint-warning: #f6fbc9;
+  --tint-recall: #fcebe9;
 
-  --font-ui: var(--font-archivo), "Helvetica Neue", Arial, sans-serif;
-  --font-mono: var(--font-plex-mono), ui-monospace, monospace;
+  --font-ui: var(--font-geist), "Helvetica Neue", Arial, sans-serif;
+  --font-mono: var(--font-geist-mono), ui-monospace, monospace;
 
   --space-1: 4px;
   --space-2: 8px;
@@ -29,16 +29,17 @@
   --space-8: 32px;
   --space-12: 48px;
 
+  --text-label: 11px;
   --text-meta: 13px;
-  --text-table: 15px;
-  --text-body: 16px;
-  --text-section: 20px;
-  --text-title: 40px;
-  --text-strip: 56px;
+  --text-table: 14px;
+  --text-body: 15px;
+  --text-section: 17px;
+  --text-title: 30px;
+  --text-strip: 40px;
 
-  --radius: 2px;
-  --radius-panel: 0;
-  --shadow-dialog: 0 8px 24px rgba(0, 0, 0, 0.16);
+  --radius: 8px;
+  --radius-panel: 12px;
+  --shadow-dialog: 0 1px 2px rgba(23, 21, 18, 0.06), 0 16px 40px rgba(23, 21, 18, 0.14);
   --motion: 150ms cubic-bezier(0.16, 1, 0.3, 1);
 }
 
@@ -58,6 +59,7 @@ body {
   line-height: 1.5;
   color: var(--color-ink);
   background: var(--color-surface);
+  -webkit-font-smoothing: antialiased;
   font-variant-numeric: tabular-nums;
   caret-color: var(--color-accent);
 }
@@ -100,42 +102,42 @@ h3 {
   line-height: 1.1;
 }
 
-/* Condensed heavy cut for titles and headline figures only; body stays at normal width. */
-h1,
-h2,
-.display {
-  font-stretch: 75%;
-  letter-spacing: -0.005em;
-}
-
 h1 {
   font-size: var(--text-title);
-  font-weight: 800;
-  line-height: 1;
+  font-weight: 600;
+  line-height: 1.1;
+  letter-spacing: -0.03em;
 }
 
 h2 {
   font-size: var(--text-section);
-  font-weight: 700;
+  font-weight: 600;
+  letter-spacing: -0.015em;
   margin-top: var(--space-12);
   margin-bottom: var(--space-3);
 }
 
-/* A page section opens on a 2px ink rule, like a heading on a printed count sheet (not in dialogs). */
-main h2:not(dialog h2) {
-  padding-top: var(--space-2);
-  border-top: 2px solid var(--color-ink);
-}
-
 @media (max-width: 767px) {
   :root {
-    --text-title: 32px;
-    --text-strip: 44px;
+    --text-title: 26px;
+    --text-strip: 30px;
   }
+}
+
+/* Small mono caps: column heads, figure labels, section eyebrows. */
+.label-caps {
+  font-family: var(--font-mono);
+  font-size: var(--text-label);
+  font-weight: 500;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--color-ink-muted);
 }
 
 .mono {
   font-family: var(--font-mono);
+  font-size: 0.93em;
+  letter-spacing: -0.01em;
 }
 
 .sr-only {
@@ -170,7 +172,9 @@ select {
   background: var(--color-surface);
   cursor: pointer;
   font-weight: 500;
+  font-size: var(--text-table);
   white-space: nowrap;
+  box-shadow: 0 1px 0 rgba(23, 21, 18, 0.04);
 }
 
 .btn:disabled {
@@ -179,6 +183,7 @@ select {
 }
 
 .btn:hover:not(:disabled) {
+  background: var(--color-surface-quiet);
   border-color: var(--color-ink);
 }
 
@@ -190,13 +195,18 @@ select {
 }
 
 .btn-primary:hover:not(:disabled) {
-  background: #3a3a3a;
+  background: #38342d;
 }
 
-.btn-recall {
+.btn-recall,
+.btn-recall:hover:not(:disabled) {
   background: var(--color-recall);
   border-color: var(--color-recall);
   color: #fff;
+}
+
+.btn-recall:hover:not(:disabled) {
+  filter: brightness(0.92);
 }
 
 .input {
@@ -230,15 +240,50 @@ td {
 }
 
 th {
-  font-weight: 600;
-  font-stretch: 87.5%;
+  font-weight: 500;
   color: var(--color-ink-muted);
   font-size: var(--text-meta);
 }
 
+/* Column heads: mono caps on a quiet strip with rounded ends. */
 thead th {
+  font-family: var(--font-mono);
+  font-size: var(--text-label);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
   background: var(--color-surface-quiet);
-  border-bottom-color: var(--color-ink);
+  border-bottom: 0;
+  padding-block: 10px;
+}
+
+/* Phones: caps headers and cells tighten, so tables stay inside the panel. */
+@media (max-width: 767px) {
+  thead th {
+    letter-spacing: 0.02em;
+  }
+  th,
+  td {
+    padding-inline: var(--space-2);
+  }
+}
+
+thead th:first-child {
+  border-radius: var(--radius) 0 0 var(--radius);
+}
+
+thead th:last-child {
+  border-radius: 0 var(--radius) var(--radius) 0;
+}
+
+tbody td,
+tbody th {
+  padding-block: 10px;
+}
+
+@media (hover: hover) {
+  tbody tr:hover > * {
+    background: color-mix(in srgb, var(--color-surface-quiet) 60%, transparent);
+  }
 }
 
 /* A row header names the row's subject (usually a product): primary text, not a column label. */
@@ -246,7 +291,6 @@ tbody th[scope="row"] {
   color: var(--color-ink);
   font-size: var(--text-table);
   font-weight: 500;
-  font-stretch: 100%;
 }
 
 td.num,
@@ -261,17 +305,17 @@ th.num {
   cursor: help;
 }
 
-/* Status ticket: a printed rectangle. Neutral states are quiet; only exceptions get a fill. */
+/* Status tag: a soft rounded rectangle. Neutral states are quiet; only exceptions get a fill. */
 .pill {
   display: inline-block;
-  padding: 1px 6px;
-  border-radius: var(--radius);
-  font-size: var(--text-meta);
-  font-weight: 600;
+  padding: 2px 8px;
+  border-radius: 6px;
+  font-size: 12px;
+  font-weight: 500;
   line-height: 1.4;
   white-space: nowrap;
   color: var(--color-ink-muted);
-  background: transparent;
+  background: var(--color-surface-quiet);
   border: 1px solid var(--color-hairline);
 }
 
@@ -284,20 +328,22 @@ th.num {
 
 .pill-active {
   color: var(--color-ink);
-  border-color: var(--color-ink);
+  background: var(--color-surface);
+  border-color: var(--color-control-border);
 }
 
 .pill-warning {
   color: var(--color-ink);
   background: var(--color-ticket);
-  border-color: var(--color-ink);
+  border-color: transparent;
 }
 
-/* A section, not a box (replaces D-UI1 panels): a 2px ink rule on top, content on the paper. */
+/* A cell: hairline edge, soft corners, content on white. */
 .panel {
-  --pad: 0px;
-  border-top: 2px solid var(--color-ink);
-  padding-top: var(--space-2);
+  --pad: var(--space-4);
+  border: 1px solid var(--color-hairline);
+  border-radius: var(--radius-panel);
+  padding: var(--pad);
   min-width: 0;
 }
 
@@ -311,9 +357,9 @@ th.num {
 
 .panel h2,
 .panel h3 {
-  font-size: var(--text-section);
-  font-weight: 700;
-  font-stretch: 75%;
+  font-size: var(--text-body);
+  font-weight: 600;
+  letter-spacing: -0.01em;
   margin: 0 0 var(--space-3);
   padding: 0;
   border: 0;
@@ -322,8 +368,10 @@ th.num {
 /* An empty state as a section of its own. */
 p.panel {
   margin: 0;
-  padding-block: var(--space-3);
+  background: var(--color-surface-quiet);
+  border-style: dashed;
   color: var(--color-ink-muted);
+  font-size: var(--text-table);
 }
 
 .panel > table > tbody > tr:last-child > * {
@@ -338,12 +386,12 @@ p.panel {
 
 .page-head p {
   margin: 0;
-  max-width: 80ch;
+  max-width: 72ch;
   color: var(--color-ink-muted);
   font-size: var(--text-table);
 }
 
-/* Filter row under a page title: a shelf strip, flush with the page. */
+/* Filter row under a page title: a quiet rounded strip. */
 .page-head .toolbar {
   display: flex;
   flex-wrap: wrap;
@@ -352,7 +400,7 @@ p.panel {
   margin: var(--space-4) 0 0;
   padding: var(--space-3);
   background: var(--color-surface-quiet);
-  border-top: 1px solid var(--color-ink);
+  border-radius: var(--radius-panel);
 }
 
 .page-head .toolbar label {
@@ -360,6 +408,7 @@ p.panel {
 }
 
 .banner {
+  font-size: var(--text-table);
   padding: var(--space-3) var(--space-4);
   border-radius: var(--radius);
   background: var(--color-surface-quiet);
@@ -367,6 +416,7 @@ p.panel {
 }
 
 .banner-error {
+  background: var(--tint-recall);
   border-color: var(--color-recall);
   color: var(--color-recall);
 }

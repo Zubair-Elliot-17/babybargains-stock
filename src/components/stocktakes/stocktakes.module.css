@@ -1,10 +1,14 @@
-/* Index tabs: the current one is ink-barred, like a divider tab in a ring binder. */
+/* Segmented tabs on a quiet track; the current one is a white block. */
 .tabs {
   display: flex;
   flex-wrap: wrap;
-  gap: var(--space-1);
+  gap: 2px;
+  width: fit-content;
+  max-width: 100%;
   margin: 0 0 var(--space-6);
-  border-bottom: 1px solid var(--color-ink);
+  padding: 3px;
+  border-radius: 10px;
+  background: var(--color-surface-quiet);
 }
 
 .tab {
@@ -14,11 +18,10 @@
   gap: var(--space-2);
   padding: 0 var(--space-3);
   color: var(--color-ink-muted);
-  font-weight: 600;
-  font-stretch: 87.5%;
+  font-size: var(--text-table);
+  font-weight: 500;
   text-decoration: none;
-  border-bottom: 4px solid transparent;
-  margin-bottom: -1px;
+  border-radius: 7px;
 }
 
 .tab:visited {
@@ -27,12 +30,15 @@
 
 .tab[aria-current="page"] {
   color: var(--color-ink);
-  border-bottom-color: var(--color-ink);
+  font-weight: 600;
+  background: var(--color-surface);
+  box-shadow: 0 0 0 1px var(--color-hairline), 0 1px 2px rgba(23, 21, 18, 0.08);
 }
 
 .count {
   font-size: var(--text-meta);
-  padding: 0 5px;
+  padding: 0 6px;
+  border-radius: 10px;
   border: 1px solid var(--color-hairline);
 }
 
@@ -62,16 +68,14 @@
   display: grid;
   grid-template-columns: repeat(4, 1fr);
   margin: 0;
-  border-top: 2px solid var(--color-ink);
-  border-bottom: 1px solid var(--color-ink);
+  border: 1px solid var(--color-hairline);
+  border-radius: var(--radius-panel);
 }
 
 .summary div {
-  padding: var(--space-3) var(--space-4);
-}
-
-.summary div:first-child {
-  padding-left: 0;
+  display: grid;
+  gap: var(--space-2);
+  padding: var(--space-4);
 }
 
 .summary div + div {
@@ -79,15 +83,18 @@
 }
 
 .summary dt {
-  font-size: var(--text-meta);
+  font-family: var(--font-mono);
+  font-size: var(--text-label);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
   color: var(--color-ink-muted);
 }
 
 .summary dd {
   margin: 0;
-  font-size: 32px;
-  font-weight: 800;
-  font-stretch: 75%;
+  font-size: 30px;
+  font-weight: 500;
+  letter-spacing: -0.035em;
   line-height: 1.1;
 }
 
@@ -95,12 +102,13 @@
   color: var(--color-warning);
 }
 
-/* The action figure: a yellow ticket behind the number, as on Analytics. */
+/* The action figure: a lime block behind the number, as on Analytics. */
 .action {
   display: inline-block;
-  padding: 0 var(--space-2);
+  padding: 2px var(--space-2);
+  justify-self: start;
+  border-radius: 6px;
   background: var(--color-ticket);
-  box-shadow: inset 0 0 0 1px var(--color-ink);
 }
 
 .sub {
@@ -150,18 +158,12 @@
   flex-wrap: wrap;
   padding: var(--space-3) var(--space-4);
   background: var(--color-surface);
-  border-top: 2px solid var(--color-ink);
+  border-top: 1px solid var(--color-hairline);
 }
 
 @media (max-width: 767px) {
   .summary {
     grid-template-columns: 1fr 1fr;
-  }
-  .summary div {
-    padding-left: 0;
-  }
-  .summary div:nth-child(even) {
-    padding-left: var(--space-4);
   }
   .summary div:nth-child(3) {
     border-left: 0;

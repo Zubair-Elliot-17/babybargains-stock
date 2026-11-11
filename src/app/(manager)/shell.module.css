@@ -1,31 +1,45 @@
+/* Manager shell: a quiet text sidebar on desktop, a top bar with a sideways-scrolling nav below 1024px. */
 .shell {
   min-height: 100vh;
-  background: var(--color-canvas);
+  display: grid;
+  grid-template-columns: 232px minmax(0, 1fr);
+  grid-template-rows: auto 1fr;
+  background: var(--color-surface);
 }
 
 .demobar {
-  min-height: 28px;
+  grid-column: 2;
+  min-height: 36px;
   display: flex;
   align-items: center;
+  gap: var(--space-2);
   padding: 0 var(--space-8);
-  font-size: var(--text-meta);
-  color: #fff;
-  background: var(--color-ink);
+  font-family: var(--font-mono);
+  font-size: var(--text-label);
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--color-ink-muted);
+  border-bottom: 1px solid var(--color-hairline);
 }
 
-/* Masthead: wordmark, text nav, sign out, closed by a 2px ink rule like a printed form header. */
 .mast {
+  grid-column: 1;
+  grid-row: 1 / span 2;
+  position: sticky;
+  top: 0;
+  align-self: start;
+  height: 100vh;
   display: flex;
-  align-items: stretch;
-  gap: var(--space-8);
-  padding: 0 var(--space-8);
-  border-bottom: 2px solid var(--color-ink);
-  min-height: 64px;
+  flex-direction: column;
+  gap: var(--space-6);
+  padding: var(--space-6) var(--space-3) var(--space-4);
+  background: var(--color-canvas);
+  border-right: 1px solid var(--color-hairline);
 }
 
 .mast > :first-child {
-  align-self: center;
   flex: none;
+  padding-inline: var(--space-3);
 }
 
 .nav {
@@ -33,23 +47,25 @@
   margin: 0;
   padding: 0;
   display: flex;
-  gap: var(--space-1);
+  flex-direction: column;
+  gap: 2px;
 }
 
 .link {
+  position: relative;
   display: flex;
   align-items: center;
+  justify-content: space-between;
   gap: var(--space-2);
-  height: 100%;
   min-height: 44px;
   padding: 0 var(--space-3);
+  border: 1px solid transparent;
+  border-radius: var(--radius);
   color: var(--color-ink-muted);
-  font-weight: 600;
-  font-stretch: 87.5%;
+  font-size: var(--text-table);
+  font-weight: 500;
   text-decoration: none;
   white-space: nowrap;
-  border-bottom: 4px solid transparent;
-  margin-bottom: -2px; /* the current page's bar sits on the masthead rule */
 }
 
 .link:visited {
@@ -58,15 +74,29 @@
 
 .link:hover {
   color: var(--color-ink);
-  border-bottom-color: var(--color-hairline);
+  background: color-mix(in srgb, var(--color-ink) 5%, transparent);
 }
 
-/* Current page: a yellow ticket block with an ink bar, never colour alone (aria-current names it). */
+/* Current page: a white block with a lime marker; aria-current names it, so never colour alone. */
 .link[aria-current="page"],
 .link[aria-current="page"]:visited {
   color: var(--color-ink);
+  font-weight: 600;
+  background: var(--color-surface);
+  border-color: var(--color-hairline);
+  box-shadow: 0 1px 0 rgba(23, 21, 18, 0.04);
+}
+
+.link[aria-current="page"]::before {
+  content: "";
+  position: absolute;
+  left: -1px;
+  top: 10px;
+  bottom: 10px;
+  width: 4px;
+  border-radius: 2px;
   background: var(--color-ticket);
-  border-bottom-color: var(--color-ink);
+  box-shadow: inset 0 0 0 1px var(--color-ink);
 }
 
 .soon {
@@ -79,10 +109,11 @@
 }
 
 .signout {
-  margin-left: auto;
-  display: flex;
-  align-items: center;
-  gap: var(--space-3);
+  margin-top: auto;
+  display: grid;
+  gap: var(--space-2);
+  padding: var(--space-3) var(--space-3) 0;
+  border-top: 1px solid var(--color-hairline);
 }
 
 .who {
@@ -92,50 +123,72 @@
 }
 
 .content {
+  grid-column: 2;
   padding: var(--space-8) var(--space-8) var(--space-12);
-  max-width: 1360px;
+  max-width: 1280px;
+  min-width: 0;
 }
 
 .badge {
   display: inline-block;
   min-width: 20px;
-  padding: 0 5px;
+  padding: 0 6px;
+  border-radius: 10px;
   background: var(--color-ink);
   color: #fff;
   font-size: 12px;
-  font-weight: 700;
+  font-weight: 600;
   line-height: 20px;
   text-align: center;
 }
 
 /* Tablet and phone: wordmark and sign out on top, the nav scrolls sideways under them. */
 @media (max-width: 1023px) {
-  .mast,
+  .shell {
+    display: block;
+  }
   .demobar,
   .content {
     padding-inline: var(--space-6);
   }
   .mast {
+    position: static;
+    height: auto;
+    flex-direction: row;
     flex-wrap: wrap;
     align-items: center;
-    row-gap: 0;
+    gap: 0 var(--space-4);
+    padding: var(--space-2) var(--space-6) 0;
+    border-right: 0;
+    border-bottom: 1px solid var(--color-hairline);
+  }
+  .mast > :first-child {
+    padding-inline: 0;
   }
   .signout {
-    padding-block: var(--space-2);
+    margin: 0 0 0 auto;
+    padding: 0;
+    border: 0;
   }
   .who {
     display: none;
   }
-  .link {
-    margin-bottom: 0; /* inside the scrolling strip a 2px overhang would scroll vertically */
-  }
   .nav {
     order: 3;
-    align-self: stretch;
     flex-basis: 100%;
+    flex-direction: row;
+    gap: var(--space-1);
     overflow-x: auto;
-    margin: 0 calc(-1 * var(--space-6));
-    padding: 0 var(--space-6);
+    margin: var(--space-1) calc(-1 * var(--space-6)) 0;
+    padding: var(--space-1) var(--space-6) var(--space-2); /* top room so the focus ring isn't clipped */
+  }
+  .link[aria-current="page"]::before {
+    left: 10px;
+    right: 10px;
+    top: auto;
+    bottom: -1px;
+    width: auto;
+    height: 4px;
   }
 }
 
@@ -145,11 +198,8 @@
     padding-inline: var(--space-4);
   }
   .nav {
-    margin: 0 calc(-1 * var(--space-4));
-    padding: 0 var(--space-4);
-  }
-  .link {
-    padding: 0 var(--space-2);
+    margin-inline: calc(-1 * var(--space-4));
+    padding-inline: var(--space-4);
   }
   .content {
     padding: var(--space-6) var(--space-4) 96px;
