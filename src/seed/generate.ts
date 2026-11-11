@@ -104,7 +104,7 @@ function simulate(cfg: SeedConfig, baseline?: StocktakeTape, tapeOnly = false): 
   const parents = [...new Set(products.map((p) => p.parentSku))];
 
   // One batch code per parent product per 28-day supplier cycle, shared by its variants.
-  const heroCycle = Math.floor((cfg.days - 45) / CYCLE_DAYS); // recent enough that some units are still on shelves
+  const heroCycle = Math.floor((cfg.days - 1) / CYCLE_DAYS) - 1; // the last full cycle: still on shelves even in peak season
   const recalledCycle = Math.floor((cfg.days - 90) / CYCLE_DAYS);
   const recalledParent = products.find((p) => p.category === "monitor")?.parentSku;
   let counter = 3000;
