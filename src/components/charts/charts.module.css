@@ -1,21 +1,21 @@
 /* Server-rendered charts and stat tiles (DESIGN.md "Charts"). */
-/* Receipt strip: one ruled row of headline figures, hairlines between, no boxes. */
+/* Figure strip: one rounded hairline frame of cells, label above figure. */
 /* Each figure draws its left and top hairline 1px outside itself; the strip clips the ones on its
    outer edges, so rules stay right however the row wraps. */
 .kpis {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(min(100%, 200px), 1fr));
   margin: 0 0 var(--space-4);
-  border-top: 2px solid var(--color-ink);
-  border-bottom: 1px solid var(--color-ink);
+  border: 1px solid var(--color-hairline);
+  border-radius: var(--radius-panel);
   overflow: hidden;
 }
 
 .kpi {
   display: grid;
   align-content: start;
-  gap: var(--space-1);
-  padding: var(--space-3) var(--space-4) var(--space-4);
+  gap: var(--space-2);
+  padding: var(--space-4);
   margin: -1px 0 0 -1px;
   border-left: 1px solid var(--color-hairline);
   border-top: 1px solid var(--color-hairline);
@@ -23,8 +23,11 @@
 }
 
 .kpi dt {
-  order: 2;
-  font-size: var(--text-meta);
+  order: 1;
+  font-family: var(--font-mono);
+  font-size: var(--text-label);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
   color: var(--color-ink-muted);
 }
 
@@ -33,12 +36,12 @@
 }
 
 .kpi > dd:first-of-type {
-  order: 1;
+  order: 2;
   font-size: var(--text-strip);
-  font-weight: 800;
-  font-stretch: 75%;
+  font-weight: 500;
   line-height: 1;
-  letter-spacing: -0.01em;
+  letter-spacing: -0.035em;
+  font-variant-numeric: tabular-nums;
 }
 
 .kpiFoot {
@@ -52,12 +55,13 @@
   color: var(--color-ink-muted);
 }
 
-/* The action figure: a yellow ticket behind the number (the label says what it counts). */
+/* The action figure: a lime block behind the number (the label says what it counts). */
 .kpi .warn {
   justify-self: start;
-  padding: 0 var(--space-2);
+  padding: 2px var(--space-2);
+  margin-left: -2px;
+  border-radius: 6px;
   background: var(--color-ticket);
-  box-shadow: inset 0 0 0 1px var(--color-ink);
 }
 
 /* Signed change as plain text: arrow and sign carry direction, colour only adds weight. */
@@ -121,7 +125,7 @@
 
 .plot {
   position: relative;
-  border-bottom: 1px solid var(--color-ink);
+  border-bottom: 1px solid var(--color-control-border);
 }
 
 .plot svg {
@@ -219,6 +223,7 @@
   top: 4px;
   height: 12px;
   min-width: 2px;
+  border-radius: 0 3px 3px 0;
   background: var(--color-ink);
 }
 
@@ -250,7 +255,9 @@
 
 .meter {
   display: block;
-  height: 3px;
+  height: 4px;
+  border-radius: 2px;
+  overflow: hidden;
   margin-top: 4px;
   background: var(--color-surface-quiet);
 }
@@ -282,6 +289,8 @@
   display: flex;
   gap: 2px;
   height: 24px;
+  border-radius: 4px;
+  overflow: hidden;
 }
 
 .stack span {
@@ -331,6 +340,7 @@
 .swatch {
   width: 12px;
   height: 12px;
+  border-radius: 3px;
   box-shadow: inset 0 0 0 1px var(--color-ink);
 }
 
@@ -356,7 +366,7 @@
 }
 
 .heatRow[data-current] {
-  font-weight: 700;
+  font-weight: 600;
 }
 
 .heatRow[data-current]::after {
@@ -369,6 +379,7 @@
   display: grid;
   place-items: center;
   min-height: 28px;
+  border-radius: 4px;
   background: var(--color-surface-quiet);
   color: var(--color-ink);
   font-variant-numeric: tabular-nums;
@@ -429,16 +440,19 @@
 }
 
 .facts dt {
-  font-size: var(--text-meta);
+  font-family: var(--font-mono);
+  font-size: var(--text-label);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
   color: var(--color-ink-muted);
 }
 
 .facts dd {
   margin: 0;
-  font-size: var(--text-title);
-  font-weight: 800;
-  font-stretch: 75%;
-  line-height: 1.1;
+  font-size: 26px;
+  font-weight: 500;
+  letter-spacing: -0.03em;
+  line-height: 1.2;
 }
 
 .facts :global(.pill) {
@@ -455,9 +469,6 @@
   }
   .kpi {
     padding-inline: var(--space-3);
-  }
-  .kpi > dd:first-of-type {
-    font-size: 40px;
   }
   .kpi .change {
     white-space: normal;
