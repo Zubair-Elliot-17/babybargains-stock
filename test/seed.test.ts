@@ -48,6 +48,16 @@ describe("seed generator", () => {
   });
 });
 
+describe("hero batch", () => {
+  // The recall demo needs units to pull whatever the season: November demand once sold the batch out.
+  it.each(["2026-01-15", "2026-07-15", "2026-11-11", "2026-12-20"])("still has units on shelves when seeded on %s", (day) => {
+    const data = generateSeed({ ...PREVIEW, anchor: new Date(`${day}T12:00:00Z`) });
+    const ids = new Set(data.batches.filter((b) => b.batchCode === HERO_BATCH).map((b) => b._id));
+    expect(ids.size).toBeGreaterThan(0);
+    expect(data.movements.filter((m) => ids.has(m.batchId!)).reduce((n, m) => n + m.qty, 0)).toBeGreaterThan(0);
+  });
+});
+
 describe("transfer scenario", () => {
   it("leaves every other SKU's history and the hero batch unchanged", () => {
     const cfg = { ...PREVIEW, anchor };
@@ -71,10 +81,10 @@ describe("transfer scenario", () => {
 
   // Values from the pre-Milestone-3 generator (628fe5d): the scenario must not move the recall demo's figures.
   it.each([
-    ["PREVIEW", "2026-06-30T23:00:00Z", 4, PREVIEW],
-    ["PREVIEW", "2026-10-11T12:00:00Z", 6, PREVIEW],
-    ["FULL", "2026-06-30T23:00:00Z", 11, FULL],
-    ["FULL", "2026-10-11T12:00:00Z", 24, FULL],
+    ["PREVIEW", "2026-06-30T23:00:00Z", 12, PREVIEW],
+    ["PREVIEW", "2026-10-11T12:00:00Z", 12, PREVIEW],
+    ["FULL", "2026-06-30T23:00:00Z", 55, FULL],
+    ["FULL", "2026-10-11T12:00:00Z", 48, FULL],
   ] as const)("%s at %s keeps the hero batch's on-hand at %i", (_name, at, expected, cfg) => {
     const data = generateSeed({ ...cfg, anchor: new Date(at) });
     const heroIds = new Set(data.batches.filter((b) => b.batchCode === HERO_BATCH).map((b) => b._id));
