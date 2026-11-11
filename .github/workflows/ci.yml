@@ -22,7 +22,8 @@ jobs:
       - run: npm run build
         env:
           MONGODB_URI: mongodb://127.0.0.1:27017/?replicaSet=unused
-      - run: npx playwright install --with-deps chromium
+      # No --with-deps: the runner image already has Chrome's system libraries, and apt mirrors were unreachable.
+      - run: npx playwright install chromium
       - run: npm run test:e2e
         env:
           CI: "1"
