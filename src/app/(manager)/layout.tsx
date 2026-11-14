@@ -13,6 +13,7 @@ const ITEMS: NavItem[] = [
   { href: "/transfers", label: "Transfers", milestone: 3 },
   { href: "/orders", label: "Orders", milestone: 4 },
   { href: "/analytics", label: "Analytics", milestone: 4 },
+  { href: "/trends", label: "Trends", milestone: 4 },
 ];
 
 async function resetStatus(): Promise<string> {

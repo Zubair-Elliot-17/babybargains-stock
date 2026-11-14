@@ -487,3 +487,12 @@
     font-size: 11px;
   }
 }
+
+/* Trends: a line sample in the series' colour and dash, used as the legend key. */
+.seriesKey {
+  flex: none;
+  width: 24px;
+  height: 12px;
+  stroke-width: 2;
+  stroke-linecap: round;
+}
