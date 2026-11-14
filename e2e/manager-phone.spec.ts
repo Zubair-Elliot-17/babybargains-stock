@@ -12,7 +12,7 @@ const overflow = (page: Page) =>
 
 test("@phone every manager screen fits the width, with no sideways scroll", async ({ page }) => {
   await signInManager(page);
-  for (const path of ["/recall", "/stock", "/stocktakes", "/stocktakes?tab=APPROVED", "/transfers", "/orders", "/orders?branch=BR-BRS&supplier=SUP-OAK", "/analytics"]) {
+  for (const path of ["/recall", "/stock", "/stocktakes", "/stocktakes?tab=APPROVED", "/transfers", "/orders", "/orders?branch=BR-BRS&supplier=SUP-OAK", "/analytics", "/trends"]) {
     await page.goto(path);
     await expect(page.locator("h1")).toBeVisible();
     expect(await overflow(page), path).toBeLessThanOrEqual(0);
