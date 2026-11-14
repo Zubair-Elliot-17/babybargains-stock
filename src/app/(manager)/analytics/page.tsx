@@ -3,6 +3,7 @@ import { requireManagerPage } from "@/auth/session";
 import { cols } from "@/domain/collections";
 import { analytics, COVER_WEEKS, DEAD_DAYS, MOVER_DAYS, OVERDUE_DAYS } from "@/domain/ledger/insights";
 import type { Product } from "@/domain/schemas";
+import { CATEGORY_LABELS as CATEGORIES } from "@/domain/ledger/trends";
 import { getDb } from "@/lib/db";
 import { money, moneyShort, moneyWhole, when } from "@/lib/format";
 import { count } from "@/lib/plural";
@@ -17,7 +18,6 @@ import styles from "@/components/manage/manage.module.css";
 
 export const metadata = { title: "Analytics · BabyBargains Stock" };
 
-const CATEGORIES: Record<Product["category"], string> = { cot: "Cots", pram: "Prams", monitor: "Monitors", clothing: "Clothing", toy: "Toys" };
 const WEEKDAYS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
 // Ink, grey, hatch, then recall for the oldest bucket: readable without hue (DESIGN.md "Charts").
 const HATCH = "repeating-linear-gradient(135deg, var(--color-ink) 0 1.5px, var(--color-surface) 1.5px 5px)";

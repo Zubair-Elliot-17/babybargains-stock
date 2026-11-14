@@ -1,11 +1,11 @@
 import styles from "./charts.module.css";
 import { SrTable } from "./SrTable";
 
-// Up to five series on one 0-100 index. Series differ by colour and dash, so hue is never the only signal (DESIGN.md "Charts").
+// Up to five series on one 0-100 index. Each has its own dash pattern, so hue is never the only signal (DESIGN.md "Charts").
 export const SERIES = [
   { color: "var(--color-ink)", dash: undefined },
   { color: "var(--color-recall)", dash: "7 4" },
-  { color: "var(--color-chart-2)", dash: undefined },
+  { color: "var(--color-chart-2)", dash: "14 5" },
   { color: "var(--color-ink)", dash: "2 4" },
   { color: "var(--color-recall)", dash: "10 3 2 3" },
 ] as const;
@@ -41,7 +41,7 @@ export function TrendChart(props: {
           <svg viewBox="0 0 1000 100" preserveAspectRatio="none" focusable="false">
             {series.map((s, i) => (
               <path
-                key={s.name}
+                key={i}
                 className={styles.stroke}
                 style={{ stroke: SERIES[i].color }}
                 strokeDasharray={SERIES[i].dash}
