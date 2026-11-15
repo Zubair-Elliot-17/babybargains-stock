@@ -256,7 +256,7 @@
 }
 
 .slider {
-  --track-fill: linear-gradient(to right, var(--color-ink) calc(var(--thumb) / 2 + (100% - var(--thumb)) * var(--f)), #cfcabf 0);
+  --track-fill: linear-gradient(to right, var(--color-ink) calc(var(--thumb) / 2 + (100% - var(--thumb)) * var(--f)), var(--color-control-border) 0);
   display: block;
   width: 100%;
   height: 32px;
