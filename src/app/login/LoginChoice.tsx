@@ -1,7 +1,7 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { useState } from "react";
+import { useRef, useState } from "react";
 import styles from "./login.module.css";
 
 const DEFAULT_BRANCH = "BR-LEE";
@@ -10,7 +10,10 @@ export function LoginChoice({ branches }: { branches: { id: string; name: string
   const router = useRouter();
   const [busy, setBusy] = useState<"manager" | "clerk" | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [clerkOpen, setClerkOpen] = useState(false);
   const [branchId, setBranchId] = useState(branches.some((b) => b.id === DEFAULT_BRANCH) ? DEFAULT_BRANCH : (branches[0]?.id ?? ""));
+  const select = useRef<HTMLSelectElement>(null);
+  const branchName = branches.find((b) => b.id === branchId)?.name;
 
   async function signIn(role: "manager" | "clerk") {
     setBusy(role);
@@ -31,23 +34,43 @@ export function LoginChoice({ branches }: { branches: { id: string; name: string
 
   return (
     <div className={styles.choices}>
-      <button className={styles.choice} onClick={() => signIn("manager")} disabled={busy !== null}>
-        <span className={styles.role}>Manager</span>
+      <div className={styles.choice}>
+        <h3 className={styles.role}>
+          <button className={styles.roleBtn} onClick={() => signIn("manager")} disabled={busy !== null}>
+            Manager
+            <span className={styles.arrow} aria-hidden>→</span>
+          </button>
+        </h3>
         <span className={styles.task}>Track a recall across 15 branches</span>
         <span className={styles.hint}>Opens batch <span className="mono">B-4471</span></span>
-      </button>
-      <div className={`${styles.choice} ${styles.clerk}`}>
-        <span className={styles.role}>Clerk</span>
+      </div>
+      <div className={`${styles.choice} ${clerkOpen ? styles.open : ""}`}>
+        <h3 className={styles.role}>
+          <button
+            className={styles.roleBtn}
+            aria-expanded={clerkOpen}
+            aria-controls="clerk-form"
+            onClick={() => {
+              const next = !clerkOpen;
+              setClerkOpen(next);
+              if (next) setTimeout(() => select.current?.focus(), 0);
+            }}
+          >
+            Clerk
+            <span className={`${styles.arrow} ${clerkOpen ? styles.arrowOpen : ""}`} aria-hidden>→</span>
+          </button>
+        </h3>
         <span className={styles.task}>Count stock on a phone</span>
-        <label htmlFor="branch">Branch</label>
-        <div className={styles.clerkRow}>
-          <select id="branch" className="input" value={branchId} onChange={(e) => setBranchId(e.target.value)}>
+        <div id="clerk-form" className={styles.clerkForm} hidden={!clerkOpen}>
+          <label htmlFor="branch">Branch</label>
+          <select ref={select} id="branch" className={`input ${styles.select}`} value={branchId} onChange={(e) => setBranchId(e.target.value)}>
             {branches.map((b) => (
               <option key={b.id} value={b.id}>{b.name}</option>
             ))}
           </select>
           <button className="btn btn-primary" onClick={() => signIn("clerk")} disabled={busy !== null || !branchId}>
-            Start counting
+            Start counting{branchName ? ` at ${branchName}` : ""}
+            <span aria-hidden>→</span>
           </button>
         </div>
         <span className={styles.hint}>Opens in a phone-sized frame on desktop</span>

@@ -86,6 +86,7 @@ test("manager reviews the top suggestion and accepts it", async ({ page }) => {
   await expect(onRoad.first()).toBeVisible();
   await page.getByRole("button", { name: "Sign out" }).click();
   await page.goto("/login");
+  await page.getByRole("button", { name: "Clerk" }).click();
   await page.getByLabel("Branch").selectOption({ label: top.to });
   await page.getByRole("button", { name: "Start counting" }).click();
   await page.waitForURL(/\/count$/);

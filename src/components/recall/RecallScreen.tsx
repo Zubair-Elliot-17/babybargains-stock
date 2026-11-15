@@ -23,7 +23,20 @@ export interface RecallData {
   now: number;
 }
 
-const GLYPH: Record<EventKind, string> = { delivery: "●", transfer: "◆", stocktake: "■", recall: "✕" };
+const KIND_NAME: Record<EventKind, string> = { delivery: "Delivery", transfer: "Transfer", stocktake: "Stocktake", recall: "Quarantine" };
+
+// Four shapes so the kind never depends on colour; filled = already happened, hollow = still ahead.
+function Marker({ kind, filled = true }: { kind: EventKind; filled?: boolean }) {
+  const paint = { fill: filled ? "currentColor" : "var(--color-surface)", stroke: "currentColor", strokeWidth: 1.6 };
+  return (
+    <svg width="12" height="12" viewBox="0 0 12 12" aria-hidden>
+      {kind === "delivery" && <circle cx="6" cy="6" r="4.5" {...paint} />}
+      {kind === "transfer" && <rect x="2.2" y="2.2" width="7.6" height="7.6" transform="rotate(45 6 6)" {...paint} />}
+      {kind === "stocktake" && <rect x="1.8" y="1.8" width="8.4" height="8.4" rx="1" {...paint} />}
+      {kind === "recall" && <path d="M2.5 2.5l7 7m0-7l-7 7" fill="none" stroke="currentColor" strokeWidth={filled ? 2.4 : 1.4} strokeLinecap="round" />}
+    </svg>
+  );
+}
 const fmtDay = (ms: number) => new Date(ms).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric", timeZone: "UTC" });
 const fmtShort = (ms: number) => new Date(ms).toLocaleDateString("en-GB", { day: "numeric", month: "short", timeZone: "UTC" });
 
@@ -142,29 +155,42 @@ export function RecallScreen({ data }: { data: RecallData }) {
       <section className={styles.timeline} aria-label="Batch history">
         <div className={styles.timelineHead}>
           {!isToday && <span className={styles.chip}>Viewing {fmtDay(first + day * DAY)}</span>}
-          <span className={styles.asOf}>As of {isToday ? "today" : fmtDay(first + day * DAY)}</span>
+          <span className={styles.asOf}>As of {isToday ? "today · " : ""}{fmtShort(first + day * DAY)}</span>
           <div className={styles.controls}>
-            <button className="btn" onClick={() => jump(-1)} aria-label="Previous event">‹ Prev event</button>
-            <button className="btn" onClick={() => jump(1)} aria-label="Next event">Next event ›</button>
+            <button className={styles.ghost} onClick={() => jump(-1)} aria-label="Previous event" data-tip="Previous event">‹</button>
+            <button className={styles.ghost} onClick={() => jump(1)} aria-label="Next event" data-tip="Next event">›</button>
             <button
-              className="btn"
+              className="btn btn-primary"
               onClick={() => {
                 if (!playing && day >= maxDay) setDay(0);
                 setPlaying((p) => !p);
               }}
               aria-pressed={playing}
             >
+              <svg width="12" height="12" viewBox="0 0 12 12" fill="currentColor" aria-hidden>
+                {playing ? <path d="M2 1h3v10H2zM7 1h3v10H7z" /> : <path d="M2 1l9 5-9 5z" />}
+              </svg>
               {playing ? "Pause" : "Play"}
             </button>
           </div>
         </div>
         <div className={styles.track}>
-          <div className={styles.ticks} aria-hidden>
+          <div className={styles.markers} aria-hidden>
             {events.map((e) => {
-              const left = maxDay ? ((e.day - first) / DAY / maxDay) * 100 : 0;
+              const f = maxDay ? (e.day - first) / DAY / maxDay : 0;
+              const here = e.day === first + day * DAY;
               return (
-                <span key={`${e.day}-${e.kind}`} className={`${styles.tick} ${styles[e.kind]}`} style={{ left: `${left}%` }} title={`${fmtDay(e.day)}: ${e.label}`}>
-                  {GLYPH[e.kind]}
+                <span
+                  key={`${e.day}-${e.kind}`}
+                  className={`${styles.marker} ${styles[e.kind]} ${f < 0.15 ? styles.tipL : f > 0.85 ? styles.tipR : ""}`}
+                  style={{ "--f": f, visibility: here ? "hidden" : undefined } as React.CSSProperties}
+                  data-tip={`${fmtShort(e.day)}: ${e.label}`}
+                  onClick={() => {
+                    setPlaying(false);
+                    setDay(Math.round((e.day - first) / DAY));
+                  }}
+                >
+                  <Marker kind={e.kind} filled={e.day <= first + day * DAY} />
                 </span>
               );
             })}
@@ -172,6 +198,7 @@ export function RecallScreen({ data }: { data: RecallData }) {
           <input
             type="range"
             className={styles.slider}
+            style={{ "--f": maxDay ? day / maxDay : 0 } as React.CSSProperties}
             min={0}
             max={maxDay}
             step={1}
@@ -189,7 +216,23 @@ export function RecallScreen({ data }: { data: RecallData }) {
             <span>Today</span>
           </div>
         </div>
-        <p className={styles.legend}>● delivery · ◆ transfer · ■ stocktake · ✕ quarantine · ←/→ 1 day, PgUp/PgDn 1 week</p>
+        <p className={styles.eventNote} aria-hidden>
+          {events.filter((e) => e.day === first + day * DAY).map((e) => `${KIND_NAME[e.kind]}: ${e.label}`).join(" · ")}
+        </p>
+        <div className={styles.legendRow}>
+          <p className={styles.legend}>
+            {(Object.keys(KIND_NAME) as EventKind[]).map((k) => (
+              <span key={k} className={`${styles.legendItem} ${styles[k]}`}>
+                <Marker kind={k} />
+                <span>{KIND_NAME[k].toLowerCase()}</span>
+              </span>
+            ))}
+            <span className={styles.legendItem}>filled = happened · hollow = ahead</span>
+          </p>
+          <p className={styles.keys}>
+            Keyboard <kbd>←</kbd><kbd>→</kbd> 1 day · <kbd>PgUp</kbd><kbd>PgDn</kbd> 1 week
+          </p>
+        </div>
       </section>
 
       <section className="panel" aria-label="Branches">
@@ -259,7 +302,7 @@ function Stat(props: { label: string; value: number; sub?: string; estimated?: b
         <span className={props.estimated ? "estimated" : undefined} title={props.tip}>
           <AnimatedNumber value={props.value} />
         </span>
-        {props.estimated && <span className="sr-only"> estimated</span>}
+        {props.estimated && <><span className={styles.estTag} aria-hidden>est.</span><span className="sr-only"> estimated</span></>}
       </dd>
     </div>
   );

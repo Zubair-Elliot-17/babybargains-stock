@@ -60,6 +60,7 @@ test("quarantining again after a reused request ID sends a new one", async ({ pa
 
 test("a count line the server already holds counts as saved", async ({ page }) => {
   await page.goto("/login");
+  await page.getByRole("button", { name: "Clerk" }).click();
   await page.getByLabel("Branch").selectOption({ label: "Bristol Cabot" });
   await page.getByRole("button", { name: "Start counting" }).click();
   await page.waitForURL(/\/count$/);

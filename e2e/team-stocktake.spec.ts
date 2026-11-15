@@ -5,6 +5,7 @@ import { expect, test, type Browser, type Page } from "@playwright/test";
 async function clerk(browser: Browser): Promise<Page> {
   const page = await (await browser.newContext()).newPage();
   await page.goto("/login");
+  await page.getByRole("button", { name: "Clerk" }).click();
   await page.getByLabel("Branch").selectOption({ label: "Leeds Kirkgate" });
   await page.getByRole("button", { name: "Start counting" }).click();
   await page.waitForURL(/\/count$/);
