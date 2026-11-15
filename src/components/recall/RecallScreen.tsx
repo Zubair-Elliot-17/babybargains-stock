@@ -55,6 +55,7 @@ export function RecallScreen({ data }: { data: RecallData }) {
   const recalledAt = data.recalledAt ? Date.parse(data.recalledAt) : undefined;
   const state = useMemo(() => foldMovements(data.movements, asOf, recalledAt), [data.movements, asOf, recalledAt]);
   const events = useMemo(() => timelineEvents(data.movements), [data.movements]);
+  const dayNote = events.filter((e) => e.day === first + day * DAY).map((e) => `${KIND_NAME[e.kind]}: ${e.label}`).join(" · ");
   const eventDays = useMemo(() => [...new Set(events.map((e) => Math.round((e.day - first) / DAY)))].sort((a, b) => a - b), [events, first]);
 
   // Play sweeps 10 days per second.
@@ -209,7 +210,7 @@ export function RecallScreen({ data }: { data: RecallData }) {
             }}
             onKeyDown={onKeyDown}
             aria-label="Replay date"
-            aria-valuetext={fmtDay(first + day * DAY)}
+            aria-valuetext={`${fmtDay(first + day * DAY)}${dayNote ? `. ${dayNote}` : ""}`}
           />
           <div className={styles.trackEnds}>
             <span>{fmtShort(first)}</span>
@@ -217,7 +218,7 @@ export function RecallScreen({ data }: { data: RecallData }) {
           </div>
         </div>
         <p className={styles.eventNote} aria-hidden>
-          {events.filter((e) => e.day === first + day * DAY).map((e) => `${KIND_NAME[e.kind]}: ${e.label}`).join(" · ")}
+          {dayNote}
         </p>
         <div className={styles.legendRow}>
           <p className={styles.legend}>
