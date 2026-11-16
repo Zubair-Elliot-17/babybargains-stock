@@ -332,6 +332,14 @@ describe("found units on a recalled batch", () => {
     expect(violations.some((v) => want.test(v))).toBe(true);
   });
 
+  it("invariant 3 ignores seeded movements dated after the recall (seed sales run to 18:00 on the anchor day)", async () => {
+    const { result } = await recallB1();
+    await cols(t.db).movements.insertOne({
+      branchId: "BR-A", sku: COT, batchId: OLD, type: "SOLD", qty: -1, refType: "sale", refId: "seed-sale-x", attributed: true, actor: "seed", origin: "seed", at: new Date(result.recalledAt.getTime() + 1000),
+    } as never);
+    expect((await checkLedgerInvariants(t.db)).violations.filter((v) => /after recall/.test(v))).toEqual([]);
+  });
+
   it("invariant 3 still reports stock left on a recalled batch", async () => {
     await recallB1();
     await cols(t.db).inventory.updateOne({ branchId: "BR-A", batchId: OLD }, { $set: { onHand: 1 } });

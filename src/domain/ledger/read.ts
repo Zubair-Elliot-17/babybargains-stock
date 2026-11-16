@@ -143,10 +143,11 @@ export async function checkLedgerInvariants(db: Db, maxViolations = 20): Promise
   const recalled = await c.batches.find({ status: "RECALLED" }, { projection: { recalledAt: 1 } }).toArray();
   for (const b of recalled) {
     const after = await c.movements
-      .find({ batchId: b._id, at: { $gt: b.recalledAt! } }, { projection: { type: 1, qty: 1, refType: 1, refId: 1, branchId: 1 } })
+      .find({ batchId: b._id, at: { $gt: b.recalledAt! } }, { projection: { type: 1, qty: 1, refType: 1, refId: 1, branchId: 1, origin: 1 } })
       .toArray();
     const paired = (m: (typeof after)[number]) => m.refType === "stocktake" && ((m.type === "ADJUSTMENT" && m.qty > 0) || (m.type === "RECALLED" && m.qty < 0));
-    const late = after.filter((m) => !paired(m)).length;
+    // Seeded sales are dated up to 18:00 on the anchor day, so before then they sort after a recall made now.
+    const late = after.filter((m) => !paired(m) && m.origin !== "seed").length;
     if (late) push(`${late} movement(s) after recall on ${b._id}`);
     const net = new Map<string, { refId: string; branchId: string; qty: number }>();
     for (const m of after.filter(paired)) {
