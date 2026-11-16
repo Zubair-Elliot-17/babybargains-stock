@@ -4,6 +4,7 @@ test.describe.configure({ mode: "serial" });
 
 async function signInClerk(page: Page, branch = "Leeds Kirkgate") {
   await page.goto("/login");
+  await page.getByRole("button", { name: "Clerk" }).click();
   await page.getByLabel("Branch").selectOption({ label: branch });
   await page.getByRole("button", { name: "Start counting" }).click();
   await page.waitForURL(/\/count$/);

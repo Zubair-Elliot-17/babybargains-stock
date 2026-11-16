@@ -26,6 +26,7 @@ async function inStockAtLeeds(): Promise<string> {
 
 test("@phone clerk records a sale and sees short lines marked without system quantities", async ({ page }) => {
   await page.goto("/login");
+  await page.getByRole("button", { name: "Clerk" }).click();
   await page.getByLabel("Branch").selectOption({ label: "Leeds Kirkgate" });
   await page.getByRole("button", { name: "Start counting" }).click();
   await page.waitForURL(/\/count$/);

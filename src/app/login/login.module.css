@@ -26,7 +26,7 @@
   align-items: center;
   gap: var(--space-2);
   font-family: var(--font-mono);
-  font-size: var(--text-label);
+  font-size: 12px;
   letter-spacing: 0.06em;
   text-transform: uppercase;
   color: var(--color-ink-muted);
@@ -72,32 +72,65 @@
 .points li::before {
   content: counter(point, decimal-leading-zero);
   font-family: var(--font-mono);
-  font-size: var(--text-label);
+  font-size: 12px;
   color: var(--color-ink-muted);
   padding-top: 4px;
 }
 
 .footnote {
   margin: 0;
-  font-size: var(--text-meta);
+  font-size: 14px;
   color: var(--color-ink-muted);
 }
 
 .panel {
   width: 100%;
-  max-width: 480px;
+  max-width: 520px;
   align-self: center;
   justify-self: center;
   padding: var(--space-12) var(--space-8);
 }
 
-.panel h1 {
-  margin: var(--space-12) 0 var(--space-2);
+.panel h2 {
+  margin: var(--space-6) 0 var(--space-4);
+  font-size: 30px;
+  letter-spacing: -0.03em;
 }
 
 .lede {
-  margin: 0 0 var(--space-8);
+  margin: var(--space-8) 0 var(--space-3);
+  font-size: var(--text-body);
   color: var(--color-ink-muted);
+}
+
+/* Mirrors the batch chip on the hero label so both halves carry the same weight. */
+.session {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  margin: 0;
+  font-size: 14px;
+  color: var(--color-ink-muted);
+}
+
+.session :global(.mono) {
+  padding: 2px 6px;
+  border-radius: 4px;
+  font-size: 12px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--color-ink);
+  background: var(--color-ticket);
+}
+
+.pointsNarrow {
+  display: none;
+}
+
+.pointsNarrow summary {
+  cursor: pointer;
+  font-size: 14px;
+  margin-bottom: var(--space-3);
 }
 
 .choices {
@@ -105,30 +138,40 @@
   gap: var(--space-3);
 }
 
-/* Role card: a hairline rounded block, no icon. */
+/* Role card: the heading's button is stretched over the whole card, so the card is the click target. */
 .choice {
+  position: relative;
   display: grid;
   row-gap: var(--space-1);
   align-items: start;
-  text-align: left;
-  padding: var(--space-4);
+  padding: var(--space-4) var(--space-6);
   border: 1px solid var(--color-hairline);
   border-radius: var(--radius-panel);
   background: var(--color-surface);
   color: var(--color-ink);
-  font: inherit;
-  cursor: pointer;
 }
 
-button.choice:hover,
-button.choice:focus-visible {
+.choice:hover,
+.open {
   background: var(--color-surface-quiet);
   border-color: var(--color-control-border);
 }
 
+.open {
+  border-color: var(--color-ink);
+}
+
+.choice:has(.roleBtn:focus-visible) {
+  outline: 2px solid var(--color-accent);
+  outline-offset: 2px;
+}
+
 @media (prefers-reduced-motion: no-preference) {
-  button.choice {
+  .choice {
     transition: background-color var(--motion), border-color var(--motion);
+  }
+  .arrow {
+    transition: transform var(--motion);
   }
 }
 
@@ -139,9 +182,37 @@ button.choice:focus-visible {
   line-height: 1.2;
 }
 
-button.choice .role::after {
-  content: " →";
+.roleBtn {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  width: 100%;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.roleBtn:focus-visible {
+  outline: none;
+}
+
+.roleBtn::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: var(--radius-panel);
+}
+
+.arrow {
   font-weight: 400;
+}
+
+.arrowOpen {
+  transform: rotate(90deg);
 }
 
 .task {
@@ -149,22 +220,33 @@ button.choice .role::after {
 }
 
 .hint {
-  font-size: var(--text-meta);
+  font-size: 14px;
   color: var(--color-ink-muted);
 }
 
-.clerk {
-  cursor: default;
-}
-
-.clerk label {
-  margin-top: var(--space-2);
-}
-
-.clerkRow {
-  display: flex;
+/* Above the stretched button so the select and CTA stay clickable. */
+.clerkForm {
+  position: relative;
+  z-index: 1;
+  display: grid;
   gap: var(--space-2);
+  margin: var(--space-3) 0 var(--space-2);
 }
+
+.clerkForm[hidden] {
+  display: none;
+}
+
+.clerkForm .select {
+  appearance: none;
+  padding-right: 40px;
+  background: var(--color-surface) url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 16 16' fill='none' stroke='%23171512' stroke-width='1.6' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m4 6 4 4 4-4'/%3E%3C/svg%3E") no-repeat right 14px center;
+}
+
+.clerkForm .btn {
+  justify-content: center;
+}
+
 
 @media (max-width: 899px) {
   .page {
@@ -179,19 +261,26 @@ button.choice .role::after {
   .claim {
     font-size: 44px;
   }
+  .pointsWide {
+    display: none;
+  }
+  .pointsNarrow {
+    display: block;
+  }
   .panel {
     padding: var(--space-6) var(--space-4) var(--space-8);
   }
-  .panel h1 {
-    margin-top: var(--space-8);
+  .lede {
+    margin-top: var(--space-4);
+  }
+  .panel h2 {
+    margin-top: var(--space-4);
+    font-size: 24px;
   }
 }
 
 @media (max-width: 479px) {
   .claim {
     font-size: 36px;
-  }
-  .clerkRow {
-    flex-wrap: wrap;
   }
 }
