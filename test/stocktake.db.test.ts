@@ -340,6 +340,14 @@ describe("found units on a recalled batch", () => {
     expect((await checkLedgerInvariants(t.db)).violations.filter((v) => /after recall/.test(v))).toEqual([]);
   });
 
+  it("invariant 3 still flags a seeded movement after the recall once it is in the past", async () => {
+    const { result } = await recallB1();
+    await cols(t.db).movements.insertOne({
+      branchId: "BR-A", sku: COT, batchId: OLD, type: "SOLD", qty: -1, refType: "sale", refId: "seed-sale-y", attributed: true, actor: "seed", origin: "seed", at: new Date(result.recalledAt.getTime() - 1 + 2),
+    } as never);
+    expect((await checkLedgerInvariants(t.db)).violations.some((v) => /1 movement\(s\) after recall/.test(v))).toBe(true);
+  });
+
   it("invariant 3 still reports stock left on a recalled batch", async () => {
     await recallB1();
     await cols(t.db).inventory.updateOne({ branchId: "BR-A", batchId: OLD }, { $set: { onHand: 1 } });
