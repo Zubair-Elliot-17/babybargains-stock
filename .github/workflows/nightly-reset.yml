@@ -9,7 +9,7 @@ jobs:
     # Off until the Atlas databases exist and the MONGODB_URI secret is set.
     if: ${{ vars.DEMO_DB_READY == 'true' }}
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 30
     strategy:
       fail-fast: false
       matrix:
